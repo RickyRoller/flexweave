@@ -1,32 +1,57 @@
 # Flexweave Studio
 
-Flexweave Studio is the optional authoring surface for Flexweave. It is split
-into a reusable package and a reusable app shell:
+`@flexweave/studio` is the reusable authoring package for Flexweave Studio. It
+loads a consumer-owned Studio project config, validates a Studio catalog,
+plans and scaffolds mechanics, refreshes generated mechanics definitions,
+checks generated freshness, reports runtime hook diagnostics, and exposes
+server-safe workflow functions for local host apps.
 
-- `@flexweave/studio` provides project config contracts, validation,
-  migrations, generated output checks, and workflow APIs.
-- `@flexweave/studio-app` provides the adapter-neutral application shell.
+Flexweave Studio does not own consumer runtime semantics, consumer catalog
+content, generated output directories, runtime hook implementations after stub
+creation, local host app entry points, deployment, or project-specific labels.
+Those belong to the consumer project and are declared through `studio.config.ts`.
 
-This phase contains placeholders so package workspace discovery, typechecking,
-tests, and builds can run before full Studio source lands here.
+## Public Entry Points
 
-## Package Commands
+- `@flexweave/studio/config`
+- `@flexweave/studio/config/load`
+- `@flexweave/studio/workflows`
+- `@flexweave/studio/codegen`
+- `flexweave-studio`
+
+## Command Family
 
 ```bash
-bun run --filter @flexweave/studio typecheck
-bun run --filter @flexweave/studio test
-bun run --filter @flexweave/studio build
+flexweave-studio validate
+flexweave-studio describe
+flexweave-studio list
+flexweave-studio show
+flexweave-studio plan
+flexweave-studio scaffold
+flexweave-studio codegen
+flexweave-studio verify
+flexweave-studio migrate
 ```
 
-## App Commands
+Every project command accepts `--config <path>`. When omitted, Studio discovers
+`studio.config.ts` by walking upward from the current working directory.
+Consumer paths in the config resolve from the directory containing the active
+config file.
+
+## Documentation
+
+- [First Studio workflow](./docs/tutorials/first-workflow.md)
+- [Configure a Studio project](./docs/how-to/configure-project.md)
+- [Run Studio workflows](./docs/how-to/run-workflows.md)
+- [Config reference](./docs/reference/config.md)
+- [CLI reference](./docs/reference/cli.md)
+- [Workflow and codegen reference](./docs/reference/workflows-and-codegen.md)
+- [Runtime hook reference](./docs/reference/runtime-hooks.md)
+- [Product boundaries](./docs/explanation/boundaries.md)
+- [Generated files and upgrades](./docs/explanation/generated-files-and-upgrades.md)
+
+## Verification
 
 ```bash
-bun run --filter @flexweave/studio-app typecheck
-bun run --filter @flexweave/studio-app test
-bun run --filter @flexweave/studio-app build
+bun run --filter @flexweave/studio verify
 ```
-
-## Runtime Contract
-
-Read [Runtime Contract](./docs/runtime-contract.md) for the boundary between
-Studio packages and consumer-owned runtime hooks.

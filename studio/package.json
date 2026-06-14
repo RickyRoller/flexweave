@@ -3,18 +3,35 @@
   "version": "0.0.0",
   "private": true,
   "bin": {
-    "flexweave-studio": "./src/cli/main.ts"
+    "flexweave-studio": "src/cli/main.ts"
   },
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./config": "./src/config.ts",
-    "./workflows": "./src/workflows.ts"
+    "./codegen": {
+      "types": "./src/codegen/types.ts",
+      "default": "./src/codegen/types.ts"
+    },
+    "./config": {
+      "types": "./src/config/schema.ts",
+      "default": "./src/config/schema.ts"
+    },
+    "./config/load": {
+      "types": "./src/config/load.ts",
+      "default": "./src/config/load.ts"
+    },
+    "./workflows": {
+      "types": "./src/workflows.ts",
+      "default": "./src/workflows.ts"
+    }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json --emitDeclarationOnly --outDir dist",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "build": "bun run typecheck && bun run test",
+    "flexweave-studio": "bun src/cli/main.ts",
     "test": "bun test ./tests/*.test.ts",
-    "phase:status": "bun src/cli/main.ts"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify": "bun run build && bun src/cli/main.ts validate --config tests/fixtures/minimal/studio.config.ts && bun src/cli/main.ts codegen --check --config tests/fixtures/minimal/studio.config.ts && bun src/cli/main.ts verify --config tests/fixtures/minimal/studio.config.ts && bun src/cli/main.ts migrate --config tests/fixtures/minimal/studio.config.ts"
+  },
+  "devDependencies": {
+    "bun-types": "^1.3.2"
   }
 }

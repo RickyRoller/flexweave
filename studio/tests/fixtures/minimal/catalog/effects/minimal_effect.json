@@ -1,0 +1,8 @@
+{
+  "kind": "effect",
+  "id": "minimal_effect",
+  "label": "Minimal effect",
+  "executionId": "minimal_execution",
+  "modifierId": "minimal_modifier",
+  "tagIds": ["minimal_tag"]
+}

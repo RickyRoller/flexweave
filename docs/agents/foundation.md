@@ -13,14 +13,14 @@ This document is the fresh-context operating map for Flexweave.
 
 ## Edit Guide
 
-| Change type                  | Start here                                                            |
-| ---------------------------- | --------------------------------------------------------------------- |
-| Rust primitive crate         | `core/src`, `core/tests`, `core/README.md`, `core/CONTEXT.md`         |
-| Studio package contracts     | `studio/src`, `studio/tests`, `studio/README.md`, `studio/CONTEXT.md` |
-| Studio runtime contract docs | `studio/docs/runtime-contract.md`                                     |
-| Studio app shell             | `studio/app/src`, `studio/app/tests`                                  |
-| Repository verification      | `package.json`, `scripts`, `Cargo.toml`                               |
-| Product documentation        | `README.md`, `docs`                                                   |
+| Change type              | Start here                                                            |
+| ------------------------ | --------------------------------------------------------------------- |
+| Rust primitive crate     | `core/src`, `core/tests`, `core/README.md`, `core/CONTEXT.md`         |
+| Studio package contracts | `studio/src`, `studio/tests`, `studio/README.md`, `studio/CONTEXT.md` |
+| Studio runtime hook docs | `studio/docs/reference/runtime-hooks.md`                              |
+| Studio app shell         | `studio/app/src`, `studio/app/tests`                                  |
+| Repository verification  | `package.json`, `scripts`, `Cargo.toml`                               |
+| Product documentation    | `README.md`, `docs`                                                   |
 
 ## Verification
 

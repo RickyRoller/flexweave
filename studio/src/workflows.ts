@@ -1,6 +1,991 @@
-const reservedStudioWorkflows = ["validate", "migrate", "verify"] as const;
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
 
-export type StudioWorkflowName = (typeof reservedStudioWorkflows)[number];
+import { isStudioCodegenTarget, studioCodegenTargets } from "./codegen/types";
+import type {
+  RuntimeHookSummary,
+  StudioCodegenTarget,
+  StudioCodegenTargetSummary,
+  StudioGeneratedFileDiff,
+} from "./codegen/types";
+import { loadStudioConfig } from "./config/load";
+import type { LoadStudioConfigOptions } from "./config/load";
+import type { ResolvedStudioProjectConfig, StudioDiagnostic } from "./config/schema";
+import {
+  normalizeRecordKind,
+  readStudioCatalog,
+  studioRecordKinds,
+  writeJsonRecord,
+} from "./internal/catalog";
+import type { StudioCatalogRecord, StudioRecordKind } from "./internal/catalog";
+import {
+  displayPath,
+  listFilesRecursive,
+  readTextIfExists,
+  restoreSnapshots,
+  snapshotPaths,
+  writeTextFile,
+} from "./internal/files";
 
-export const listReservedStudioWorkflows = (): readonly StudioWorkflowName[] =>
-  reservedStudioWorkflows;
+export interface StudioWorkflowOptions {
+  config?: ResolvedStudioProjectConfig;
+  configPath?: string;
+  cwd?: string;
+}
+
+export interface StudioWorkflowResult {
+  diagnostics: StudioDiagnostic[];
+  ok: boolean;
+}
+
+export interface ValidateStudioCatalogResult extends StudioWorkflowResult {
+  configPath?: string;
+  recordCount: number;
+}
+
+export interface StudioRecordDescription {
+  fields: string[];
+  kind: StudioRecordKind;
+  summary: string;
+}
+
+export interface DescribeStudioCatalogResult extends StudioWorkflowResult {
+  descriptions: StudioRecordDescription[];
+}
+
+export interface ListStudioCatalogRecordsResult extends StudioWorkflowResult {
+  kind: StudioRecordKind;
+  records: { id: string; label: string; path: string }[];
+}
+
+export interface ShowStudioCatalogRecordResult extends StudioWorkflowResult {
+  record?: StudioCatalogRecord & { path: string };
+}
+
+export interface CodegenStudioResult extends StudioWorkflowResult {
+  checked: boolean;
+  configPath?: string;
+  hooks: RuntimeHookSummary[];
+  targets: StudioCodegenTargetSummary[];
+}
+
+export interface PlanStudioMechanicOptions extends StudioWorkflowOptions {
+  allowExisting?: boolean;
+  archetype: string;
+  id: string;
+  name: string;
+  params?: Record<string, unknown>;
+}
+
+export interface PlanStudioMechanicResult extends StudioWorkflowResult {
+  plannedFiles: string[];
+  records: StudioCatalogRecord[];
+}
+
+export interface ScaffoldStudioMechanicResult extends PlanStudioMechanicResult {
+  rolledBack: boolean;
+  writtenFiles: string[];
+}
+
+export interface StudioVerifyCommandResult {
+  command: string[];
+  exitCode: number | null;
+  fast: boolean;
+  name: string;
+  stderr: string;
+  stdout: string;
+}
+
+export interface VerifyStudioProjectResult extends StudioWorkflowResult {
+  codegen: CodegenStudioResult;
+  commands: StudioVerifyCommandResult[];
+  validation: ValidateStudioCatalogResult;
+}
+
+export interface MigrateStudioProjectResult extends StudioWorkflowResult {
+  applied: string[];
+  skipped: string[];
+}
+
+const schemaDescriptions: StudioRecordDescription[] = [
+  {
+    fields: ["kind", "id", "label", "effectId"],
+    kind: "abilities",
+    summary: "Ability records name callable mechanics and may reference effects.",
+  },
+  {
+    fields: ["kind", "id", "label", "executionId", "modifierId", "tagIds"],
+    kind: "effects",
+    summary: "Effect records connect generated definitions to executions and tags.",
+  },
+  {
+    fields: ["kind", "id", "label", "hook"],
+    kind: "executions",
+    summary: "Execution records name runtime hooks declared by the consumer runtime.",
+  },
+  {
+    fields: ["kind", "id", "label", "recordIds"],
+    kind: "mechanics",
+    summary: "Mechanic manifests record files created by Studio scaffolding.",
+  },
+  {
+    fields: ["kind", "id", "label", "value"],
+    kind: "modifiers",
+    summary: "Modifier records provide reusable generated definition data.",
+  },
+  {
+    fields: ["kind", "id", "label"],
+    kind: "tags",
+    summary: "Tag records provide stable grouping tokens for generated definitions.",
+  },
+];
+
+const workflowError = (
+  code: string,
+  message: string,
+  path?: string,
+  hint?: string,
+): StudioDiagnostic => ({
+  code,
+  hint,
+  message,
+  path,
+  severity: "error",
+});
+
+const workflowWarning = (code: string, message: string, path?: string): StudioDiagnostic => ({
+  code,
+  message,
+  path,
+  severity: "warning",
+});
+
+const resolveWorkflowConfig = async (
+  options: StudioWorkflowOptions,
+): Promise<
+  | { config: ResolvedStudioProjectConfig; diagnostics: StudioDiagnostic[]; ok: true }
+  | { diagnostics: StudioDiagnostic[]; ok: false }
+> => {
+  if (options.config) {
+    return { config: options.config, diagnostics: [], ok: true };
+  }
+
+  const loaded = await loadStudioConfig({
+    configPath: options.configPath,
+    cwd: options.cwd,
+  } satisfies LoadStudioConfigOptions);
+  if (!loaded.ok || !loaded.config) {
+    return { diagnostics: loaded.diagnostics, ok: false };
+  }
+
+  return { config: loaded.config, diagnostics: loaded.diagnostics, ok: true };
+};
+
+const fullConfigRequired = (config: ResolvedStudioProjectConfig): StudioDiagnostic[] =>
+  config.mode === "full"
+    ? []
+    : [
+        workflowError(
+          "full-config-required",
+          "This Studio workflow requires a full Studio project config.",
+          config.configPath,
+        ),
+      ];
+
+export const validateStudioCatalog = async (
+  options: StudioWorkflowOptions = {},
+): Promise<ValidateStudioCatalogResult> => {
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    return { diagnostics: resolved.diagnostics, ok: false, recordCount: 0 };
+  }
+
+  const catalog = readStudioCatalog(resolved.config);
+  return {
+    configPath: resolved.config.configPath,
+    diagnostics: catalog.diagnostics,
+    ok: catalog.diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
+    recordCount: catalog.records.length,
+  };
+};
+
+export const describeStudioCatalog = async (
+  kind: string | undefined,
+  options: StudioWorkflowOptions = {},
+): Promise<DescribeStudioCatalogResult> => {
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    return { descriptions: [], diagnostics: resolved.diagnostics, ok: false };
+  }
+
+  if (!kind) {
+    return { descriptions: schemaDescriptions, diagnostics: [], ok: true };
+  }
+
+  const normalized = normalizeRecordKind(kind);
+  if (!normalized) {
+    return {
+      descriptions: [],
+      diagnostics: [
+        workflowError(
+          "unknown-record-kind",
+          `Unknown Studio catalog record kind "${kind}".`,
+          undefined,
+          `Expected one of: ${studioRecordKinds.join(", ")}.`,
+        ),
+      ],
+      ok: false,
+    };
+  }
+
+  return {
+    descriptions: schemaDescriptions.filter((description) => description.kind === normalized),
+    diagnostics: [],
+    ok: true,
+  };
+};
+
+export const listStudioCatalogRecords = async (
+  kind: string,
+  options: StudioWorkflowOptions & { filter?: string } = {},
+): Promise<ListStudioCatalogRecordsResult> => {
+  const normalized = normalizeRecordKind(kind);
+  if (!normalized) {
+    return {
+      diagnostics: [
+        workflowError(
+          "unknown-record-kind",
+          `Unknown Studio catalog record kind "${kind}".`,
+          undefined,
+          `Expected one of: ${studioRecordKinds.join(", ")}.`,
+        ),
+      ],
+      kind: "abilities",
+      ok: false,
+      records: [],
+    };
+  }
+
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    return { diagnostics: resolved.diagnostics, kind: normalized, ok: false, records: [] };
+  }
+
+  const catalog = readStudioCatalog(resolved.config);
+  const filter = options.filter?.toLowerCase();
+  const records = catalog.byKind[normalized]
+    .filter(
+      (record) =>
+        !filter ||
+        record.id.toLowerCase().includes(filter) ||
+        record.label.toLowerCase().includes(filter),
+    )
+    .map((record) => ({
+      id: record.id,
+      label: record.label,
+      path: record.path,
+    }));
+
+  return {
+    diagnostics: catalog.diagnostics,
+    kind: normalized,
+    ok: catalog.diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
+    records,
+  };
+};
+
+export const showStudioCatalogRecord = async (
+  kind: string,
+  id: string,
+  options: StudioWorkflowOptions = {},
+): Promise<ShowStudioCatalogRecordResult> => {
+  const normalized = normalizeRecordKind(kind);
+  if (!normalized) {
+    return {
+      diagnostics: [
+        workflowError("unknown-record-kind", `Unknown Studio catalog record kind "${kind}".`),
+      ],
+      ok: false,
+    };
+  }
+
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    return { diagnostics: resolved.diagnostics, ok: false };
+  }
+
+  const catalog = readStudioCatalog(resolved.config);
+  const record = catalog.byKind[normalized].find((candidate) => candidate.id === id);
+  if (!record) {
+    return {
+      diagnostics: [
+        workflowError(
+          "missing-record",
+          `No ${normalized} record with id "${id}" exists in the Studio catalog.`,
+        ),
+      ],
+      ok: false,
+    };
+  }
+
+  return { diagnostics: catalog.diagnostics, ok: true, record };
+};
+
+const rustIdentifier = (value: string) =>
+  value
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9_]+/g, "_")
+    .replace(/^([0-9])/, "_$1")
+    .replaceAll(/_+/g, "_")
+    .replaceAll(/^_|_$/g, "");
+
+const generatedHeader = (target: StudioCodegenTarget) =>
+  `//! Generated by Flexweave Studio for ${target}.\n//! Do not edit manually. Run \`flexweave-studio codegen --target ${target}\` to refresh.\n\n`;
+
+const renderRustDefinitions = (
+  target: Exclude<StudioCodegenTarget, "reference">,
+  records: { id: string; label: string }[],
+) => {
+  const entries =
+    records.length === 0
+      ? "pub const DEFINITIONS: &[(&str, &str)] = &[];\n"
+      : [
+          "pub const DEFINITIONS: &[(&str, &str)] = &[",
+          ...records.map(
+            (record) => `    ("${record.id}", "${record.label.replaceAll('"', '\\"')}"),`,
+          ),
+          "];",
+          "",
+        ].join("\n");
+
+  return `${generatedHeader(target)}${entries}`;
+};
+
+const renderReference = (
+  config: ResolvedStudioProjectConfig,
+  catalog: ReturnType<typeof readStudioCatalog>,
+) => {
+  const sections = studioRecordKinds.flatMap((kind) => [
+    `## ${kind}`,
+    "",
+    ...(catalog.byKind[kind].length === 0
+      ? ["- No records."]
+      : catalog.byKind[kind].map((record) => `- ${record.id}: ${record.label}`)),
+    "",
+  ]);
+
+  return [
+    "<!-- Generated by Flexweave Studio. Do not edit manually. -->",
+    "",
+    "# Studio Catalog Reference",
+    "",
+    `Config: ${displayPath(config.configDir, config.configPath)}`,
+    "",
+    ...sections,
+  ].join("\n");
+};
+
+interface PlannedGeneratedFile {
+  path: string;
+  target: StudioCodegenTarget;
+  value: string;
+}
+
+const plannedGeneratedFiles = (
+  config: ResolvedStudioProjectConfig,
+  catalog: ReturnType<typeof readStudioCatalog>,
+  targets: StudioCodegenTarget[],
+): PlannedGeneratedFile[] =>
+  targets.map((target) => {
+    const outputDir = config.paths.codegen.outputDirs[target];
+    const path =
+      target === "reference"
+        ? join(outputDir, "studio-reference.md")
+        : join(outputDir, "generated.rs");
+    const value =
+      target === "reference"
+        ? renderReference(config, catalog)
+        : renderRustDefinitions(target, catalog.byKind[target]);
+    return { path, target, value };
+  });
+
+const managedFileHeader = "Generated by Flexweave Studio";
+
+const detectUnexpectedManagedFiles = (
+  config: ResolvedStudioProjectConfig,
+  expected: PlannedGeneratedFile[],
+  targets: StudioCodegenTarget[],
+): StudioGeneratedFileDiff[] => {
+  const expectedPaths = new Set(expected.map((file) => file.path));
+  const diffs: StudioGeneratedFileDiff[] = [];
+
+  for (const target of targets) {
+    const outputDir = config.paths.codegen.outputDirs[target];
+    for (const path of listFilesRecursive(outputDir)) {
+      if (expectedPaths.has(path)) {
+        continue;
+      }
+      const value = readTextIfExists(path);
+      if (value?.includes(managedFileHeader)) {
+        diffs.push({ path, status: "unexpected", target });
+      }
+    }
+  }
+
+  return diffs;
+};
+
+const summarizeGeneratedFiles = (
+  config: ResolvedStudioProjectConfig,
+  expected: PlannedGeneratedFile[],
+  targets: StudioCodegenTarget[],
+): StudioGeneratedFileDiff[] => {
+  const diffs = expected.map((file): StudioGeneratedFileDiff => {
+    const current = readTextIfExists(file.path);
+    if (current === undefined) {
+      return { path: file.path, status: "missing", target: file.target };
+    }
+    if (current !== file.value) {
+      return { path: file.path, status: "stale", target: file.target };
+    }
+    return { path: file.path, status: "fresh", target: file.target };
+  });
+
+  return [...diffs, ...detectUnexpectedManagedFiles(config, expected, targets)];
+};
+
+const hookFileName = (hook: string) => `${rustIdentifier(hook)}.rs`;
+
+const hookStub = (hook: string) =>
+  `//! Runtime hook stub created by Flexweave Studio. Consumer-owned after creation.\n\npub fn ${rustIdentifier(hook)}() {}\n`;
+
+const hookTestStub = (hook: string) =>
+  `//! Runtime hook test stub created by Flexweave Studio.\n\n#[test]\nfn ${rustIdentifier(hook)}_is_declared() {\n    assert!(true);\n}\n`;
+
+const runtimeHookStatus = (exists: boolean, write: boolean) => {
+  if (exists) {
+    return "existing";
+  }
+  return write ? "created" : "missing";
+};
+
+const summarizeHooks = (
+  config: ResolvedStudioProjectConfig,
+  catalog: ReturnType<typeof readStudioCatalog>,
+  options: { write: boolean },
+): RuntimeHookSummary[] => {
+  const hookDir = config.paths.hooks.dir;
+  if (!hookDir) {
+    return [];
+  }
+
+  if (options.write) {
+    mkdirSync(hookDir, { recursive: true });
+  }
+  if (options.write && config.paths.hooks.testStubsDir) {
+    mkdirSync(config.paths.hooks.testStubsDir, { recursive: true });
+  }
+
+  const expectedHooks = new Set(
+    catalog.byKind.executions
+      .map((record) => record.hook)
+      .filter((hook): hook is string => typeof hook === "string" && hook.length > 0),
+  );
+  const summaries: RuntimeHookSummary[] = [];
+
+  for (const hook of [...expectedHooks].toSorted()) {
+    const path = join(hookDir, hookFileName(hook));
+    const exists = existsSync(path);
+    if (!exists && options.write) {
+      writeTextFile(path, hookStub(hook));
+    }
+    summaries.push({
+      hook,
+      path,
+      status: runtimeHookStatus(exists, options.write),
+    });
+
+    if (config.paths.hooks.testStubsDir) {
+      const testPath = join(config.paths.hooks.testStubsDir, hookFileName(hook));
+      if (existsSync(testPath)) {
+        summaries.push({ hook, path: testPath, status: "existing" });
+      } else if (options.write) {
+        writeTextFile(testPath, hookTestStub(hook));
+        summaries.push({ hook, path: testPath, status: "created" });
+      } else {
+        summaries.push({ hook, path: testPath, status: "missing" });
+      }
+    }
+  }
+
+  for (const path of listFilesRecursive(hookDir)) {
+    if (!path.endsWith(".rs")) {
+      continue;
+    }
+    const hook = path.split("/").at(-1)?.replace(/\.rs$/, "") ?? "";
+    if (!expectedHooks.has(hook)) {
+      summaries.push({ hook, path, status: "orphan" });
+    }
+  }
+
+  return summaries.toSorted((left, right) => left.path.localeCompare(right.path));
+};
+
+const selectTargets = (
+  requestedTargets?: readonly string[],
+): { diagnostics: StudioDiagnostic[]; targets: StudioCodegenTarget[] } => {
+  if (!requestedTargets || requestedTargets.length === 0) {
+    return { diagnostics: [], targets: [...studioCodegenTargets] };
+  }
+
+  const diagnostics: StudioDiagnostic[] = [];
+  const targets: StudioCodegenTarget[] = [];
+  for (const target of requestedTargets) {
+    if (!isStudioCodegenTarget(target)) {
+      diagnostics.push(
+        workflowError(
+          "unknown-codegen-target",
+          `Unknown Studio generated output target "${target}".`,
+          undefined,
+          `Expected one of: ${studioCodegenTargets.join(", ")}.`,
+        ),
+      );
+    } else if (!targets.includes(target)) {
+      targets.push(target);
+    }
+  }
+  return { diagnostics, targets };
+};
+
+const generatedWriteStatus = (before: string | undefined, value: string) => {
+  if (before === undefined) {
+    return "created";
+  }
+  return before === value ? "fresh" : "updated";
+};
+
+export const codegenStudioProject = async (
+  options: StudioWorkflowOptions & {
+    check?: boolean;
+    targets?: readonly string[];
+  } = {},
+): Promise<CodegenStudioResult> => {
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    return {
+      checked: options.check === true,
+      diagnostics: resolved.diagnostics,
+      hooks: [],
+      ok: false,
+      targets: [],
+    };
+  }
+
+  const fullConfigDiagnostics = fullConfigRequired(resolved.config);
+  const selected = selectTargets(options.targets);
+  if (fullConfigDiagnostics.length > 0 || selected.diagnostics.length > 0) {
+    return {
+      checked: options.check === true,
+      configPath: resolved.config.configPath,
+      diagnostics: [...fullConfigDiagnostics, ...selected.diagnostics],
+      hooks: [],
+      ok: false,
+      targets: [],
+    };
+  }
+
+  const catalog = readStudioCatalog(resolved.config);
+  if (catalog.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return {
+      checked: options.check === true,
+      configPath: resolved.config.configPath,
+      diagnostics: catalog.diagnostics,
+      hooks: [],
+      ok: false,
+      targets: [],
+    };
+  }
+
+  const expected = plannedGeneratedFiles(resolved.config, catalog, selected.targets);
+  const diffs = summarizeGeneratedFiles(resolved.config, expected, selected.targets);
+  const hooks = summarizeHooks(resolved.config, catalog, {
+    write: options.check !== true,
+  });
+  let finalDiffs = diffs;
+
+  if (options.check !== true) {
+    const snapshots = snapshotPaths(expected.map((file) => file.path));
+    try {
+      for (const file of expected) {
+        const before = readTextIfExists(file.path);
+        writeTextFile(file.path, file.value);
+        const status = generatedWriteStatus(before, file.value);
+        finalDiffs = finalDiffs.map((diff) =>
+          diff.path === file.path ? { ...diff, status } : diff,
+        );
+      }
+
+      for (const diff of diffs.filter((candidate) => candidate.status === "unexpected")) {
+        if (existsSync(diff.path)) {
+          snapshots.push(...snapshotPaths([diff.path]));
+          rmSync(diff.path);
+          finalDiffs = finalDiffs.map((candidate) =>
+            candidate.path === diff.path ? { ...candidate, status: "deleted" } : candidate,
+          );
+        }
+      }
+    } catch (error) {
+      restoreSnapshots(snapshots);
+      return {
+        checked: false,
+        configPath: resolved.config.configPath,
+        diagnostics: [
+          workflowError(
+            "codegen-write-failed",
+            error instanceof Error
+              ? `Failed to write generated mechanics definitions: ${error.message}`
+              : "Failed to write generated mechanics definitions.",
+          ),
+        ],
+        hooks,
+        ok: false,
+        targets: [],
+      };
+    }
+  }
+
+  const staleDiagnostics =
+    options.check === true
+      ? diffs
+          .filter((diff) => diff.status !== "fresh")
+          .map((diff) =>
+            workflowError(
+              `generated-${diff.status}`,
+              `Generated mechanics definition is ${diff.status}: ${displayPath(resolved.config.configDir, diff.path)}`,
+              displayPath(resolved.config.configDir, diff.path),
+            ),
+          )
+      : [];
+  const hookDiagnostics = hooks
+    .filter((hook) => hook.status === "orphan")
+    .map((hook) =>
+      workflowWarning(
+        "orphan-runtime-hook",
+        `Runtime hook file is not referenced by the Studio catalog: ${displayPath(resolved.config.configDir, hook.path)}`,
+        displayPath(resolved.config.configDir, hook.path),
+      ),
+    );
+
+  const targetSummaries = selected.targets.map(
+    (target): StudioCodegenTargetSummary => ({
+      files: finalDiffs.filter((diff) => diff.target === target),
+      label:
+        target === "reference" ? "Generated catalog reference" : `Generated ${target} definitions`,
+      target,
+    }),
+  );
+
+  const diagnostics = [...staleDiagnostics, ...hookDiagnostics];
+  return {
+    checked: options.check === true,
+    configPath: resolved.config.configPath,
+    diagnostics,
+    hooks,
+    ok: diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
+    targets: targetSummaries,
+  };
+};
+
+const mechanicRecords = (
+  id: string,
+  label: string,
+  params: Record<string, unknown> = {},
+): StudioCatalogRecord[] => {
+  const broken = params.broken === true;
+  return [
+    { id, kind: "tag", label: `${label} tag` },
+    { id, kind: "modifier", label: `${label} modifier`, value: 1 },
+    {
+      hook: `${id}_runtime_hook`,
+      id,
+      kind: "execution",
+      label: `${label} execution`,
+    },
+    {
+      executionId: id,
+      id,
+      kind: "effect",
+      label: `${label} effect`,
+      modifierId: id,
+      tagIds: [id],
+    },
+    {
+      effectId: broken ? `${id}_missing_effect` : id,
+      id,
+      kind: "ability",
+      label: `${label} ability`,
+    },
+    {
+      id,
+      kind: "mechanic",
+      label,
+      recordIds: [
+        `tag:${id}`,
+        `modifier:${id}`,
+        `execution:${id}`,
+        `effect:${id}`,
+        `ability:${id}`,
+      ],
+    },
+  ];
+};
+
+const kindForRecord = (record: StudioCatalogRecord): StudioRecordKind => {
+  const kind = normalizeRecordKind(record.kind);
+  if (!kind) {
+    throw new Error(`Unsupported Studio catalog record kind ${record.kind}.`);
+  }
+  return kind;
+};
+
+export const planStudioMechanic = async (
+  options: PlanStudioMechanicOptions,
+): Promise<PlanStudioMechanicResult> => {
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    return { diagnostics: resolved.diagnostics, ok: false, plannedFiles: [], records: [] };
+  }
+
+  if (options.archetype !== "mechanic") {
+    return {
+      diagnostics: [
+        workflowError(
+          "unknown-mechanic-archetype",
+          `Unknown Studio mechanic archetype "${options.archetype}".`,
+          undefined,
+          'Use "mechanic" for the built-in synthetic archetype.',
+        ),
+      ],
+      ok: false,
+      plannedFiles: [],
+      records: [],
+    };
+  }
+
+  const records = mechanicRecords(options.id, options.name, options.params);
+  const plannedFiles = records.map((record) =>
+    join(resolved.config.paths.catalogRoot, kindForRecord(record), `${record.id}.json`),
+  );
+  const diagnostics =
+    options.allowExisting === true
+      ? []
+      : plannedFiles
+          .filter((path) => existsSync(path))
+          .map((path) =>
+            workflowError(
+              "planned-file-exists",
+              `Planned Studio catalog file already exists: ${displayPath(resolved.config.configDir, path)}`,
+              displayPath(resolved.config.configDir, path),
+            ),
+          );
+
+  return {
+    diagnostics,
+    ok: diagnostics.length === 0,
+    plannedFiles: plannedFiles.map((path) => displayPath(resolved.config.configDir, path)),
+    records,
+  };
+};
+
+export const scaffoldStudioMechanic = async (
+  options: PlanStudioMechanicOptions,
+): Promise<ScaffoldStudioMechanicResult> => {
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    return {
+      diagnostics: resolved.diagnostics,
+      ok: false,
+      plannedFiles: [],
+      records: [],
+      rolledBack: false,
+      writtenFiles: [],
+    };
+  }
+
+  const planned = await planStudioMechanic({ ...options, config: resolved.config });
+  if (!planned.ok) {
+    return { ...planned, rolledBack: false, writtenFiles: [] };
+  }
+
+  const absolutePlannedFiles = planned.records.map((record) =>
+    join(resolved.config.paths.catalogRoot, kindForRecord(record), `${record.id}.json`),
+  );
+  const snapshots = snapshotPaths(absolutePlannedFiles);
+  const writtenFiles: string[] = [];
+
+  try {
+    for (const record of planned.records) {
+      const path = writeJsonRecord(
+        resolved.config.paths.catalogRoot,
+        kindForRecord(record),
+        record,
+      );
+      writtenFiles.push(displayPath(resolved.config.configDir, path));
+    }
+
+    const validation = await validateStudioCatalog({ config: resolved.config });
+    if (!validation.ok) {
+      restoreSnapshots(snapshots);
+      return {
+        diagnostics: validation.diagnostics,
+        ok: false,
+        plannedFiles: planned.plannedFiles,
+        records: planned.records,
+        rolledBack: true,
+        writtenFiles,
+      };
+    }
+
+    const codegen = await codegenStudioProject({
+      config: resolved.config,
+      targets: ["executions"],
+    });
+    return {
+      diagnostics: codegen.diagnostics,
+      ok: codegen.ok,
+      plannedFiles: planned.plannedFiles,
+      records: planned.records,
+      rolledBack: false,
+      writtenFiles: [
+        ...writtenFiles,
+        ...codegen.hooks
+          .filter((hook) => hook.status === "created")
+          .map((hook) => displayPath(resolved.config.configDir, hook.path)),
+      ],
+    };
+  } catch (error) {
+    restoreSnapshots(snapshots);
+    return {
+      diagnostics: [
+        workflowError(
+          "scaffold-failed",
+          error instanceof Error
+            ? `Failed to scaffold Studio mechanic: ${error.message}`
+            : "Failed to scaffold Studio mechanic.",
+        ),
+      ],
+      ok: false,
+      plannedFiles: planned.plannedFiles,
+      records: planned.records,
+      rolledBack: true,
+      writtenFiles,
+    };
+  }
+};
+
+export const verifyStudioProject = async (
+  options: StudioWorkflowOptions & { fast?: boolean } = {},
+): Promise<VerifyStudioProjectResult> => {
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    const emptyValidation: ValidateStudioCatalogResult = {
+      diagnostics: resolved.diagnostics,
+      ok: false,
+      recordCount: 0,
+    };
+    const emptyCodegen: CodegenStudioResult = {
+      checked: true,
+      diagnostics: resolved.diagnostics,
+      hooks: [],
+      ok: false,
+      targets: [],
+    };
+    return {
+      codegen: emptyCodegen,
+      commands: [],
+      diagnostics: resolved.diagnostics,
+      ok: false,
+      validation: emptyValidation,
+    };
+  }
+
+  const validation = await validateStudioCatalog({ config: resolved.config });
+  const codegen = await codegenStudioProject({ check: true, config: resolved.config });
+  const commandConfigs = options.fast
+    ? resolved.config.verify.commands.filter((command) => command.fast)
+    : resolved.config.verify.commands;
+  const commands: StudioVerifyCommandResult[] = [];
+
+  for (const commandConfig of commandConfigs) {
+    const proc = Bun.spawn(commandConfig.command, {
+      cwd: resolved.config.configDir,
+      stderr: "pipe",
+      stdout: "pipe",
+    });
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    commands.push({
+      command: commandConfig.command,
+      exitCode,
+      fast: commandConfig.fast,
+      name: commandConfig.name,
+      stderr,
+      stdout,
+    });
+  }
+
+  const commandDiagnostics = commands
+    .filter((command) => command.exitCode !== 0)
+    .map((command) =>
+      workflowError(
+        "verify-command-failed",
+        `Studio verify command failed: ${command.name}.`,
+        undefined,
+        command.command.join(" "),
+      ),
+    );
+  const diagnostics = [...validation.diagnostics, ...codegen.diagnostics, ...commandDiagnostics];
+
+  return {
+    codegen,
+    commands,
+    diagnostics,
+    ok:
+      validation.ok &&
+      codegen.ok &&
+      commands.every((command) => command.exitCode === 0) &&
+      diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
+    validation,
+  };
+};
+
+export const migrateStudioProject = async (
+  options: StudioWorkflowOptions = {},
+): Promise<MigrateStudioProjectResult> => {
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    return { applied: [], diagnostics: resolved.diagnostics, ok: false, skipped: [] };
+  }
+
+  return {
+    applied: [],
+    diagnostics: [],
+    ok: true,
+    skipped: ["No Studio migrations are registered."],
+  };
+};
+
+export const studioWorkflowNames = [
+  "validate",
+  "describe",
+  "list",
+  "show",
+  "plan",
+  "scaffold",
+  "codegen",
+  "verify",
+  "migrate",
+] as const;

@@ -1,0 +1,6 @@
+{
+  "kind": "ability",
+  "id": "minimal_ability",
+  "label": "Minimal ability",
+  "effectId": "minimal_effect"
+}
