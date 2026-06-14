@@ -11,13 +11,20 @@
     "build:core": "cargo build -p flexweave",
     "build:studio": "bun run --filter @flexweave/studio build && bun run --filter @flexweave/studio-app build",
     "check": "ultracite check && bun run check:structure && bun run check:terms && bun run check:core && bun run check:studio",
-    "check:core": "cargo fmt --all -- --check && cargo clippy -p flexweave --all-targets -- -D warnings",
+    "check:core": "bun run check:core:fmt && bun run check:core:lint && bun run check:core:terms",
+    "check:core:fmt": "cargo fmt -p flexweave -- --check",
+    "check:core:lint": "cargo clippy -p flexweave --all-targets -- -D warnings",
+    "check:core:terms": "bun scripts/verify-retired-terms.ts core",
+    "check:structure": "bun scripts/verify-structure.ts",
     "check:studio": "bun run --filter @flexweave/studio typecheck && bun run --filter @flexweave/studio-app typecheck",
+    "check:terms": "bun scripts/verify-retired-terms.ts",
+    "docs:core": "cargo doc -p flexweave --no-deps",
     "fix": "ultracite fix",
     "test": "bun run test:core && bun run test:studio",
     "test:core": "cargo test -p flexweave",
     "test:studio": "bun run --filter @flexweave/studio test && bun run --filter @flexweave/studio-app test",
-    "verify": "bun run check && bun run test && bun run build && cargo doc -p flexweave --no-deps"
+    "verify": "bun run check && bun run test && bun run build && bun run docs:core",
+    "verify:core": "bun run check:core && bun run test:core && bun run build:core && bun run docs:core"
   },
   "devDependencies": {
     "oxfmt": "^0.46.0",

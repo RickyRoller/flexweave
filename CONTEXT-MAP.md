@@ -1,4 +1,4 @@
-# Context Map
+# Context Index
 
 Flexweave uses a small set of product contexts. Read this file first, then read
 only the context files that match the area you are touching.

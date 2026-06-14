@@ -30,4 +30,4 @@ repository documentation, and verification guards.
 
 ## Guardrails
 
-The phase-one skeleton does not include a directory named `examples`.
+No product surface includes a directory named `examples`.

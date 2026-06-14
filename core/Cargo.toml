@@ -1,10 +1,12 @@
 [package]
 name = "flexweave"
-version = "0.0.0"
 edition.workspace = true
+license.workspace = true
 rust-version.workspace = true
-description = "Domain-agnostic mechanics primitives for consumer runtimes."
+version.workspace = true
 
 [lib]
 path = "src/lib.rs"
 
+[dev-dependencies]
+proptest.workspace = true

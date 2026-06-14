@@ -11,10 +11,6 @@ and the Studio authoring surface.
 | Flexweave Studio package | `studio`     | TypeScript package for catalog contracts, validation, migrations, generated output checks, and authoring workflows. |
 | Flexweave Studio app     | `studio/app` | Reusable application shell imported by project-local Studio host apps.                                              |
 
-This phase establishes the repository skeleton. Later phases replace placeholder
-source files with complete Core and Studio implementations without changing the
-top-level paths.
-
 ## Local Host App Model
 
 Consumer projects run Studio through a small local host app backed by versioned
@@ -35,11 +31,11 @@ bun run flexweave-studio verify
 
 | Command          | Purpose                                                              |
 | ---------------- | -------------------------------------------------------------------- |
-| `bun run build`  | Build available Core and Studio placeholder surfaces.                |
+| `bun run build`  | Build Core and available Studio surfaces.                            |
 | `bun run check`  | Run read-only format, structure, term-scan, Core, and Studio checks. |
 | `bun run fix`    | Format supported files.                                              |
-| `bun run test`   | Run Core and Studio placeholder tests.                               |
-| `bun run verify` | Run the full phase-one verification gate.                            |
+| `bun run test`   | Run Core and Studio tests.                                           |
+| `bun run verify` | Run the full workspace verification gate.                            |
 
 ## Documentation
 

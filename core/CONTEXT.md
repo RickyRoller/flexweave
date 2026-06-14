@@ -30,6 +30,17 @@ channel.
 An attribute value calculated from caller-owned runtime state rather than
 stored as source data.
 
+**Attribute change**:
+A reported transition from a previous attribute value to a current value.
+
+**Tag**:
+A caller-defined label attached to an object for deterministic grouping and
+selection.
+
+**Ability lifecycle**:
+The domain-neutral sequence of ability grant, activation attempt, activation
+decision, commit, cooldown, cancellation, and completion.
+
 **Clock unit**:
 A caller-defined mechanics time unit used to advance cooldowns, effect
 lifetimes, periodic effects, and other lifecycle primitives.
@@ -41,6 +52,10 @@ advancement, removal, and expiration facts.
 **Active effect instance**:
 Runtime effect state attached to an object for a finite or indefinite lifetime.
 
+**Signal**:
+A lifecycle fact exported through a caller-selected retention and projection
+policy.
+
 **Query**:
 A deterministic selection over live object ids using caller-owned predicates and
 required data checks.
@@ -48,6 +63,10 @@ required data checks.
 **Primitive error**:
 An explicit Flexweave failure condition such as invalid object id or missing
 required data.
+
+**Determinism**:
+The guarantee that identical primitive inputs produce repeatable object ids,
+iteration order, query order, lifecycle facts, and primitive results.
 
 ## Relationships
 
@@ -57,3 +76,5 @@ required data.
 - A data store attaches one typed value to an object id.
 - Clock units are opaque to Core.
 - Query results preserve deterministic object iteration order.
+- Abilities, effects, and signals define lifecycle shape while caller code owns
+  product meaning at the boundary.
