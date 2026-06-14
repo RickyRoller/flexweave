@@ -1,0 +1,20 @@
+{
+  "name": "@flexweave/studio",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "flexweave-studio": "./src/cli/main.ts"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./config": "./src/config.ts",
+    "./workflows": "./src/workflows.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --emitDeclarationOnly --outDir dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test ./tests/*.test.ts",
+    "phase:status": "bun src/cli/main.ts"
+  }
+}

@@ -1,0 +1,10 @@
+[package]
+name = "flexweave"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Domain-agnostic mechanics primitives for consumer runtimes."
+
+[lib]
+path = "src/lib.rs"
+

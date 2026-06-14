@@ -1,0 +1,18 @@
+{
+  "name": "@flexweave/studio-app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --emitDeclarationOnly --outDir dist",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun test ./tests/*.test.ts",
+    "phase:status": "bun test ./tests/*.test.ts"
+  },
+  "dependencies": {
+    "@flexweave/studio": "workspace:*"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "flexweave",
+  "private": true,
+  "workspaces": [
+    "studio",
+    "studio/app"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "bun run build:studio && bun run build:core",
+    "build:core": "cargo build -p flexweave",
+    "build:studio": "bun run --filter @flexweave/studio build && bun run --filter @flexweave/studio-app build",
+    "check": "ultracite check && bun run check:structure && bun run check:terms && bun run check:core && bun run check:studio",
+    "check:core": "cargo fmt --all -- --check && cargo clippy -p flexweave --all-targets -- -D warnings",
+    "check:studio": "bun run --filter @flexweave/studio typecheck && bun run --filter @flexweave/studio-app typecheck",
+    "fix": "ultracite fix",
+    "test": "bun run test:core && bun run test:studio",
+    "test:core": "cargo test -p flexweave",
+    "test:studio": "bun run --filter @flexweave/studio test && bun run --filter @flexweave/studio-app test",
+    "verify": "bun run check && bun run test && bun run build && cargo doc -p flexweave --no-deps"
+  },
+  "devDependencies": {
+    "oxfmt": "^0.46.0",
+    "oxlint": "^1.60.0",
+    "typescript": "^6.0.3",
+    "ultracite": "7.6.1"
+  },
+  "engines": {
+    "bun": "1.3.13"
+  },
+  "packageManager": "bun@1.3.13"
+}
