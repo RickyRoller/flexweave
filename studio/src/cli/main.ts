@@ -42,50 +42,87 @@ type CommandHandler = (parsed: ParsedArgs) => Promise<CommandExecution>;
 const commandHelp: Record<string, string[]> = {
   codegen: [
     "flexweave-studio codegen [--check] [--target name|a,b] [--config path] [--json] [--quiet]",
-    "Refresh or check generated mechanics definitions.",
+    "Refresh or check generated mechanics definitions for the configured Studio catalog.",
+    "Uses Studio project config from defineStudioConfig to keep generated output in consumer-declared paths.",
+    "Reports runtime hooks that connect generated definitions to the consumer runtime.",
   ],
   describe: [
     "flexweave-studio describe [kind] [--config path] [--json] [--quiet]",
-    "Describe Studio catalog record schemas.",
+    "Describe Studio catalog record schemas from @flexweave/studio.",
   ],
   list: [
     "flexweave-studio list <kind> [--filter text] [--config path] [--json] [--quiet]",
-    "List Studio catalog records.",
+    "List records from the Studio catalog declared by a consumer project.",
   ],
   migrate: [
     "flexweave-studio migrate [--config path] [--json] [--quiet]",
-    "Run Studio project migrations after package updates.",
+    "Run Studio project config migrations after @flexweave/studio package updates.",
   ],
   plan: [
     "flexweave-studio plan --archetype mechanic --id <id> --name <name> [--params json] [--config path] [--json] [--quiet]",
-    "Preview Studio mechanic scaffolding writes.",
+    "Preview Studio catalog writes for a consumer project mechanic.",
+    "Shows generated mechanics definitions and runtime hook files before anything is written.",
   ],
   scaffold: [
     "flexweave-studio scaffold --archetype mechanic --id <id> --name <name> [--params json] [--allow-existing] [--config path] [--json] [--quiet]",
-    "Write Studio mechanic records and runtime hook stubs transactionally.",
+    "Write Studio catalog records, generated mechanics definitions, and runtime hook stubs transactionally.",
+    "Runtime hooks remain consumer-owned so the consumer runtime can bind behavior.",
   ],
   show: [
     "flexweave-studio show <kind> <id> [--config path] [--json] [--quiet]",
-    "Show one Studio catalog record.",
+    "Show one Studio catalog record from a consumer project's config.",
   ],
   validate: [
     "flexweave-studio validate [--config path] [--json] [--quiet]",
-    "Validate the configured Studio catalog.",
+    "Validate the Studio catalog loaded from Studio project config.",
   ],
   verify: [
     "flexweave-studio verify [--fast] [--config path] [--json] [--quiet]",
-    "Run validation, generated freshness checks, and configured verification commands.",
+    "Run validation, generated mechanics definition freshness checks, runtime hook checks, and configured verification commands.",
+    "Use after updating @flexweave/studio in a consumer project.",
   ],
 };
 
 const rootHelp = () => [
   "flexweave-studio <command> [--config path] [--json] [--quiet]",
   "",
+  "Package: @flexweave/studio",
+  "Use in a consumer project with defineStudioConfig to load Studio project config.",
+  "Workflows validate a Studio catalog, refresh generated mechanics definitions, and check runtime hooks for the consumer runtime.",
+  "",
   "Commands:",
   ...studioWorkflowNames.map((command) => `  ${command}`),
   "",
   'Run "flexweave-studio <command> --help" for command details.',
 ];
+
+const booleanFlagNames = new Set(["allow-existing", "check", "fast", "help", "json", "quiet"]);
+const valueFlagNames = new Set(["archetype", "config", "filter", "id", "name", "params", "target"]);
+const commonFlagNames = ["config", "help", "json", "quiet"];
+
+const commandFlagNames: Record<string, string[]> = {
+  codegen: [...commonFlagNames, "check", "target"],
+  describe: [...commonFlagNames],
+  list: [...commonFlagNames, "filter"],
+  migrate: [...commonFlagNames],
+  plan: [...commonFlagNames, "archetype", "id", "name", "params"],
+  scaffold: [...commonFlagNames, "allow-existing", "archetype", "id", "name", "params"],
+  show: [...commonFlagNames],
+  validate: [...commonFlagNames],
+  verify: [...commonFlagNames, "fast"],
+};
+
+const commandPositionalLimits: Record<string, number> = {
+  codegen: 0,
+  describe: 1,
+  list: 1,
+  migrate: 0,
+  plan: 0,
+  scaffold: 0,
+  show: 2,
+  validate: 0,
+  verify: 0,
+};
 
 const parseArgs = (argv: string[]): ParsedArgs => {
   const [command = "help", ...rest] = argv;
@@ -100,7 +137,12 @@ const parseArgs = (argv: string[]): ParsedArgs => {
     }
 
     const name = arg.slice(2);
-    if (["allow-existing", "check", "fast", "help", "json", "quiet"].includes(name)) {
+    if (booleanFlagNames.has(name)) {
+      flags[name] = true;
+      continue;
+    }
+
+    if (!valueFlagNames.has(name)) {
       flags[name] = true;
       continue;
     }
@@ -114,6 +156,27 @@ const parseArgs = (argv: string[]): ParsedArgs => {
   }
 
   return { command, flags, positionals };
+};
+
+const validateArgs = (parsed: ParsedArgs) => {
+  const allowedFlags = commandFlagNames[parsed.command];
+  if (!allowedFlags) {
+    throw new Error(`Unknown flexweave-studio command "${parsed.command}".`);
+  }
+
+  for (const flag of Object.keys(parsed.flags)) {
+    if (!booleanFlagNames.has(flag) && !valueFlagNames.has(flag)) {
+      throw new Error(`Unknown option --${flag}.`);
+    }
+    if (!allowedFlags.includes(flag)) {
+      throw new Error(`Option --${flag} is not supported by flexweave-studio ${parsed.command}.`);
+    }
+  }
+
+  const positionalLimit = commandPositionalLimits[parsed.command] ?? 0;
+  if (parsed.positionals.length > positionalLimit) {
+    throw new Error(`Unexpected argument "${parsed.positionals[positionalLimit]}".`);
+  }
 };
 
 const flagString = (parsed: ParsedArgs, name: string): string | undefined => {
@@ -315,6 +378,7 @@ const run = async (argv: string[]) => {
   if (!handler) {
     throw new Error(`Unknown flexweave-studio command "${parsed.command}".`);
   }
+  validateArgs(parsed);
 
   const { lines, result } = await handler(parsed);
   if (json) {

@@ -29,7 +29,7 @@
     "flexweave-studio": "bun src/cli/main.ts",
     "test": "bun test ./tests/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "verify": "bun run build && bun src/cli/main.ts validate --config tests/fixtures/minimal/studio.config.ts && bun src/cli/main.ts codegen --check --config tests/fixtures/minimal/studio.config.ts && bun src/cli/main.ts verify --config tests/fixtures/minimal/studio.config.ts && bun src/cli/main.ts migrate --config tests/fixtures/minimal/studio.config.ts"
+    "verify": "bun run build && bun ../scripts/verify-studio-boundary.ts && bun src/cli/main.ts validate --config tests/fixtures/minimal/studio.config.ts && bun src/cli/main.ts codegen --check --config tests/fixtures/minimal/studio.config.ts && bun src/cli/main.ts verify --config tests/fixtures/minimal/studio.config.ts && bun src/cli/main.ts migrate --config tests/fixtures/minimal/studio.config.ts"
   },
   "devDependencies": {
     "bun-types": "^1.3.2"

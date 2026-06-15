@@ -2,13 +2,14 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import { expect, test } from "bun:test";
 
 import { studioCodegenTargets } from "@flexweave/studio/codegen";
@@ -30,6 +31,14 @@ const studioRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(studioRoot, "..");
 const fixtureRoot = join(studioRoot, "tests/fixtures/minimal");
 const fixtureConfigPath = join(fixtureRoot, "studio.config.ts");
+
+const pathContains = (parent: string, child: string) => {
+  const childRelativeToParent = relative(parent, child);
+  return (
+    childRelativeToParent === "" ||
+    (!childRelativeToParent.startsWith("..") && !isAbsolute(childRelativeToParent))
+  );
+};
 
 const linkWorkspacePackage = (root: string) => {
   const scopeRoot = join(root, "node_modules/@flexweave");
@@ -82,6 +91,11 @@ test("package metadata exposes only the Studio public contract", () => {
     "tags",
   ]);
   expect(existsSync(join(studioRoot, "examples"))).toBe(false);
+  expect(
+    readdirSync(join(studioRoot, "tests/fixtures"), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name),
+  ).toEqual(["minimal"]);
 });
 
 test("config loading supports explicit paths, discovery, relative paths, and validate-only configs", async () => {
@@ -163,6 +177,34 @@ test("config validation reports shape errors and duplicate owned paths", () => {
   expect(result.diagnostics.map((diagnostic) => diagnostic.field)).toContain(
     "verify.commands.0.command",
   );
+
+  const nestedConfig = defineStudioConfig({
+    catalogRoot: "catalog",
+    codegen: {
+      outputDirs: {
+        abilities: "generated/abilities",
+        effects: "generated/effects",
+        executions: "generated/executions",
+        modifiers: "generated/modifiers",
+        reference: "generated/reference",
+        tags: "generated/tags",
+      },
+    },
+    hooks: {
+      dir: "generated",
+    },
+    rust: {
+      flexweaveModule: "flexweave",
+    },
+  });
+  const nestedResult = validateStudioConfig(nestedConfig, {
+    configDir: fixtureRoot,
+    configPath: fixtureConfigPath,
+  });
+  expect(nestedResult.ok).toBe(false);
+  expect(nestedResult.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+    "ambiguous-owned-path",
+  );
 });
 
 test("catalog workflows validate, describe, list, and show fixture records", async () => {
@@ -233,6 +275,12 @@ test("codegen writes only configured outputs, preserves hooks, and reports orpha
   writeFileSync(orphanPath, "//! orphan runtime hook\n");
 
   const result = await codegenStudioProject({ configPath });
+  const loaded = await loadStudioConfig({ configPath });
+  expect(loaded.ok).toBe(true);
+  const outputDirs = Object.values(loaded.config?.paths.codegen.outputDirs ?? {});
+  const hookDirs = [loaded.config?.paths.hooks.dir, loaded.config?.paths.hooks.testStubsDir].filter(
+    (path): path is string => typeof path === "string",
+  );
 
   expect(result.ok).toBe(true);
   expect(existsSync(join(root, "generated/abilities/generated.rs"))).toBe(true);
@@ -243,9 +291,12 @@ test("codegen writes only configured outputs, preserves hooks, and reports orpha
     expect(
       result.targets
         .find((summary) => summary.target === target)
-        ?.files.every((file) => file.path.startsWith(join(root, "generated"))),
+        ?.files.every((file) => outputDirs.some((outputDir) => pathContains(outputDir, file.path))),
     ).toBe(true);
   }
+  expect(
+    result.hooks.every((hook) => hookDirs.some((hookDir) => pathContains(hookDir, hook.path))),
+  ).toBe(true);
 });
 
 test("mechanic planning and scaffolding are transactional", async () => {

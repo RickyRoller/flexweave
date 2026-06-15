@@ -1,4 +1,4 @@
-import { isAbsolute, normalize, resolve } from "node:path";
+import { isAbsolute, normalize, relative, resolve } from "node:path";
 
 import { isStudioCodegenTarget, studioCodegenTargets } from "../codegen/types";
 import type { StudioCodegenTarget } from "../codegen/types";
@@ -224,6 +224,63 @@ const validateVerifyCommands = (
   return commands;
 };
 
+const validateVerifyConfig = (
+  value: unknown,
+  diagnostics: StudioDiagnostic[],
+): StudioVerifyCommand[] => {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!isObject(value)) {
+    diagnostics.push(
+      error(
+        "invalid-config-field",
+        "verify",
+        "Studio project config field verify must be an object when provided.",
+      ),
+    );
+    return [];
+  }
+
+  return validateVerifyCommands(value.commands, diagnostics);
+};
+
+const validateRuntimeVocabConfig = (
+  value: unknown,
+  diagnostics: StudioDiagnostic[],
+): { ailments: string[]; damageTypes: string[] } => {
+  if (value === undefined) {
+    return {
+      ailments: [],
+      damageTypes: [],
+    };
+  }
+
+  if (!isObject(value)) {
+    diagnostics.push(
+      error(
+        "invalid-config-field",
+        "rust.runtimeVocab",
+        "Studio project config field rust.runtimeVocab must be an object when provided.",
+      ),
+    );
+    return {
+      ailments: [],
+      damageTypes: [],
+    };
+  }
+
+  return {
+    ailments: normalizeStringArray(value.ailments, "rust.runtimeVocab.ailments", diagnostics),
+    damageTypes: normalizeStringArray(
+      value.damageTypes,
+      "rust.runtimeVocab.damageTypes",
+      diagnostics,
+    ),
+  };
+};
+
 const validateDuplicateOwnedPaths = (
   paths: Record<string, string | undefined>,
   diagnostics: StudioDiagnostic[],
@@ -248,6 +305,44 @@ const validateDuplicateOwnedPaths = (
     }
 
     byPath[value] = field;
+  }
+};
+
+const pathContains = (parent: string, child: string) => {
+  const childRelativeToParent = relative(parent, child);
+  return (
+    childRelativeToParent === "" ||
+    (!childRelativeToParent.startsWith("..") && !isAbsolute(childRelativeToParent))
+  );
+};
+
+const validateAmbiguousOwnedPaths = (
+  paths: Record<string, string | undefined>,
+  diagnostics: StudioDiagnostic[],
+) => {
+  const entries = Object.entries(paths).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0,
+  );
+
+  for (let leftIndex = 0; leftIndex < entries.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < entries.length; rightIndex += 1) {
+      const [leftField, leftPath] = entries[leftIndex];
+      const [rightField, rightPath] = entries[rightIndex];
+      if (leftPath === rightPath) {
+        continue;
+      }
+
+      if (pathContains(leftPath, rightPath) || pathContains(rightPath, leftPath)) {
+        diagnostics.push(
+          error(
+            "ambiguous-owned-path",
+            rightField,
+            `Studio project config fields ${leftField} and ${rightField} overlap owned paths.`,
+            "Use sibling directories instead of nesting generated targets or runtime hook roots.",
+          ),
+        );
+      }
+    }
   }
 };
 
@@ -385,8 +480,9 @@ export const validateStudioConfig = (
   const fullFields =
     mode === "full" ? validateFullConfigFields(raw, diagnostics) : { outputDirs: {} };
 
-  const verifyCommands = validateVerifyCommands(
-    isObject(raw.verify) ? raw.verify.commands : undefined,
+  const verifyCommands = validateVerifyConfig(raw.verify, diagnostics);
+  const runtimeVocab = validateRuntimeVocabConfig(
+    isObject(raw.rust) ? raw.rust.runtimeVocab : undefined,
     diagnostics,
   );
 
@@ -406,19 +502,18 @@ export const validateStudioConfig = (
     : undefined;
 
   if (mode === "full") {
-    validateDuplicateOwnedPaths(
-      {
-        ...Object.fromEntries(
-          studioCodegenTargets.map((target) => [
-            `codegen.outputDirs.${target}`,
-            resolvedOutputDirs[target],
-          ]),
-        ),
-        "hooks.dir": resolvedHookDir,
-        "hooks.testStubsDir": resolvedHookTestStubsDir,
-      },
-      diagnostics,
-    );
+    const ownedPaths = {
+      ...Object.fromEntries(
+        studioCodegenTargets.map((target) => [
+          `codegen.outputDirs.${target}`,
+          resolvedOutputDirs[target],
+        ]),
+      ),
+      "hooks.dir": resolvedHookDir,
+      "hooks.testStubsDir": resolvedHookTestStubsDir,
+    };
+    validateDuplicateOwnedPaths(ownedPaths, diagnostics);
+    validateAmbiguousOwnedPaths(ownedPaths, diagnostics);
   }
 
   if (!catalogRoot || diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
@@ -444,18 +539,7 @@ export const validateStudioConfig = (
       rust: fullFields.flexweaveModule
         ? {
             flexweaveModule: fullFields.flexweaveModule,
-            runtimeVocab: {
-              ailments: normalizeStringArray(
-                raw.rust?.runtimeVocab?.ailments,
-                "rust.runtimeVocab.ailments",
-                diagnostics,
-              ),
-              damageTypes: normalizeStringArray(
-                raw.rust?.runtimeVocab?.damageTypes,
-                "rust.runtimeVocab.damageTypes",
-                diagnostics,
-              ),
-            },
+            runtimeVocab,
           }
         : undefined,
       verify: {
