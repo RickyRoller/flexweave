@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
+  defineStudioContentMapper,
   defineStudioDataAdapter,
   defineStudioExtension,
   studioSourceLocationLabel,
@@ -88,7 +89,38 @@ export const syntheticTableAdapter = defineStudioDataAdapter({
   write: ({ records }) => ({ records }),
 });
 
+export const syntheticTableContentMapper = defineStudioContentMapper({
+  id: "synthetic-table-content-mapper",
+  label: "Synthetic table content mapper",
+  map: ({ snapshots }) => ({
+    records: snapshots.flatMap((snapshot) =>
+      snapshot.records
+        .filter(
+          (record) =>
+            record.kind === "synthetic.table" &&
+            isObject(record.value) &&
+            record.value.contentKind === "tag",
+        )
+        .map((record) => {
+          const value = isObject(record.value) ? record.value : {};
+          return {
+            expectedKind: "tags",
+            location: record.location,
+            path: studioSourceLocationLabel(record.location),
+            sourceRecord: record,
+            value: {
+              id: String(value.id),
+              kind: "tag",
+              label: String(value.label),
+            },
+          };
+        }),
+    ),
+  }),
+});
+
 export const syntheticSourceExtension = defineStudioExtension({
+  contentMappers: [syntheticTableContentMapper],
   dataAdapters: [syntheticFileAdapter, syntheticTableAdapter],
   id: "synthetic-source-extension",
   label: "Synthetic source extension",

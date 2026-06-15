@@ -9,10 +9,10 @@ Discovery searches upward from the provided working directory for
 `studio.config.ts`.
 
 `@flexweave/studio/extensions` exports `defineStudioExtension`,
-`defineStudioDataAdapter`, source snapshot types, source record types, source
-location metadata, and adapter capability helpers. Project configs register
-extensions and sources explicitly; Studio does not discover extension modules
-from the filesystem.
+`defineStudioDataAdapter`, `defineStudioContentMapper`, source snapshot types,
+source record types, source location metadata, and adapter capability helpers.
+Project configs register extensions and sources explicitly; Studio does not
+discover extension modules from the filesystem.
 
 ## Fields
 
@@ -30,7 +30,7 @@ Directory containing the Studio catalog.
 
 `extensions`:
 Optional array of Studio extensions. Each extension has an `id` and may provide
-data adapters or source validation.
+data adapters, content mappers, or source validation.
 
 `data.adapters`:
 Optional array of project-local data adapters. Adapters declare capabilities

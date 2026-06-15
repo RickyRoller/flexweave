@@ -3,6 +3,7 @@ import { isAbsolute, normalize, relative, resolve } from "node:path";
 import { isStudioCodegenTarget, studioCodegenTargets } from "../codegen/types";
 import type { StudioCodegenTarget } from "../codegen/types";
 import type {
+  StudioContentMapper,
   StudioDataAdapter,
   StudioDataAdapterCapability,
   StudioExtension,
@@ -360,6 +361,87 @@ const validateDataAdapters = (
   return adapters;
 };
 
+const validateContentMapper = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioContentMapper | undefined => {
+  if (!hasObjectShape(value)) {
+    diagnostics.push(
+      error("invalid-content-mapper", field, `Studio content mapper ${field} must be an object.`),
+    );
+    return undefined;
+  }
+
+  const id = readString(value.id, `${field}.id`, diagnostics);
+  const label =
+    value.label === undefined ? undefined : readString(value.label, `${field}.label`, diagnostics);
+
+  if (typeof value.map !== "function") {
+    diagnostics.push(
+      error(
+        "invalid-content-mapper",
+        `${field}.map`,
+        `Studio content mapper ${field} must provide a map function.`,
+      ),
+    );
+  }
+
+  if (!id || typeof value.map !== "function") {
+    return undefined;
+  }
+
+  return {
+    ...(value as unknown as StudioContentMapper),
+    id,
+    label,
+  };
+};
+
+const validateContentMappers = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioContentMapper[] => {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    diagnostics.push(
+      error(
+        "invalid-config-field",
+        field,
+        `Studio extension field ${field} must be an array of content mappers.`,
+      ),
+    );
+    return [];
+  }
+
+  const mappers: StudioContentMapper[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of value.entries()) {
+    const mapper = validateContentMapper(item, `${field}.${index}`, diagnostics);
+    if (!mapper) {
+      continue;
+    }
+    if (seen.has(mapper.id)) {
+      diagnostics.push(
+        error(
+          "duplicate-content-mapper",
+          `${field}.${index}.id`,
+          `Studio content mapper "${mapper.id}" is registered more than once.`,
+        ),
+      );
+      continue;
+    }
+    seen.add(mapper.id);
+    mappers.push(mapper);
+  }
+
+  return mappers;
+};
+
 const validateStudioExtension = (
   value: unknown,
   field: string,
@@ -384,6 +466,11 @@ const validateStudioExtension = (
     `${field}.dataAdapters`,
     diagnostics,
   );
+  const contentMappers = validateContentMappers(
+    value.contentMappers,
+    `${field}.contentMappers`,
+    diagnostics,
+  );
 
   if (value.validateSources !== undefined && typeof value.validateSources !== "function") {
     diagnostics.push(
@@ -401,6 +488,7 @@ const validateStudioExtension = (
 
   return {
     ...(value as unknown as StudioExtension),
+    contentMappers,
     dataAdapters,
     id,
     label,

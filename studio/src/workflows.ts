@@ -11,12 +11,11 @@ import type {
 import { loadStudioConfig } from "./config/load";
 import type { LoadStudioConfigOptions } from "./config/load";
 import type { ResolvedStudioProjectConfig, StudioDiagnostic } from "./config/schema";
-import { loadStudioSourceSnapshots } from "./extensions";
 import {
+  loadStudioCatalog,
   normalizeRecordKind,
-  readStudioCatalog,
   studioRecordKinds,
-  writeJsonRecord,
+  writeStudioCatalogRecord,
 } from "./internal/catalog";
 import type { StudioCatalogRecord, StudioRecordKind } from "./internal/catalog";
 import {
@@ -473,19 +472,18 @@ export const validateStudioCatalog = async (
     };
   }
 
-  const catalog = readStudioCatalog(resolved.config);
-  const sourceLoad = await loadStudioSourceSnapshots(resolved.config);
-  const diagnostics = [...catalog.diagnostics, ...sourceLoad.diagnostics];
+  const catalog = await loadStudioCatalog(resolved.config);
+  const sourceSnapshots = catalog.sourceSnapshots.filter((snapshot) => snapshot.records.length > 0);
   return {
     configPath: resolved.config.configPath,
-    diagnostics,
-    ok: diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
+    diagnostics: catalog.diagnostics,
+    ok: catalog.diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
     recordCount: catalog.records.length,
-    sourceRecordCount: sourceLoad.snapshots.reduce(
+    sourceRecordCount: catalog.sourceSnapshots.reduce(
       (total, snapshot) => total + snapshot.records.length,
       0,
     ),
-    sources: sourceLoad.snapshots.map((snapshot) => ({
+    sources: sourceSnapshots.map((snapshot) => ({
       adapterId: snapshot.adapterId,
       recordCount: snapshot.records.length,
       sourceId: snapshot.sourceId,
@@ -555,7 +553,7 @@ export const listStudioCatalogRecords = async (
     return { diagnostics: resolved.diagnostics, kind: normalized, ok: false, records: [] };
   }
 
-  const catalog = readStudioCatalog(resolved.config);
+  const catalog = await loadStudioCatalog(resolved.config);
   const filter = options.filter?.toLowerCase();
   const records = catalog.byKind[normalized]
     .filter(
@@ -598,7 +596,7 @@ export const showStudioCatalogRecord = async (
     return { diagnostics: resolved.diagnostics, ok: false };
   }
 
-  const catalog = readStudioCatalog(resolved.config);
+  const catalog = await loadStudioCatalog(resolved.config);
   const record = catalog.byKind[normalized].find((candidate) => candidate.id === id);
   if (!record) {
     return {
@@ -647,7 +645,7 @@ const renderRustDefinitions = (
 
 const renderReference = (
   config: ResolvedStudioProjectConfig,
-  catalog: ReturnType<typeof readStudioCatalog>,
+  catalog: Awaited<ReturnType<typeof loadStudioCatalog>>,
 ) => {
   const sections = studioRecordKinds.flatMap((kind) => [
     `## ${kind}`,
@@ -677,7 +675,7 @@ interface PlannedGeneratedFile {
 
 const plannedGeneratedFiles = (
   config: ResolvedStudioProjectConfig,
-  catalog: ReturnType<typeof readStudioCatalog>,
+  catalog: Awaited<ReturnType<typeof loadStudioCatalog>>,
   targets: StudioCodegenTarget[],
 ): PlannedGeneratedFile[] =>
   targets.map((target) => {
@@ -755,7 +753,7 @@ const runtimeHookStatus = (exists: boolean, write: boolean) => {
 
 const summarizeHooks = (
   config: ResolvedStudioProjectConfig,
-  catalog: ReturnType<typeof readStudioCatalog>,
+  catalog: Awaited<ReturnType<typeof loadStudioCatalog>>,
   options: { write: boolean },
 ): RuntimeHookSummary[] => {
   const hookDir = config.paths.hooks.dir;
@@ -878,7 +876,7 @@ export const codegenStudioProject = async (
     };
   }
 
-  const catalog = readStudioCatalog(resolved.config);
+  const catalog = await loadStudioCatalog(resolved.config);
   if (catalog.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
     return {
       checked: options.check === true,
@@ -1109,11 +1107,19 @@ export const scaffoldStudioMechanic = async (
 
   try {
     for (const record of planned.records) {
-      const path = writeJsonRecord(
-        resolved.config.paths.catalogRoot,
-        kindForRecord(record),
-        record,
-      );
+      const writeResult = writeStudioCatalogRecord(resolved.config, kindForRecord(record), record);
+      if (writeResult.diagnostics.length > 0 || !writeResult.path) {
+        restoreSnapshots(snapshots);
+        return {
+          diagnostics: writeResult.diagnostics,
+          ok: false,
+          plannedFiles: planned.plannedFiles,
+          records: planned.records,
+          rolledBack: true,
+          writtenFiles,
+        };
+      }
+      const { path } = writeResult;
       writtenFiles.push(displayPath(resolved.config.configDir, path));
     }
 

@@ -5,7 +5,11 @@ Create `studio.config.ts` at the consumer project root or pass its path with
 
 ```ts
 import { defineStudioConfig } from "@flexweave/studio/config";
-import { defineStudioDataAdapter, defineStudioExtension } from "@flexweave/studio/extensions";
+import {
+  defineStudioContentMapper,
+  defineStudioDataAdapter,
+  defineStudioExtension,
+} from "@flexweave/studio/extensions";
 
 const tableAdapter = defineStudioDataAdapter({
   capabilities: ["read", "schema"],
@@ -22,7 +26,26 @@ const tableAdapter = defineStudioDataAdapter({
   }),
 });
 
+const tableMapper = defineStudioContentMapper({
+  id: "local-table-mapper",
+  map: ({ snapshots }) => ({
+    records: snapshots.flatMap((snapshot) =>
+      snapshot.records.map((record) => ({
+        expectedKind: "tags",
+        location: record.location,
+        sourceRecord: record,
+        value: {
+          id: record.id,
+          kind: "tag",
+          label: "Sample tag",
+        },
+      })),
+    ),
+  }),
+});
+
 const projectSources = defineStudioExtension({
+  contentMappers: [tableMapper],
   dataAdapters: [tableAdapter],
   id: "project-sources",
 });

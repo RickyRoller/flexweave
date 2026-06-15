@@ -31,6 +31,32 @@ export interface StudioSourceSnapshot {
   sourceId?: string;
 }
 
+export interface StudioMappedContentRecord {
+  expectedKind?: string;
+  location?: StudioSourceLocation;
+  path?: string;
+  sourceRecord?: StudioSourceRecord;
+  value: unknown;
+}
+
+export interface StudioContentMapperContext {
+  config: ResolvedStudioProjectConfig;
+  snapshots: readonly StudioSourceSnapshot[];
+}
+
+export interface StudioContentMapperResult {
+  diagnostics?: readonly StudioDiagnostic[];
+  records: readonly StudioMappedContentRecord[];
+}
+
+export interface StudioContentMapper {
+  id: string;
+  label?: string;
+  map: (
+    context: StudioContentMapperContext,
+  ) => Promise<StudioContentMapperResult> | StudioContentMapperResult;
+}
+
 export interface StudioSourceConfig {
   adapterId: string;
   id: string;
@@ -65,6 +91,7 @@ export interface StudioSourceValidationContext {
 }
 
 export interface StudioExtension {
+  contentMappers?: readonly StudioContentMapper[];
   dataAdapters?: readonly StudioDataAdapter[];
   id: string;
   label?: string;
@@ -86,6 +113,10 @@ export const defineStudioDataAdapter = <const Adapter extends StudioDataAdapter>
 export const defineStudioExtension = <const Extension extends StudioExtension>(
   extension: Extension,
 ): Extension => extension;
+
+export const defineStudioContentMapper = <const Mapper extends StudioContentMapper>(
+  mapper: Mapper,
+): Mapper => mapper;
 
 export const studioDataAdapterCanWrite = (adapter: StudioDataAdapter) =>
   adapter.capabilities.includes("write") && typeof adapter.write === "function";

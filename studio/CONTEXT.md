@@ -35,6 +35,13 @@ Studio content or project-owned models.
 Diagnostic provenance for a source record. Locations may include file paths,
 JSON pointers, sheet names, row numbers, column numbers, cells, or fields.
 
+**Mapper**:
+Extension code that converts source snapshots into normalized Studio content.
+Mappers keep source storage formats separate from validation and generation.
+
+**Normalized Studio content**:
+Source-agnostic records consumed by Studio validators and generators.
+
 **Adapter capability**:
 An explicit data adapter feature declaration. Studio workflows use capabilities
 to distinguish read-only adapters from writable adapters.
@@ -69,7 +76,7 @@ local host app package, entry point, project adapter, and scaffold metadata.
 
 - Studio builds on Core concepts but remains optional.
 - Studio packages provide reusable workflows and shell behavior.
-- Projects provide content, config, data adapters, source mappings, runtime
+- Projects provide content, config, data adapters, mappers, runtime
   hooks, generated output paths, branding, and deployment.
 - Package updates should be followed by migrate and verify commands.
 - Host app scaffolds are updated through migrate and checked through verify.

@@ -338,6 +338,68 @@ test("extension-backed source diagnostics retain file and table provenance", asy
   });
 });
 
+test("table-backed source rows map into normalized built-in content", async () => {
+  const configPath = join(extensionFixtureRoot, "table-content.config.ts");
+  const validation = await validateStudioCatalog({ configPath });
+  expect(validation.ok).toBe(true);
+  expect(validation.recordCount).toBe(1);
+  expect(validation.sourceRecordCount).toBe(1);
+
+  const listed = await listStudioCatalogRecords("tags", { configPath });
+  expect(listed.ok).toBe(true);
+  expect(listed.records).toEqual([
+    {
+      id: "table_tag",
+      label: "Table-backed tag",
+      path: "synthetic-table (row 2, column 1, field id)",
+    },
+  ]);
+});
+
+test("adapter-backed validation diagnostics keep source provenance", async () => {
+  const root = copyFixture();
+  const configPath = join(root, "studio.config.ts");
+
+  const abilityPath = join(root, "catalog/abilities/minimal_ability.json");
+  const ability = JSON.parse(readFileSync(abilityPath, "utf-8")) as Record<string, unknown>;
+  writeFileSync(abilityPath, `${JSON.stringify({ ...ability, effectId: "missing_effect" })}\n`);
+
+  const executionPath = join(root, "catalog/executions/minimal_execution.json");
+  const execution = JSON.parse(readFileSync(executionPath, "utf-8")) as Record<string, unknown>;
+  writeFileSync(executionPath, `${JSON.stringify({ ...execution, hook: "" })}\n`);
+
+  const modifierPath = join(root, "catalog/modifiers/minimal_modifier.json");
+  const modifier = JSON.parse(readFileSync(modifierPath, "utf-8")) as Record<string, unknown>;
+  writeFileSync(modifierPath, `${JSON.stringify({ ...modifier, value: "not-a-number" })}\n`);
+
+  writeFileSync(
+    join(root, "catalog/tags/minimal_tag_duplicate.json"),
+    `${JSON.stringify({ id: "minimal_tag", kind: "tag", label: "Duplicate tag" })}\n`,
+  );
+
+  const validation = await validateStudioCatalog({ configPath });
+  expect(validation.ok).toBe(false);
+  expect(validation.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+    expect.arrayContaining([
+      "duplicate-record",
+      "invalid-record-field",
+      "missing-record-reference",
+      "missing-runtime-hook",
+    ]),
+  );
+
+  for (const code of [
+    "duplicate-record",
+    "invalid-record-field",
+    "missing-record-reference",
+    "missing-runtime-hook",
+  ]) {
+    const diagnostic = validation.diagnostics.find((candidate) => candidate.code === code);
+    expect(typeof diagnostic?.path).toBe("string");
+    expect(diagnostic?.source).toBeDefined();
+  }
+});
+
 test("extension loading reports malformed declarations and missing adapters", async () => {
   const malformed = await loadStudioConfig({
     configPath: join(extensionFixtureRoot, "malformed-extension.config.ts"),
@@ -360,6 +422,27 @@ test("extension loading reports malformed declarations and missing adapters", as
       field: "data.sources.0.adapterId",
     }),
   );
+});
+
+test("scaffold rejects source configurations without a writable content adapter", async () => {
+  const configPath = join(extensionFixtureRoot, "read-only-content.config.ts");
+  const result = await scaffoldStudioMechanic({
+    archetype: "mechanic",
+    configPath,
+    id: "source_backed_scaffold",
+    name: "Source backed scaffold",
+  });
+
+  expect(result.ok).toBe(false);
+  expect(result.rolledBack).toBe(true);
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "source-write-unsupported",
+    }),
+  );
+  expect(
+    existsSync(join(extensionFixtureRoot, "catalog/abilities/source_backed_scaffold.json")),
+  ).toBe(false);
 });
 
 test("codegen check detects stale, missing, and unexpected managed files without writing", async () => {

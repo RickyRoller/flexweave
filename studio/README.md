@@ -23,8 +23,9 @@ Those belong to the consumer project and are declared through `studio.config.ts`
 
 `@flexweave/studio/extensions` exposes `defineStudioExtension`,
 `defineStudioDataAdapter`, source snapshot types, source record types, source
-location metadata, and adapter capability helpers. Data adapters load source
-records and preserve provenance; they do not generate Rust directly.
+location metadata, content mapper types, and adapter capability helpers. Data
+adapters load source records and preserve provenance; mappers normalize those
+records into Studio content. Adapters and mappers do not generate Rust directly.
 
 ## Command Family
 

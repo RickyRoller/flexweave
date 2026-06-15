@@ -22,12 +22,15 @@ Exports include:
 generated targets are `abilities`, `effects`, `executions`, `modifiers`,
 `reference`, and `tags`.
 
-Validation loads configured data sources through active Studio extensions and
-data adapters before reporting workflow results. Source-backed diagnostics keep
-adapter-provided source locations so callers can point users at file paths,
-JSON pointers, sheet names, row numbers, column numbers, cells, or fields.
-Source snapshots are ingestion results only; mapping and generated output remain
-separate workflow stages.
+Validation loads the built-in JSON catalog and configured data sources through
+data adapters, then runs content mappers to produce normalized Studio content.
+Source-backed diagnostics keep adapter-provided source locations so callers can
+point users at file paths, JSON pointers, sheet names, row numbers, column
+numbers, cells, or fields.
+
+Scaffold writes go through the active writable content adapter. The built-in
+JSON catalog adapter supports transactional scaffold writes and rollback. Source
+configurations without a writable content adapter fail before writing files.
 
 Codegen write mode writes managed files only under configured output
 directories. Check mode compares expected files to disk and does not create,
