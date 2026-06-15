@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
 
 import { studioCodegenTargets } from "@flexweave/studio/codegen";
@@ -87,6 +88,14 @@ const copyFixture = () => {
   const root = join(tmpdir(), `studio-fixture-${crypto.randomUUID()}`);
   mkdirSync(root, { recursive: true });
   cpSync(fixtureRoot, root, { recursive: true });
+  linkWorkspacePackage(root);
+  return root;
+};
+
+const copyExtensionFixture = () => {
+  const root = join(tmpdir(), `studio-extension-fixture-${crypto.randomUUID()}`);
+  mkdirSync(root, { recursive: true });
+  cpSync(extensionFixtureRoot, root, { recursive: true });
   linkWorkspacePackage(root);
   return root;
 };
@@ -277,6 +286,9 @@ test("extension and data adapter contracts load file-backed and table-backed sou
   expect(loaded.config?.extensions.map((extension) => extension.id)).toEqual([
     "synthetic-source-extension",
   ]);
+  expect(
+    loaded.config?.extensions[0]?.appContributions?.map((contribution) => contribution.id),
+  ).toEqual(["synthetic-host-app"]);
   expect(loaded.config?.data.sources.map((source) => source.id)).toEqual([
     "file-backed",
     "table-backed",
@@ -422,6 +434,14 @@ test("extension loading reports malformed declarations and missing adapters", as
       code: "missing-data-adapter",
       field: "data.sources.0.adapterId",
     }),
+  );
+
+  const malformedAppContribution = await loadStudioConfig({
+    configPath: join(extensionFixtureRoot, "malformed-app-contribution.config.ts"),
+  });
+  expect(malformedAppContribution.ok).toBe(false);
+  expect(malformedAppContribution.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+    "invalid-host-app-contribution",
   );
 });
 
@@ -640,6 +660,29 @@ test("host app scaffold is idempotent and preserves consumer-owned edits", async
     "tsconfig.json",
   ]);
   expect(scaffolded.manualFollowUps).toEqual([]);
+  const metadata = JSON.parse(
+    readFileSync(join(appRoot, ".flexweave-studio-app.json"), "utf-8"),
+  ) as {
+    managedFiles?: string[];
+    packageRefs?: Record<string, string>;
+    projectOwnedFiles?: string[];
+    version?: number;
+  };
+  expect(metadata.version).toBe(2);
+  expect(metadata.managedFiles).toEqual([
+    ".flexweave-studio-app.json",
+    "package.json",
+    "src/main.ts",
+    "tsconfig.json",
+  ]);
+  expect(metadata.projectOwnedFiles).toEqual(["src/project-adapter.ts"]);
+  expect(metadata.packageRefs).toEqual({
+    studio: "@flexweave/studio",
+    studioApp: "@flexweave/studio-app",
+  });
+  expect(readFileSync(join(appRoot, "src/project-adapter.ts"), "utf-8")).toContain(
+    "composeStudioAppContributions",
+  );
 
   const second = await scaffoldStudioHostApp({
     appRoot: "studio-host",
@@ -648,6 +691,25 @@ test("host app scaffold is idempotent and preserves consumer-owned edits", async
   expect(second.ok).toBe(true);
   expect(second.changedFiles).toEqual([]);
   expect(second.manualFollowUps).toEqual([]);
+
+  const adapterPath = join(appRoot, "src/project-adapter.ts");
+  writeFileSync(
+    adapterPath,
+    `${readFileSync(adapterPath, "utf-8")}\nexport const localAdapterCustomization = true;\n`,
+  );
+  const preservedAdapter = await scaffoldStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(preservedAdapter.ok).toBe(true);
+  expect(preservedAdapter.changedFiles).toEqual([]);
+  expect(preservedAdapter.manualFollowUps).toEqual([]);
+  expect(preservedAdapter.files).toContainEqual(
+    expect.objectContaining({
+      path: adapterPath,
+      status: "project-owned",
+    }),
+  );
 
   const entryPath = join(appRoot, "src/main.ts");
   writeFileSync(
@@ -661,6 +723,57 @@ test("host app scaffold is idempotent and preserves consumer-owned edits", async
   expect(preserved.ok).toBe(true);
   expect(preserved.changedFiles).toEqual([]);
   expect(preserved.manualFollowUps[0]).toContain("src/main.ts");
+});
+
+test("host app scaffold composes extension contributions and verifies extension fixture", async () => {
+  const root = copyExtensionFixture();
+  const configPath = join(root, "studio.config.ts");
+  const appRoot = join(root, "studio-host");
+
+  const scaffolded = await scaffoldStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(scaffolded.ok).toBe(true);
+  expect(readFileSync(join(appRoot, "src/project-adapter.ts"), "utf-8")).toContain(
+    "collectStudioAppContributions",
+  );
+
+  linkHostAppPackages(appRoot);
+  const verified = await verifyStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(verified.ok).toBe(true);
+  expect(verified.command?.exitCode).toBe(0);
+
+  const moduleUrl = `${pathToFileURL(join(appRoot, "src/main.ts")).href}?${crypto.randomUUID()}`;
+  const imported = (await import(moduleUrl)) as {
+    app: {
+      diagnosticsPanels: { id: string }[];
+      generatedOutputPanels: { id: string }[];
+      sourceViews: { id: string }[];
+    };
+  };
+  expect(imported.app.generatedOutputPanels.map((panel) => panel.id)).toEqual([
+    "synthetic-summary-output",
+  ]);
+  expect(imported.app.diagnosticsPanels.map((panel) => panel.id)).toEqual([
+    "synthetic-source-diagnostics",
+  ]);
+  expect(imported.app.sourceViews.map((view) => view.id)).toEqual(["synthetic-table-source"]);
+});
+
+test("host app verification reports malformed extension app contributions", async () => {
+  const verified = await verifyStudioHostApp({
+    appRoot: "studio-host",
+    configPath: join(extensionFixtureRoot, "malformed-app-contribution.config.ts"),
+  });
+
+  expect(verified.ok).toBe(false);
+  expect(verified.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+    "invalid-host-app-contribution",
+  );
 });
 
 test("host app migrate and verify cover scaffold metadata and typecheck", async () => {
@@ -683,7 +796,7 @@ test("host app migrate and verify cover scaffold metadata and typecheck", async 
     configPath,
   });
   expect(migrated.ok).toBe(true);
-  expect(migrated.applied).toEqual(["host app scaffold 0 -> 1"]);
+  expect(migrated.applied).toEqual(["host app scaffold 0 -> 2"]);
   expect(migrated.changedFiles.map((path) => relative(appRoot, path))).toEqual([
     ".flexweave-studio-app.json",
   ]);

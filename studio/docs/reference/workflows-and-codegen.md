@@ -51,6 +51,16 @@ directory fails before write mode touches disk. Target summaries contain file
 statuses that a local host app can render without importing package internals.
 
 Host app scaffold results include created or updated files and manual
-follow-ups for existing files that differ from the current scaffold template.
-Host app verification checks scaffold metadata, required files, and the
+follow-ups for scaffold-managed files that differ from the current scaffold
+template. Scaffold metadata records managed files, project-owned files, the
+scaffold version, and package refs. Project-owned adapter files are preserved
+on rerun and migrate.
+
+Generated host app adapters load the active Studio config through public
+`@flexweave/studio/config/load`, call public `@flexweave/studio/workflows`
+functions for server bindings, and compose active extension host app
+contributions through `@flexweave/studio-app`.
+
+Host app verification checks scaffold metadata, required managed files,
+project-owned file presence, contribution contract diagnostics, and the
 configured host app check or build command.

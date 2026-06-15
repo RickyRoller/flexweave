@@ -23,9 +23,10 @@ Those belong to the consumer project and are declared through `studio.config.ts`
 
 `@flexweave/studio/extensions` exposes `defineStudioExtension`,
 `defineStudioDataAdapter`, source snapshot types, source record types, source
-location metadata, content mapper types, and adapter capability helpers. Data
-adapters load source records and preserve provenance; mappers normalize those
-records into Studio content. Adapters and mappers do not generate Rust directly.
+location metadata, content mapper types, host app contribution types, and
+adapter capability helpers. Data adapters load source records and preserve
+provenance; mappers normalize those records into Studio content. Adapters and
+mappers do not generate Rust directly.
 
 `@flexweave/studio/codegen` exposes `defineStudioGeneratedTarget` for
 extension-owned generated outputs. Built-in and extension generated targets run
@@ -35,6 +36,11 @@ and managed-file cleanup.
 Rust generation uses a resolved Rust codegen context from project config.
 Generic fields are validated by Studio, while extension-owned Rust binding
 config stays namespaced to the extension that validates and consumes it.
+
+`@flexweave/studio-app` composes a project adapter with active extension host
+app contributions. Extensions can add navigation, authoring editors, workflow
+actions, generated-output panels, diagnostics panels, and source views without
+copying or forking the shared Studio app shell.
 
 ## Command Family
 
@@ -57,8 +63,9 @@ Consumer paths in the config resolve from the directory containing the active
 config file.
 
 `flexweave-studio scaffold host-app` creates a consumer-owned local host app
-that imports `@flexweave/studio-app`, records scaffold metadata, and preserves
-existing files that differ from the current scaffold template.
+that imports `@flexweave/studio-app`, records scaffold metadata, composes
+active extension host app contributions, and preserves project-owned adapter
+code separately from scaffold-managed files.
 
 ## Documentation
 

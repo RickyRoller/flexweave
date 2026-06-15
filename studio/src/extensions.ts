@@ -101,7 +101,111 @@ export interface StudioRustBindingConfigValidator {
   validate: (context: StudioRustBindingValidationContext) => readonly StudioDiagnostic[];
 }
 
+export type StudioHostAppRouteKind =
+  | "authoring-editor"
+  | "diagnostics-panel"
+  | "generated-output"
+  | "overview"
+  | "source-view";
+
+export type StudioHostAppWorkflowCommandName =
+  | "codegen"
+  | "describe"
+  | "list"
+  | "migrate"
+  | "plan"
+  | "scaffold"
+  | "show"
+  | "validate"
+  | "verify";
+
+export type StudioHostAppActionVariant = "primary" | "secondary";
+
+export interface StudioHostAppNavigationLink {
+  href: string;
+  icon?: string;
+  id: string;
+  label: string;
+}
+
+export interface StudioHostAppNavigationSection {
+  id: string;
+  label: string;
+  links: readonly StudioHostAppNavigationLink[];
+}
+
+export interface StudioHostAppAuthoringAreaDefinition {
+  description?: string;
+  editorId?: string;
+  icon?: string;
+  id: string;
+  label: string;
+}
+
+export interface StudioHostAppAuthoringEditorDefinition {
+  areaId: string;
+  commandName?: StudioHostAppWorkflowCommandName;
+  description?: string;
+  id: string;
+  label: string;
+  recordKind?: string;
+}
+
+export interface StudioHostAppWorkflowActionDefinition {
+  commandName: StudioHostAppWorkflowCommandName;
+  id: string;
+  label: string;
+  variant: StudioHostAppActionVariant;
+}
+
+export interface StudioHostAppCodegenTargetDefinition {
+  description?: string;
+  label: string;
+  outputLabel?: string;
+  target: string;
+}
+
+export interface StudioHostAppGeneratedOutputPanelDefinition {
+  description?: string;
+  id: string;
+  label: string;
+  target?: string;
+}
+
+export interface StudioHostAppDiagnosticsPanelDefinition {
+  commandName?: StudioHostAppWorkflowCommandName;
+  description?: string;
+  id: string;
+  label: string;
+}
+
+export interface StudioHostAppSourceViewDefinition {
+  adapterId?: string;
+  description?: string;
+  id: string;
+  label: string;
+  sourceId?: string;
+}
+
+export interface StudioHostAppAuthoringContribution {
+  areas?: readonly StudioHostAppAuthoringAreaDefinition[];
+  editors?: readonly StudioHostAppAuthoringEditorDefinition[];
+}
+
+export interface StudioHostAppContribution {
+  authoring?: StudioHostAppAuthoringContribution;
+  codegenTargets?: readonly StudioHostAppCodegenTargetDefinition[];
+  diagnosticsPanels?: readonly StudioHostAppDiagnosticsPanelDefinition[];
+  generatedOutputPanels?: readonly StudioHostAppGeneratedOutputPanelDefinition[];
+  id: string;
+  label?: string;
+  navigation?: readonly StudioHostAppNavigationSection[];
+  sourceViews?: readonly StudioHostAppSourceViewDefinition[];
+  workflowActions?: readonly StudioHostAppWorkflowActionDefinition[];
+}
+
 export interface StudioExtension {
+  appContributions?: readonly StudioHostAppContribution[];
   contentMappers?: readonly StudioContentMapper[];
   dataAdapters?: readonly StudioDataAdapter[];
   generatedTargets?: readonly StudioGeneratedTargetDefinition[];
@@ -126,6 +230,12 @@ export const defineStudioDataAdapter = <const Adapter extends StudioDataAdapter>
 export const defineStudioExtension = <const Extension extends StudioExtension>(
   extension: Extension,
 ): Extension => extension;
+
+export const defineStudioHostAppContribution = <
+  const Contribution extends StudioHostAppContribution,
+>(
+  contribution: Contribution,
+): Contribution => contribution;
 
 export const defineStudioContentMapper = <const Mapper extends StudioContentMapper>(
   mapper: Mapper,

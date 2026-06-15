@@ -6,6 +6,7 @@ import {
   defineStudioContentMapper,
   defineStudioDataAdapter,
   defineStudioExtension,
+  defineStudioHostAppContribution,
   studioSourceLocationLabel,
 } from "@flexweave/studio/extensions";
 import type { StudioDiagnostic, StudioSourceRecord } from "@flexweave/studio/extensions";
@@ -207,7 +208,92 @@ export const syntheticRustBindingConfig = {
   },
 };
 
+export const syntheticHostAppContribution = defineStudioHostAppContribution({
+  authoring: {
+    areas: [
+      {
+        description: "Synthetic source records loaded through extension data adapters.",
+        editorId: "synthetic-source-records",
+        id: "synthetic-sources",
+        label: "Synthetic sources",
+      },
+    ],
+    editors: [
+      {
+        areaId: "synthetic-sources",
+        commandName: "list",
+        description: "Review normalized content mapped from synthetic source data.",
+        id: "synthetic-source-records",
+        label: "Synthetic source records",
+        recordKind: "tags",
+      },
+    ],
+  },
+  codegenTargets: [
+    {
+      description: "Extension-owned generated summary output.",
+      label: "Synthetic summary",
+      outputLabel: "summary",
+      target: "synthetic-summary",
+    },
+  ],
+  diagnosticsPanels: [
+    {
+      commandName: "validate",
+      description: "Diagnostics reported by synthetic source adapters and mappers.",
+      id: "synthetic-source-diagnostics",
+      label: "Synthetic source diagnostics",
+    },
+  ],
+  generatedOutputPanels: [
+    {
+      description: "Generated files produced by the synthetic extension target.",
+      id: "synthetic-summary-output",
+      label: "Synthetic summary output",
+      target: "synthetic-summary",
+    },
+  ],
+  id: "synthetic-host-app",
+  label: "Synthetic host app contribution",
+  navigation: [
+    {
+      id: "synthetic",
+      label: "Synthetic",
+      links: [
+        {
+          href: "/sources/synthetic-table-source",
+          id: "synthetic-table-source",
+          label: "Table source",
+        },
+        {
+          href: "/diagnostics/synthetic-source-diagnostics",
+          id: "synthetic-source-diagnostics",
+          label: "Source diagnostics",
+        },
+      ],
+    },
+  ],
+  sourceViews: [
+    {
+      adapterId: "synthetic-table",
+      description: "Rows loaded from the synthetic table adapter.",
+      id: "synthetic-table-source",
+      label: "Synthetic table source",
+      sourceId: "table-backed",
+    },
+  ],
+  workflowActions: [
+    {
+      commandName: "validate",
+      id: "validate-synthetic-sources",
+      label: "Validate synthetic sources",
+      variant: "secondary",
+    },
+  ],
+});
+
 export const syntheticSourceExtension = defineStudioExtension({
+  appContributions: [syntheticHostAppContribution],
   contentMappers: [syntheticTableContentMapper],
   dataAdapters: [syntheticFileAdapter, syntheticTableAdapter],
   generatedTargets: [syntheticSummaryTarget, syntheticRustTarget],

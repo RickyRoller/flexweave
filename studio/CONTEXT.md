@@ -15,8 +15,14 @@ The `@flexweave/studio-app` package that owns the reusable application shell.
 
 **Studio extension**:
 A project-neutral contribution object registered through `studio.config.ts`.
-Extensions can provide data adapters, source validation, and later workflow
-contributions without importing Studio internals.
+Extensions can provide data adapters, source validation, content mappers,
+generated targets, Rust binding validation, and local host app contributions
+without importing Studio internals.
+
+**Host app contribution**:
+Extension-owned local Studio app metadata for navigation, authoring areas,
+editor definitions, workflow actions, generated-output panels, diagnostics
+panels, and source views.
 
 **Data adapter**:
 A pluggable source integration that loads authored records into a source
@@ -83,6 +89,7 @@ Consumer-owned wiring for labels, config, workflow calls, and deployment needs.
 **Host app scaffold**:
 Files created by `flexweave-studio scaffold host-app` for the consumer-owned
 local host app package, entry point, project adapter, and scaffold metadata.
+Metadata distinguishes scaffold-managed files from project-owned adapter code.
 
 ## Relationships
 

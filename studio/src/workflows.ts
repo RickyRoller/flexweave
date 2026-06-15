@@ -100,7 +100,12 @@ export interface ScaffoldStudioHostAppOptions extends StudioWorkflowOptions {
   appRoot?: string;
 }
 
-export type StudioHostAppFileStatus = "created" | "manual-follow-up" | "unchanged" | "updated";
+export type StudioHostAppFileStatus =
+  | "created"
+  | "manual-follow-up"
+  | "project-owned"
+  | "unchanged"
+  | "updated";
 
 export interface StudioHostAppFileResult {
   path: string;
@@ -147,7 +152,7 @@ export interface MigrateStudioProjectResult extends StudioWorkflowResult {
   skipped: string[];
 }
 
-export const STUDIO_HOST_APP_SCAFFOLD_VERSION = 1;
+export const STUDIO_HOST_APP_SCAFFOLD_VERSION = 2;
 
 const schemaDescriptions: StudioRecordDescription[] = [
   {
@@ -228,15 +233,27 @@ const hostAppRoot = (config: ResolvedStudioProjectConfig, appRoot?: string) =>
     ? join(config.configDir, appRoot)
     : (config.paths.app.root ?? join(config.configDir, "studio-host"));
 
-const hostAppConfigPath = (config: ResolvedStudioProjectConfig, root: string) => {
-  const path = relative(root, config.configPath).replaceAll("\\", "/");
+const hostAppConfigPath = (config: ResolvedStudioProjectConfig, fromDir: string) => {
+  const path = relative(fromDir, config.configPath).replaceAll("\\", "/");
   return path.startsWith(".") ? path : `./${path}`;
 };
 
 const hostAppMetadataPath = (root: string) => join(root, ".flexweave-studio-app.json");
 
+const hostAppManagedFiles = [
+  ".flexweave-studio-app.json",
+  "package.json",
+  "src/main.ts",
+  "tsconfig.json",
+];
+
+const hostAppProjectOwnedFiles = ["src/project-adapter.ts"];
+
+const isHostAppProjectOwnedFile = (relativePath: string) =>
+  hostAppProjectOwnedFiles.includes(relativePath);
+
 const hostAppScaffoldFiles = (config: ResolvedStudioProjectConfig, root: string) => {
-  const configPath = hostAppConfigPath(config, root);
+  const configPath = hostAppConfigPath(config, join(root, "src"));
   const codegenTargets = studioCodegenTargets
     .map(
       (target) =>
@@ -245,14 +262,14 @@ const hostAppScaffoldFiles = (config: ResolvedStudioProjectConfig, root: string)
     .join("\n");
 
   const metadata = {
-    files: [
-      ".flexweave-studio-app.json",
-      "package.json",
-      "src/main.ts",
-      "src/project-adapter.ts",
-      "tsconfig.json",
-    ],
+    files: [...hostAppManagedFiles, ...hostAppProjectOwnedFiles],
+    managedFiles: hostAppManagedFiles,
     packageName: "@flexweave/studio-app",
+    packageRefs: {
+      studio: "@flexweave/studio",
+      studioApp: "@flexweave/studio-app",
+    },
+    projectOwnedFiles: hostAppProjectOwnedFiles,
     scaffold: "flexweave-studio-host-app",
     studioPackageName: "@flexweave/studio",
     version: STUDIO_HOST_APP_SCAFFOLD_VERSION,
@@ -302,9 +319,19 @@ const hostAppScaffoldFiles = (config: ResolvedStudioProjectConfig, root: string)
       "  validateStudioCatalog,",
       "  verifyStudioProject,",
       '} from "@flexweave/studio/workflows";',
-      'import { defineStudioAppAdapter } from "@flexweave/studio-app";',
+      'import { loadStudioConfig } from "@flexweave/studio/config/load";',
+      'import { fileURLToPath } from "node:url";',
+      "import {",
+      "  collectStudioAppContributions,",
+      "  composeStudioAppContributions,",
+      "  defineStudioAppAdapter,",
+      '} from "@flexweave/studio-app";',
       "",
-      `const workflowOptions = { configPath: "${configPath}" };`,
+      `const workflowOptions = { configPath: fileURLToPath(new URL("${configPath}", import.meta.url)) };`,
+      "const loadedConfig = await loadStudioConfig(workflowOptions);",
+      "const extensionContributions = loadedConfig.config",
+      "  ? collectStudioAppContributions(loadedConfig.config.extensions)",
+      "  : [];",
       "",
       "const asMechanicInput = (input: Record<string, unknown>) => ({",
       '  archetype: typeof input.archetype === "string" ? input.archetype : "mechanic",',
@@ -316,7 +343,7 @@ const hostAppScaffoldFiles = (config: ResolvedStudioProjectConfig, root: string)
       "      : undefined,",
       "});",
       "",
-      "export const projectAdapter = defineStudioAppAdapter({",
+      "const baseProjectAdapter = defineStudioAppAdapter({",
       "  authoring: {",
       "    areas: [",
       '      { editorId: "tags", id: "tags", label: "Tags" },',
@@ -362,6 +389,17 @@ const hostAppScaffoldFiles = (config: ResolvedStudioProjectConfig, root: string)
       "  ],",
       "});",
       "",
+      "const composedProjectAdapter = composeStudioAppContributions(",
+      "  baseProjectAdapter,",
+      "  extensionContributions,",
+      ");",
+      "",
+      "export const projectAdapter = composedProjectAdapter.adapter;",
+      "export const projectAdapterDiagnostics = [",
+      "  ...(loadedConfig.ok ? [] : loadedConfig.diagnostics),",
+      "  ...composedProjectAdapter.diagnostics,",
+      "];",
+      "",
     ].join("\n"),
     "tsconfig.json": `${JSON.stringify(
       {
@@ -389,6 +427,7 @@ const scaffoldStatus = (
   path: string,
   expected: string,
   allowMetadataUpdate: boolean,
+  projectOwned: boolean,
 ): StudioHostAppFileResult => {
   const current = readTextIfExists(path);
   if (current === undefined) {
@@ -403,6 +442,14 @@ const scaffoldStatus = (
   if (allowMetadataUpdate && path.endsWith(".flexweave-studio-app.json")) {
     writeTextFile(path, expected);
     return { path, status: "updated" };
+  }
+
+  if (projectOwned) {
+    return {
+      path,
+      reason: "Project-owned host app file preserved.",
+      status: "project-owned",
+    };
   }
 
   return {
@@ -420,7 +467,12 @@ const writeHostAppScaffold = (
   mkdirSync(root, { recursive: true });
   const templates = hostAppScaffoldFiles(config, root);
   return Object.entries(templates).map(([relativePath, value]) =>
-    scaffoldStatus(join(root, relativePath), value, options.updateMetadata),
+    scaffoldStatus(
+      join(root, relativePath),
+      value,
+      options.updateMetadata,
+      isHostAppProjectOwnedFile(relativePath),
+    ),
   );
 };
 
@@ -1367,6 +1419,13 @@ const verifyHostAppFiles = (
         path,
         reason: "Required host app scaffold file is missing.",
         status: "manual-follow-up",
+      };
+    }
+    if (isHostAppProjectOwnedFile(relativePath)) {
+      return {
+        path,
+        reason: "Project-owned host app file preserved.",
+        status: "project-owned",
       };
     }
     if (current !== expected) {

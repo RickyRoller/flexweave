@@ -31,7 +31,15 @@ Directory containing the Studio catalog.
 
 `extensions`:
 Optional array of Studio extensions. Each extension has an `id` and may provide
-data adapters, content mappers, generated targets, or source validation.
+data adapters, content mappers, generated targets, source validation, Rust
+binding config validators, or local host app contributions.
+
+`extensions[].appContributions`:
+Optional extension-owned local host app surfaces. Contributions can declare
+navigation sections, authoring areas and editors, workflow actions,
+generated-output panels, diagnostics panels, source views, and generated target
+display metadata. Studio validates the structural contract and the host app
+package composes active contributions into the project adapter.
 
 `data.adapters`:
 Optional array of project-local data adapters. Adapters declare capabilities
@@ -88,5 +96,6 @@ optional `fast` boolean.
 Validation reports all practical shape errors in one pass, including missing
 fields, invalid command arrays, invalid path values, unknown generated targets,
 duplicate owned output paths, malformed extensions, malformed data adapters,
-malformed generated targets, missing data adapters, unknown generated target
-output directories, and malformed local host app commands.
+malformed generated targets, malformed host app contributions, missing data
+adapters, unknown generated target output directories, and malformed local host
+app commands.

@@ -1,17 +1,27 @@
-export type StudioAppRouteKind = "authoring-editor" | "generated-output" | "overview";
+import type { StudioDiagnostic } from "@flexweave/studio/config";
+import type {
+  StudioExtension,
+  StudioHostAppActionVariant,
+  StudioHostAppAuthoringAreaDefinition,
+  StudioHostAppAuthoringContribution,
+  StudioHostAppAuthoringEditorDefinition,
+  StudioHostAppCodegenTargetDefinition,
+  StudioHostAppContribution,
+  StudioHostAppDiagnosticsPanelDefinition,
+  StudioHostAppGeneratedOutputPanelDefinition,
+  StudioHostAppNavigationLink,
+  StudioHostAppNavigationSection,
+  StudioHostAppRouteKind,
+  StudioHostAppSourceViewDefinition,
+  StudioHostAppWorkflowActionDefinition,
+  StudioHostAppWorkflowCommandName,
+} from "@flexweave/studio/extensions";
 
-export type StudioAppWorkflowCommandName =
-  | "codegen"
-  | "describe"
-  | "list"
-  | "migrate"
-  | "plan"
-  | "scaffold"
-  | "show"
-  | "validate"
-  | "verify";
+export type StudioAppRouteKind = StudioHostAppRouteKind;
 
-export type StudioAppActionVariant = "primary" | "secondary";
+export type StudioAppWorkflowCommandName = StudioHostAppWorkflowCommandName;
+
+export type StudioAppActionVariant = StudioHostAppActionVariant;
 
 export interface StudioAppLabels {
   productName: string;
@@ -21,49 +31,27 @@ export interface StudioAppLabels {
   workflowTrail: readonly string[];
 }
 
-export interface StudioAppNavigationLink {
-  href: string;
-  icon?: string;
-  id: string;
-  label: string;
-}
+export type StudioAppNavigationLink = StudioHostAppNavigationLink;
 
-export interface StudioAppNavigationSection {
-  id: string;
-  label: string;
-  links: readonly StudioAppNavigationLink[];
-}
+export type StudioAppNavigationSection = StudioHostAppNavigationSection;
 
-export interface StudioAppAuthoringAreaDefinition {
-  description?: string;
-  editorId?: string;
-  icon?: string;
-  id: string;
-  label: string;
-}
+export type StudioAppAuthoringAreaDefinition = StudioHostAppAuthoringAreaDefinition;
 
-export interface StudioAppAuthoringEditorDefinition {
-  areaId: string;
-  commandName?: StudioAppWorkflowCommandName;
-  description?: string;
-  id: string;
-  label: string;
-  recordKind?: string;
-}
+export type StudioAppAuthoringEditorDefinition = StudioHostAppAuthoringEditorDefinition;
 
-export interface StudioAppWorkflowActionDefinition {
-  commandName: StudioAppWorkflowCommandName;
-  id: string;
-  label: string;
-  variant: StudioAppActionVariant;
-}
+export type StudioAppWorkflowActionDefinition = StudioHostAppWorkflowActionDefinition;
 
-export interface StudioAppCodegenTargetDefinition {
-  description?: string;
-  label: string;
-  outputLabel?: string;
-  target: string;
-}
+export type StudioAppCodegenTargetDefinition = StudioHostAppCodegenTargetDefinition;
+
+export type StudioAppGeneratedOutputPanelDefinition = StudioHostAppGeneratedOutputPanelDefinition;
+
+export type StudioAppDiagnosticsPanelDefinition = StudioHostAppDiagnosticsPanelDefinition;
+
+export type StudioAppSourceViewDefinition = StudioHostAppSourceViewDefinition;
+
+export type StudioAppAuthoringContribution = StudioHostAppAuthoringContribution;
+
+export type StudioAppContribution = StudioHostAppContribution;
 
 export type StudioAppServerFunction<Input = unknown, Output = unknown> = (
   input: Input,
@@ -89,10 +77,13 @@ export interface StudioAppAuthoringConfig {
 export interface StudioAppAdapter {
   authoring: StudioAppAuthoringConfig;
   codegenTargets: readonly StudioAppCodegenTargetDefinition[];
+  diagnosticsPanels?: readonly StudioAppDiagnosticsPanelDefinition[];
+  generatedOutputPanels?: readonly StudioAppGeneratedOutputPanelDefinition[];
   id: string;
   labels: StudioAppLabels;
   navigation: readonly StudioAppNavigationSection[];
   serverFunctions: StudioAppServerFunctionBindings;
+  sourceViews?: readonly StudioAppSourceViewDefinition[];
   workflowActions: readonly StudioAppWorkflowActionDefinition[];
 }
 
@@ -107,17 +98,29 @@ export interface StudioAppRouteDefinition {
 export interface StudioAppShellModel {
   adapterId: string;
   codegenTargets: readonly StudioAppCodegenTargetDefinition[];
+  diagnosticsPanels: readonly StudioAppDiagnosticsPanelDefinition[];
+  generatedOutputPanels: readonly StudioAppGeneratedOutputPanelDefinition[];
   labels: StudioAppLabels;
   navigation: readonly StudioAppNavigationSection[];
   routes: readonly StudioAppRouteDefinition[];
+  sourceViews: readonly StudioAppSourceViewDefinition[];
   workflowActions: readonly StudioAppWorkflowActionDefinition[];
 }
 
 export interface StudioAppPanelModel {
   codegenTargets: readonly StudioAppCodegenTargetDefinition[];
+  diagnosticsPanels: readonly StudioAppDiagnosticsPanelDefinition[];
   editors: readonly StudioAppAuthoringEditorDefinition[];
+  generatedOutputPanels: readonly StudioAppGeneratedOutputPanelDefinition[];
+  sourceViews: readonly StudioAppSourceViewDefinition[];
   title: string;
   workflowActions: readonly StudioAppWorkflowActionDefinition[];
+}
+
+export interface StudioAppCompositionResult {
+  adapter: StudioAppAdapter;
+  diagnostics: StudioDiagnostic[];
+  ok: boolean;
 }
 
 export const defineStudioAppAdapter = <const Adapter extends StudioAppAdapter>(
@@ -131,6 +134,149 @@ const editorRoute = (editor: StudioAppAuthoringEditorDefinition): StudioAppRoute
   kind: "authoring-editor",
   label: editor.label,
 });
+
+const generatedOutputRoute = (
+  panel: StudioAppGeneratedOutputPanelDefinition,
+): StudioAppRouteDefinition => ({
+  href: `/generated/${panel.id}`,
+  id: `generated.${panel.id}`,
+  kind: "generated-output",
+  label: panel.label,
+});
+
+const diagnosticsRoute = (
+  panel: StudioAppDiagnosticsPanelDefinition,
+): StudioAppRouteDefinition => ({
+  href: `/diagnostics/${panel.id}`,
+  id: `diagnostics.${panel.id}`,
+  kind: "diagnostics-panel",
+  label: panel.label,
+});
+
+const sourceViewRoute = (view: StudioAppSourceViewDefinition): StudioAppRouteDefinition => ({
+  href: `/sources/${view.id}`,
+  id: `source.${view.id}`,
+  kind: "source-view",
+  label: view.label,
+});
+
+const diagnostic = (
+  code: string,
+  field: string,
+  message: string,
+  hint?: string,
+): StudioDiagnostic => ({
+  code,
+  field,
+  hint,
+  message,
+  severity: "error",
+});
+
+const duplicateDiagnostics = (
+  values: readonly unknown[],
+  field: string,
+  keyForValue: (value: unknown) => string | undefined = (value) =>
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { id?: unknown }).id === "string"
+      ? (value as { id: string }).id
+      : undefined,
+): StudioDiagnostic[] => {
+  const seen = new Set<string>();
+  const diagnostics: StudioDiagnostic[] = [];
+  for (const [index, value] of values.entries()) {
+    const key = keyForValue(value);
+    if (!key) {
+      continue;
+    }
+    if (seen.has(key)) {
+      diagnostics.push(
+        diagnostic(
+          "duplicate-host-app-contribution",
+          `${field}.${index}`,
+          `Studio app contribution id "${key}" is registered more than once.`,
+          "Use stable, unique ids for host app contributions and contributed app surfaces.",
+        ),
+      );
+    }
+    seen.add(key);
+  }
+  return diagnostics;
+};
+
+export const collectStudioAppContributions = (
+  extensions: readonly StudioExtension[],
+): StudioAppContribution[] => extensions.flatMap((extension) => extension.appContributions ?? []);
+
+export const validateStudioAppAdapter = (adapter: StudioAppAdapter): StudioDiagnostic[] => [
+  ...duplicateDiagnostics(adapter.navigation, "navigation"),
+  ...duplicateDiagnostics(adapter.authoring.areas, "authoring.areas"),
+  ...duplicateDiagnostics(adapter.authoring.editors, "authoring.editors"),
+  ...duplicateDiagnostics(adapter.codegenTargets, "codegenTargets", (value) =>
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    typeof (value as { target?: unknown }).target === "string"
+      ? (value as { target: string }).target
+      : undefined,
+  ),
+  ...duplicateDiagnostics(adapter.diagnosticsPanels ?? [], "diagnosticsPanels"),
+  ...duplicateDiagnostics(adapter.generatedOutputPanels ?? [], "generatedOutputPanels"),
+  ...duplicateDiagnostics(adapter.sourceViews ?? [], "sourceViews"),
+  ...duplicateDiagnostics(adapter.workflowActions, "workflowActions"),
+];
+
+export const composeStudioAppContributions = (
+  adapter: StudioAppAdapter,
+  contributions: readonly StudioAppContribution[],
+): StudioAppCompositionResult => {
+  const composed: StudioAppAdapter = {
+    ...adapter,
+    authoring: {
+      areas: [
+        ...adapter.authoring.areas,
+        ...contributions.flatMap((contribution) => contribution.authoring?.areas ?? []),
+      ],
+      editors: [
+        ...adapter.authoring.editors,
+        ...contributions.flatMap((contribution) => contribution.authoring?.editors ?? []),
+      ],
+    },
+    codegenTargets: [
+      ...adapter.codegenTargets,
+      ...contributions.flatMap((contribution) => contribution.codegenTargets ?? []),
+    ],
+    diagnosticsPanels: [
+      ...(adapter.diagnosticsPanels ?? []),
+      ...contributions.flatMap((contribution) => contribution.diagnosticsPanels ?? []),
+    ],
+    generatedOutputPanels: [
+      ...(adapter.generatedOutputPanels ?? []),
+      ...contributions.flatMap((contribution) => contribution.generatedOutputPanels ?? []),
+    ],
+    navigation: [
+      ...adapter.navigation,
+      ...contributions.flatMap((contribution) => contribution.navigation ?? []),
+    ],
+    sourceViews: [
+      ...(adapter.sourceViews ?? []),
+      ...contributions.flatMap((contribution) => contribution.sourceViews ?? []),
+    ],
+    workflowActions: [
+      ...adapter.workflowActions,
+      ...contributions.flatMap((contribution) => contribution.workflowActions ?? []),
+    ],
+  };
+  const diagnostics = validateStudioAppAdapter(composed);
+
+  return {
+    adapter: composed,
+    diagnostics,
+    ok: diagnostics.length === 0,
+  };
+};
 
 export const createStudioAppRoutes = (adapter: StudioAppAdapter): StudioAppRouteDefinition[] => [
   {
@@ -146,20 +292,29 @@ export const createStudioAppRoutes = (adapter: StudioAppAdapter): StudioAppRoute
     label: "Generated output",
   },
   ...adapter.authoring.editors.map(editorRoute),
+  ...(adapter.generatedOutputPanels ?? []).map(generatedOutputRoute),
+  ...(adapter.diagnosticsPanels ?? []).map(diagnosticsRoute),
+  ...(adapter.sourceViews ?? []).map(sourceViewRoute),
 ];
 
 export const createStudioApp = (adapter: StudioAppAdapter): StudioAppShellModel => ({
   adapterId: adapter.id,
   codegenTargets: adapter.codegenTargets,
+  diagnosticsPanels: adapter.diagnosticsPanels ?? [],
+  generatedOutputPanels: adapter.generatedOutputPanels ?? [],
   labels: adapter.labels,
   navigation: adapter.navigation,
   routes: createStudioAppRoutes(adapter),
+  sourceViews: adapter.sourceViews ?? [],
   workflowActions: adapter.workflowActions,
 });
 
 export const createStudioOverviewPanel = (adapter: StudioAppAdapter): StudioAppPanelModel => ({
   codegenTargets: adapter.codegenTargets,
+  diagnosticsPanels: adapter.diagnosticsPanels ?? [],
   editors: adapter.authoring.editors,
+  generatedOutputPanels: adapter.generatedOutputPanels ?? [],
+  sourceViews: adapter.sourceViews ?? [],
   title: adapter.labels.workspaceTitle,
   workflowActions: adapter.workflowActions,
 });
