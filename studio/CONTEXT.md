@@ -42,6 +42,10 @@ Mappers keep source storage formats separate from validation and generation.
 **Normalized Studio content**:
 Source-agnostic records consumed by Studio validators and generators.
 
+**Generated target**:
+A registered unit of generated output with an id, label, dependencies, cleanup
+policy, configured output directory, and plan function.
+
 **Adapter capability**:
 An explicit data adapter feature declaration. Studio workflows use capabilities
 to distinguish read-only adapters from writable adapters.

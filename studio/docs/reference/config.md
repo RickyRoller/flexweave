@@ -11,8 +11,9 @@ Discovery searches upward from the provided working directory for
 `@flexweave/studio/extensions` exports `defineStudioExtension`,
 `defineStudioDataAdapter`, `defineStudioContentMapper`, source snapshot types,
 source record types, source location metadata, and adapter capability helpers.
-Project configs register extensions and sources explicitly; Studio does not
-discover extension modules from the filesystem.
+`@flexweave/studio/codegen` exports `defineStudioGeneratedTarget`. Project
+configs register extensions and sources explicitly; Studio does not discover
+extension modules from the filesystem.
 
 ## Fields
 
@@ -30,7 +31,7 @@ Directory containing the Studio catalog.
 
 `extensions`:
 Optional array of Studio extensions. Each extension has an `id` and may provide
-data adapters, content mappers, or source validation.
+data adapters, content mappers, generated targets, or source validation.
 
 `data.adapters`:
 Optional array of project-local data adapters. Adapters declare capabilities
@@ -48,7 +49,10 @@ output, runtime hook, or Rust binding fields.
 
 `codegen.outputDirs`:
 Directories for `abilities`, `effects`, `executions`, `modifiers`,
-`reference`, and `tags` generated outputs.
+`reference`, and `tags` generated outputs. Extension generated targets may add
+their own output directory keys after they are registered by an active
+extension. Built-in output directories are required in full configs; extension
+target output directories are required only when that target is selected.
 
 `hooks.dir`:
 Directory where missing runtime hook stubs may be created.
@@ -69,4 +73,5 @@ optional `fast` boolean.
 Validation reports all practical shape errors in one pass, including missing
 fields, invalid command arrays, invalid path values, unknown generated targets,
 duplicate owned output paths, malformed extensions, malformed data adapters,
-missing data adapters, and malformed local host app commands.
+malformed generated targets, missing data adapters, unknown generated target
+output directories, and malformed local host app commands.

@@ -27,6 +27,11 @@ location metadata, content mapper types, and adapter capability helpers. Data
 adapters load source records and preserve provenance; mappers normalize those
 records into Studio content. Adapters and mappers do not generate Rust directly.
 
+`@flexweave/studio/codegen` exposes `defineStudioGeneratedTarget` for
+extension-owned generated outputs. Built-in and extension generated targets run
+through the same registry, dependency resolution, freshness checks, write mode,
+and managed-file cleanup.
+
 ## Command Family
 
 ```bash

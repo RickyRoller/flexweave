@@ -34,6 +34,7 @@ const studioRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(studioRoot, "..");
 const fixtureRoot = join(studioRoot, "tests/fixtures/minimal");
 const fixtureConfigPath = join(fixtureRoot, "studio.config.ts");
+const generatedTargetFixtureConfigPath = join(fixtureRoot, "generated-target.config.ts");
 const extensionFixtureRoot = join(studioRoot, "tests/fixtures/extension-sources");
 const extensionFixtureConfigPath = join(extensionFixtureRoot, "studio.config.ts");
 
@@ -471,6 +472,50 @@ test("codegen check detects stale, missing, and unexpected managed files without
   expect(readFileSync(stalePath, "utf-8")).toBe(`${originalStale}// stale\n`);
   expect(existsSync(missingPath)).toBe(false);
   expect(existsSync(unexpectedPath)).toBe(true);
+});
+
+test("extension generated targets run through the target registry", async () => {
+  const checked = await codegenStudioProject({
+    check: true,
+    configPath: generatedTargetFixtureConfigPath,
+    targets: ["synthetic-summary"],
+  });
+  expect(checked.ok).toBe(true);
+  expect(checked.targets.map((target) => target.target)).toEqual(["tags", "synthetic-summary"]);
+  expect(checked.targets.find((target) => target.target === "synthetic-summary")?.files).toEqual([
+    {
+      path: join(fixtureRoot, "generated/synthetic/summary.txt"),
+      status: "fresh",
+      target: "synthetic-summary",
+    },
+  ]);
+
+  const unknown = await codegenStudioProject({
+    check: true,
+    configPath: generatedTargetFixtureConfigPath,
+    targets: ["unknown"],
+  });
+  expect(unknown.ok).toBe(false);
+  expect(unknown.diagnostics[0]).toMatchObject({
+    code: "unknown-codegen-target",
+  });
+  expect(unknown.diagnostics[0]?.hint).toContain("synthetic-summary");
+});
+
+test("generated target registry blocks out-of-bounds target plans", async () => {
+  const result = await codegenStudioProject({
+    check: true,
+    configPath: join(extensionFixtureRoot, "out-of-bounds-target.config.ts"),
+    targets: ["out-of-bounds"],
+  });
+
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "generated-output-out-of-bounds",
+    }),
+  );
+  expect(existsSync(join(extensionFixtureRoot, "generated/outside.txt"))).toBe(false);
 });
 
 test("codegen writes only configured outputs, preserves hooks, and reports orphan hooks", async () => {

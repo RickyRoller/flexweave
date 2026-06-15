@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { join, relative } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 
-import { isStudioCodegenTarget, studioCodegenTargets } from "./codegen/types";
+import { defineStudioGeneratedTarget, studioCodegenTargets } from "./codegen/types";
 import type {
   RuntimeHookSummary,
   StudioCodegenTarget,
   StudioCodegenTargetSummary,
+  StudioGeneratedTargetDefinition,
   StudioGeneratedFileDiff,
 } from "./codegen/types";
 import { loadStudioConfig } from "./config/load";
@@ -673,43 +674,198 @@ interface PlannedGeneratedFile {
   value: string;
 }
 
-const plannedGeneratedFiles = (
+type StudioCatalogContent = Awaited<ReturnType<typeof loadStudioCatalog>>;
+type RegisteredGeneratedTarget = StudioGeneratedTargetDefinition<StudioCatalogContent>;
+
+const generatedTargetLabel = (target: StudioCodegenTarget) =>
+  target === "reference" ? "Generated catalog reference" : `Generated ${target} definitions`;
+
+const builtInGeneratedTargets = (): RegisteredGeneratedTarget[] =>
+  studioCodegenTargets.map((target) =>
+    defineStudioGeneratedTarget({
+      cleanup: "managed-files",
+      id: target,
+      label: generatedTargetLabel(target),
+      plan: ({ config, content, outputDir }) => {
+        const resolvedConfig = config as ResolvedStudioProjectConfig;
+        const catalog = content as StudioCatalogContent;
+        const path =
+          target === "reference"
+            ? join(outputDir, "studio-reference.md")
+            : join(outputDir, "generated.rs");
+        const value =
+          target === "reference"
+            ? renderReference(resolvedConfig, catalog)
+            : renderRustDefinitions(target, catalog.byKind[target]);
+        return {
+          files: [{ path, value }],
+        };
+      },
+    }),
+  );
+
+const activeGeneratedTargets = (
   config: ResolvedStudioProjectConfig,
-  catalog: Awaited<ReturnType<typeof loadStudioCatalog>>,
-  targets: StudioCodegenTarget[],
-): PlannedGeneratedFile[] =>
-  targets.map((target) => {
-    const outputDir = config.paths.codegen.outputDirs[target];
-    const path =
-      target === "reference"
-        ? join(outputDir, "studio-reference.md")
-        : join(outputDir, "generated.rs");
-    const value =
-      target === "reference"
-        ? renderReference(config, catalog)
-        : renderRustDefinitions(target, catalog.byKind[target]);
-    return { path, target, value };
-  });
+): RegisteredGeneratedTarget[] => [
+  ...builtInGeneratedTargets(),
+  ...(config.extensions.flatMap(
+    (extension) => extension.generatedTargets ?? [],
+  ) as RegisteredGeneratedTarget[]),
+];
+
+const pathContains = (parent: string, child: string) => {
+  const childRelativeToParent = relative(parent, child);
+  return (
+    childRelativeToParent === "" ||
+    (!childRelativeToParent.startsWith("..") && !isAbsolute(childRelativeToParent))
+  );
+};
+
+const selectTargets = (
+  registeredTargets: RegisteredGeneratedTarget[],
+  requestedTargets?: readonly string[],
+): { diagnostics: StudioDiagnostic[]; targets: RegisteredGeneratedTarget[] } => {
+  const byId: Record<string, RegisteredGeneratedTarget | undefined> = {};
+  for (const target of registeredTargets) {
+    byId[target.id] = target;
+  }
+
+  const availableTargetIds = registeredTargets.map((target) => target.id);
+  const rootTargetIds =
+    requestedTargets && requestedTargets.length > 0 ? [...requestedTargets] : availableTargetIds;
+  const diagnostics: StudioDiagnostic[] = [];
+  const orderedTargets: RegisteredGeneratedTarget[] = [];
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+
+  const visit = (targetId: string, dependencyOf?: string) => {
+    const target = byId[targetId];
+    if (!target) {
+      diagnostics.push(
+        workflowError(
+          dependencyOf ? "missing-generated-target-dependency" : "unknown-codegen-target",
+          dependencyOf
+            ? `Generated target "${dependencyOf}" depends on missing target "${targetId}".`
+            : `Unknown Studio generated output target "${targetId}".`,
+          undefined,
+          `Expected one of: ${availableTargetIds.join(", ")}.`,
+        ),
+      );
+      return;
+    }
+
+    if (visited.has(target.id)) {
+      return;
+    }
+
+    if (visiting.has(target.id)) {
+      diagnostics.push(
+        workflowError(
+          "generated-target-cycle",
+          `Generated target dependency cycle includes "${target.id}".`,
+        ),
+      );
+      return;
+    }
+
+    visiting.add(target.id);
+    for (const dependency of target.dependencies ?? []) {
+      visit(dependency, target.id);
+    }
+    visiting.delete(target.id);
+    visited.add(target.id);
+    orderedTargets.push(target);
+  };
+
+  for (const targetId of rootTargetIds) {
+    visit(targetId);
+  }
+
+  return { diagnostics, targets: orderedTargets };
+};
+
+const plannedGeneratedFiles = async (
+  config: ResolvedStudioProjectConfig,
+  catalog: StudioCatalogContent,
+  targets: RegisteredGeneratedTarget[],
+): Promise<{ diagnostics: StudioDiagnostic[]; files: PlannedGeneratedFile[] }> => {
+  const diagnostics: StudioDiagnostic[] = [];
+  const files: PlannedGeneratedFile[] = [];
+
+  for (const target of targets) {
+    const outputDir = config.paths.codegen.outputDirs[target.id];
+    if (!outputDir) {
+      diagnostics.push(
+        workflowError(
+          "missing-generated-output-root",
+          `Generated target "${target.id}" does not have a configured output directory.`,
+          config.configPath,
+          `Add codegen.outputDirs.${target.id} to the Studio project config.`,
+        ),
+      );
+      continue;
+    }
+
+    try {
+      const result = await target.plan({
+        config,
+        content: catalog,
+        outputDir,
+        targetId: target.id,
+      });
+      diagnostics.push(...((result.diagnostics ?? []) as StudioDiagnostic[]));
+      for (const file of result.files) {
+        if (!pathContains(outputDir, file.path)) {
+          diagnostics.push(
+            workflowError(
+              "generated-output-out-of-bounds",
+              `Generated target "${target.id}" planned a file outside its configured output directory.`,
+              file.path,
+              `Target output directory: ${outputDir}`,
+            ),
+          );
+          continue;
+        }
+        files.push({ path: file.path, target: target.id, value: file.value });
+      }
+    } catch (error) {
+      diagnostics.push(
+        workflowError(
+          "generated-target-plan-failed",
+          error instanceof Error
+            ? `Generated target "${target.id}" failed to plan files: ${error.message}`
+            : `Generated target "${target.id}" failed to plan files.`,
+          config.configPath,
+        ),
+      );
+    }
+  }
+
+  return { diagnostics, files };
+};
 
 const managedFileHeader = "Generated by Flexweave Studio";
 
 const detectUnexpectedManagedFiles = (
   config: ResolvedStudioProjectConfig,
   expected: PlannedGeneratedFile[],
-  targets: StudioCodegenTarget[],
+  targets: RegisteredGeneratedTarget[],
 ): StudioGeneratedFileDiff[] => {
   const expectedPaths = new Set(expected.map((file) => file.path));
   const diffs: StudioGeneratedFileDiff[] = [];
 
   for (const target of targets) {
-    const outputDir = config.paths.codegen.outputDirs[target];
+    if (target.cleanup === "none") {
+      continue;
+    }
+    const outputDir = config.paths.codegen.outputDirs[target.id];
     for (const path of listFilesRecursive(outputDir)) {
       if (expectedPaths.has(path)) {
         continue;
       }
       const value = readTextIfExists(path);
       if (value?.includes(managedFileHeader)) {
-        diffs.push({ path, status: "unexpected", target });
+        diffs.push({ path, status: "unexpected", target: target.id });
       }
     }
   }
@@ -720,7 +876,7 @@ const detectUnexpectedManagedFiles = (
 const summarizeGeneratedFiles = (
   config: ResolvedStudioProjectConfig,
   expected: PlannedGeneratedFile[],
-  targets: StudioCodegenTarget[],
+  targets: RegisteredGeneratedTarget[],
 ): StudioGeneratedFileDiff[] => {
   const diffs = expected.map((file): StudioGeneratedFileDiff => {
     const current = readTextIfExists(file.path);
@@ -813,32 +969,6 @@ const summarizeHooks = (
   return summaries.toSorted((left, right) => left.path.localeCompare(right.path));
 };
 
-const selectTargets = (
-  requestedTargets?: readonly string[],
-): { diagnostics: StudioDiagnostic[]; targets: StudioCodegenTarget[] } => {
-  if (!requestedTargets || requestedTargets.length === 0) {
-    return { diagnostics: [], targets: [...studioCodegenTargets] };
-  }
-
-  const diagnostics: StudioDiagnostic[] = [];
-  const targets: StudioCodegenTarget[] = [];
-  for (const target of requestedTargets) {
-    if (!isStudioCodegenTarget(target)) {
-      diagnostics.push(
-        workflowError(
-          "unknown-codegen-target",
-          `Unknown Studio generated output target "${target}".`,
-          undefined,
-          `Expected one of: ${studioCodegenTargets.join(", ")}.`,
-        ),
-      );
-    } else if (!targets.includes(target)) {
-      targets.push(target);
-    }
-  }
-  return { diagnostics, targets };
-};
-
 const generatedWriteStatus = (before: string | undefined, value: string) => {
   if (before === undefined) {
     return "created";
@@ -864,7 +994,8 @@ export const codegenStudioProject = async (
   }
 
   const fullConfigDiagnostics = fullConfigRequired(resolved.config);
-  const selected = selectTargets(options.targets);
+  const registeredTargets = activeGeneratedTargets(resolved.config);
+  const selected = selectTargets(registeredTargets, options.targets);
   if (fullConfigDiagnostics.length > 0 || selected.diagnostics.length > 0) {
     return {
       checked: options.check === true,
@@ -888,7 +1019,19 @@ export const codegenStudioProject = async (
     };
   }
 
-  const expected = plannedGeneratedFiles(resolved.config, catalog, selected.targets);
+  const planned = await plannedGeneratedFiles(resolved.config, catalog, selected.targets);
+  if (planned.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
+    return {
+      checked: options.check === true,
+      configPath: resolved.config.configPath,
+      diagnostics: planned.diagnostics,
+      hooks: [],
+      ok: false,
+      targets: [],
+    };
+  }
+
+  const expected = planned.files;
   const diffs = summarizeGeneratedFiles(resolved.config, expected, selected.targets);
   const hooks = summarizeHooks(resolved.config, catalog, {
     write: options.check !== true,
@@ -960,14 +1103,13 @@ export const codegenStudioProject = async (
 
   const targetSummaries = selected.targets.map(
     (target): StudioCodegenTargetSummary => ({
-      files: finalDiffs.filter((diff) => diff.target === target),
-      label:
-        target === "reference" ? "Generated catalog reference" : `Generated ${target} definitions`,
-      target,
+      files: finalDiffs.filter((diff) => diff.target === target.id),
+      label: target.label,
+      target: target.id,
     }),
   );
 
-  const diagnostics = [...staleDiagnostics, ...hookDiagnostics];
+  const diagnostics = [...planned.diagnostics, ...staleDiagnostics, ...hookDiagnostics];
   return {
     checked: options.check === true,
     configPath: resolved.config.configPath,

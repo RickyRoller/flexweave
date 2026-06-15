@@ -1,4 +1,5 @@
 import type { ResolvedStudioProjectConfig, StudioDiagnostic } from "./config/schema";
+import type { StudioGeneratedTargetDefinition } from "./codegen/types";
 
 export type { StudioDiagnostic } from "./config/schema";
 
@@ -93,6 +94,7 @@ export interface StudioSourceValidationContext {
 export interface StudioExtension {
   contentMappers?: readonly StudioContentMapper[];
   dataAdapters?: readonly StudioDataAdapter[];
+  generatedTargets?: readonly StudioGeneratedTargetDefinition[];
   id: string;
   label?: string;
   validateSources?: (

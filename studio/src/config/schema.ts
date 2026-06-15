@@ -1,7 +1,7 @@
 import { isAbsolute, normalize, relative, resolve } from "node:path";
 
 import { isStudioCodegenTarget, studioCodegenTargets } from "../codegen/types";
-import type { StudioCodegenTarget } from "../codegen/types";
+import type { StudioCodegenTarget, StudioGeneratedTargetDefinition } from "../codegen/types";
 import type {
   StudioContentMapper,
   StudioDataAdapter,
@@ -43,7 +43,7 @@ export interface StudioProjectConfig {
   };
   catalogRoot: string;
   codegen?: {
-    outputDirs?: Partial<Record<StudioCodegenTarget, string>>;
+    outputDirs?: Partial<Record<string, string>>;
   };
   data?: {
     adapters?: readonly StudioDataAdapter[];
@@ -442,6 +442,110 @@ const validateContentMappers = (
   return mappers;
 };
 
+const validateGeneratedTarget = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioGeneratedTargetDefinition | undefined => {
+  if (!hasObjectShape(value)) {
+    diagnostics.push(
+      error(
+        "invalid-generated-target",
+        field,
+        `Studio generated target ${field} must be an object.`,
+      ),
+    );
+    return undefined;
+  }
+
+  const id = readString(value.id, `${field}.id`, diagnostics);
+  const label = readString(value.label, `${field}.label`, diagnostics);
+  const dependencies = normalizeStringArray(
+    value.dependencies,
+    `${field}.dependencies`,
+    diagnostics,
+  );
+
+  if (
+    value.cleanup !== undefined &&
+    value.cleanup !== "managed-files" &&
+    value.cleanup !== "none"
+  ) {
+    diagnostics.push(
+      error(
+        "invalid-generated-target",
+        `${field}.cleanup`,
+        `Studio generated target ${field}.cleanup must be "managed-files" or "none" when provided.`,
+      ),
+    );
+  }
+
+  if (typeof value.plan !== "function") {
+    diagnostics.push(
+      error(
+        "invalid-generated-target",
+        `${field}.plan`,
+        `Studio generated target ${field} must provide a plan function.`,
+      ),
+    );
+  }
+
+  if (!id || !label || typeof value.plan !== "function") {
+    return undefined;
+  }
+
+  return {
+    ...(value as unknown as StudioGeneratedTargetDefinition),
+    dependencies,
+    id,
+    label,
+  };
+};
+
+const validateGeneratedTargets = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioGeneratedTargetDefinition[] => {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    diagnostics.push(
+      error(
+        "invalid-config-field",
+        field,
+        `Studio extension field ${field} must be an array of generated targets.`,
+      ),
+    );
+    return [];
+  }
+
+  const targets: StudioGeneratedTargetDefinition[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of value.entries()) {
+    const target = validateGeneratedTarget(item, `${field}.${index}`, diagnostics);
+    if (!target) {
+      continue;
+    }
+    if (seen.has(target.id)) {
+      diagnostics.push(
+        error(
+          "duplicate-generated-target",
+          `${field}.${index}.id`,
+          `Studio generated target "${target.id}" is registered more than once.`,
+        ),
+      );
+      continue;
+    }
+    seen.add(target.id);
+    targets.push(target);
+  }
+
+  return targets;
+};
+
 const validateStudioExtension = (
   value: unknown,
   field: string,
@@ -471,6 +575,11 @@ const validateStudioExtension = (
     `${field}.contentMappers`,
     diagnostics,
   );
+  const generatedTargets = validateGeneratedTargets(
+    value.generatedTargets,
+    `${field}.generatedTargets`,
+    diagnostics,
+  );
 
   if (value.validateSources !== undefined && typeof value.validateSources !== "function") {
     diagnostics.push(
@@ -490,6 +599,7 @@ const validateStudioExtension = (
     ...(value as unknown as StudioExtension),
     contentMappers,
     dataAdapters,
+    generatedTargets,
     id,
     label,
   };
@@ -884,15 +994,17 @@ interface FullConfigFields {
   flexweaveModule?: string;
   hookDir?: string;
   hookTestStubsDir?: string;
-  outputDirs: Partial<Record<StudioCodegenTarget, string>>;
+  outputDirs: Partial<Record<string, string>>;
 }
 
 const validateCodegenConfig = (
   value: StudioProjectConfig,
   diagnostics: StudioDiagnostic[],
-): Partial<Record<StudioCodegenTarget, string>> => {
-  const outputDirs: Partial<Record<StudioCodegenTarget, string>> = {};
+  extensionTargetIds: readonly string[],
+): Partial<Record<string, string>> => {
+  const outputDirs: Partial<Record<string, string>> = {};
   const codegenValue = value.codegen;
+  const activeTargetIds = [...studioCodegenTargets, ...extensionTargetIds];
 
   if (isObject(codegenValue) && isObject(codegenValue.outputDirs)) {
     for (const target of studioCodegenTargets) {
@@ -907,15 +1019,27 @@ const validateCodegenConfig = (
     }
 
     for (const key of Object.keys(codegenValue.outputDirs)) {
-      if (!isStudioCodegenTarget(key)) {
+      if (!activeTargetIds.includes(key)) {
         diagnostics.push(
           error(
             "unknown-codegen-target",
             `codegen.outputDirs.${key}`,
             `Unknown Studio generated output target "${key}".`,
-            `Expected one of: ${studioCodegenTargets.join(", ")}.`,
+            `Expected one of: ${activeTargetIds.join(", ")}.`,
           ),
         );
+        continue;
+      }
+
+      if (!isStudioCodegenTarget(key)) {
+        const configuredPath = readString(
+          codegenValue.outputDirs[key],
+          `codegen.outputDirs.${key}`,
+          diagnostics,
+        );
+        if (configuredPath) {
+          outputDirs[key] = configuredPath;
+        }
       }
     }
 
@@ -973,10 +1097,11 @@ const validateRustConfig = (
 const validateFullConfigFields = (
   value: StudioProjectConfig,
   diagnostics: StudioDiagnostic[],
+  extensionTargetIds: readonly string[],
 ): FullConfigFields => ({
   ...validateHookConfig(value, diagnostics),
   flexweaveModule: validateRustConfig(value, diagnostics),
-  outputDirs: validateCodegenConfig(value, diagnostics),
+  outputDirs: validateCodegenConfig(value, diagnostics, extensionTargetIds),
 });
 
 export const validateStudioConfig = (
@@ -1011,12 +1136,31 @@ export const validateStudioConfig = (
     );
   }
 
+  const extensions = validateStudioExtensions(raw.extensions, diagnostics);
+  const extensionTargetIds = extensions.flatMap((extension) =>
+    (extension.generatedTargets ?? []).map((target) => target.id),
+  );
+  const seenTargetIds = new Set<string>(studioCodegenTargets);
+  for (const targetId of extensionTargetIds) {
+    if (seenTargetIds.has(targetId)) {
+      diagnostics.push(
+        error(
+          "duplicate-generated-target",
+          "extensions.generatedTargets",
+          `Studio generated target "${targetId}" is registered more than once or shadows a built-in target.`,
+        ),
+      );
+      continue;
+    }
+    seenTargetIds.add(targetId);
+  }
   const fullFields =
-    mode === "full" ? validateFullConfigFields(raw, diagnostics) : { outputDirs: {} };
+    mode === "full"
+      ? validateFullConfigFields(raw, diagnostics, extensionTargetIds)
+      : { outputDirs: {} };
 
   const verifyCommands = validateVerifyConfig(raw.verify, diagnostics);
   const appConfig = validateAppConfig(raw.app, diagnostics);
-  const extensions = validateStudioExtensions(raw.extensions, diagnostics);
   const extensionAdapters = extensions.flatMap((extension) => extension.dataAdapters ?? []);
   const data = validateDataConfig(raw, diagnostics, extensionAdapters);
   const runtimeVocab = validateRuntimeVocabConfig(
@@ -1025,7 +1169,7 @@ export const validateStudioConfig = (
   );
 
   const resolvedOutputDirs = Object.fromEntries(
-    studioCodegenTargets.map((target) => [
+    [...studioCodegenTargets, ...extensionTargetIds].map((target) => [
       target,
       fullFields.outputDirs[target]
         ? resolveConfigPath(options.configDir, fullFields.outputDirs[target])
@@ -1046,6 +1190,12 @@ export const validateStudioConfig = (
     const ownedPaths = {
       ...Object.fromEntries(
         studioCodegenTargets.map((target) => [
+          `codegen.outputDirs.${target}`,
+          resolvedOutputDirs[target],
+        ]),
+      ),
+      ...Object.fromEntries(
+        extensionTargetIds.map((target) => [
           `codegen.outputDirs.${target}`,
           resolvedOutputDirs[target],
         ]),

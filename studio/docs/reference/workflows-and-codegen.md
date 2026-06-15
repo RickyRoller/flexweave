@@ -18,9 +18,11 @@ Exports include:
 - `verifyStudioProject`
 - `migrateStudioProject`
 
-`@flexweave/studio/codegen` exports generated target types and summaries. The
-generated targets are `abilities`, `effects`, `executions`, `modifiers`,
-`reference`, and `tags`.
+`@flexweave/studio/codegen` exports generated target types, summaries, and
+`defineStudioGeneratedTarget`. The built-in generated targets are `abilities`,
+`effects`, `executions`, `modifiers`, `reference`, and `tags`. Studio
+extensions may register additional generated targets with ids, labels,
+dependencies, cleanup policies, and plan functions.
 
 Validation loads the built-in JSON catalog and configured data sources through
 data adapters, then runs content mappers to produce normalized Studio content.
@@ -32,10 +34,16 @@ Scaffold writes go through the active writable content adapter. The built-in
 JSON catalog adapter supports transactional scaffold writes and rollback. Source
 configurations without a writable content adapter fail before writing files.
 
+Codegen resolves selected target ids through the active registry. Target
+dependencies are included before the selected target and deduplicated
+deterministically. Unknown target diagnostics list target ids available for the
+active project.
+
 Codegen write mode writes managed files only under configured output
 directories. Check mode compares expected files to disk and does not create,
-modify, or delete files. Target summaries contain file statuses that a local
-host app can render without importing package internals.
+modify, or delete files. A target plan that writes outside its configured output
+directory fails before write mode touches disk. Target summaries contain file
+statuses that a local host app can render without importing package internals.
 
 Host app scaffold results include created or updated files and manual
 follow-ups for existing files that differ from the current scaffold template.
