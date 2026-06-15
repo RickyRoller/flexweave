@@ -11,27 +11,17 @@ export default defineStudioConfig({
       executions: "generated/executions",
       modifiers: "generated/modifiers",
       reference: "generated/reference",
-      "synthetic-rust": "generated/synthetic-rust",
-      "synthetic-summary": "generated/synthetic",
       tags: "generated/tags",
     },
   },
   extensions: [syntheticSourceExtension],
   hooks: {
     dir: "runtime-hooks",
-    testStubsDir: "generated-hook-tests",
   },
   rust: {
     bindings: {
-      synthetic: {
-        module: "minimal_synthetic_runtime",
-      },
+      synthetic: {},
     },
     flexweaveModule: "flexweave",
-    preludeImports: ["core::fmt::Debug"],
-    runtimeVocab: {
-      ailments: ["minimal_ailment"],
-      damageTypes: ["minimal_damage"],
-    },
   },
 });

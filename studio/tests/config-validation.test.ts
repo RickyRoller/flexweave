@@ -50,6 +50,88 @@ test("config validation rejects invalid runtime vocabulary", () => {
   );
 });
 
+test("config validation resolves generic Rust codegen context", () => {
+  const result = validateStudioConfig(
+    {
+      ...validFullConfig(),
+      rust: {
+        bindings: {
+          synthetic: {
+            module: "synthetic_runtime",
+          },
+        },
+        flexweaveModule: "flexweave",
+        generatedHeader: "//! Generated {target}",
+        macroNames: {
+          tag: "tag_ref",
+        },
+        moduleAliases: {
+          core: "flexweave",
+        },
+        preludeImports: ["core::fmt::Debug"],
+        runtimeVocab: {
+          ailments: ["burning"],
+          damageTypes: ["fire"],
+        },
+        typePaths: {
+          objectId: "flexweave::ObjectId",
+        },
+      },
+    },
+    configOptions,
+  );
+
+  expect(result.ok).toBe(true);
+  expect(result.config?.rust).toMatchObject({
+    bindings: {
+      synthetic: {
+        module: "synthetic_runtime",
+      },
+    },
+    generatedHeader: "//! Generated {target}",
+    macroNames: {
+      tag: "tag_ref",
+    },
+    moduleAliases: {
+      core: "flexweave",
+    },
+    preludeImports: ["core::fmt::Debug"],
+    typePaths: {
+      objectId: "flexweave::ObjectId",
+    },
+  });
+});
+
+test("config validation rejects invalid generic Rust codegen context", () => {
+  const result = validateStudioConfig(
+    {
+      ...validFullConfig(),
+      rust: {
+        bindings: [],
+        flexweaveModule: "flexweave",
+        generatedHeader: "",
+        macroNames: {
+          tag: "",
+        },
+        preludeImports: [""],
+        typePaths: "ObjectId",
+      },
+    },
+    configOptions,
+  );
+
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics.map((diagnostic) => diagnostic.field)).toEqual(
+    expect.arrayContaining([
+      "rust.bindings",
+      "rust.generatedHeader",
+      "rust.macroNames.tag",
+      "rust.preludeImports.0",
+      "rust.typePaths",
+    ]),
+  );
+});
+
 test("config validation rejects invalid verify shape", () => {
   const nonObjectVerify = validateStudioConfig(
     {

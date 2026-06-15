@@ -7,6 +7,7 @@ import type {
   StudioDataAdapter,
   StudioDataAdapterCapability,
   StudioExtension,
+  StudioRustBindingConfigValidator,
   StudioSourceConfig,
   StudioSourceLocation,
 } from "../extensions";
@@ -56,11 +57,17 @@ export interface StudioProjectConfig {
   };
   mode?: "full" | "validate-only";
   rust?: {
+    bindings?: Record<string, unknown>;
     flexweaveModule?: string;
+    generatedHeader?: string;
+    macroNames?: Record<string, string>;
+    moduleAliases?: Record<string, string>;
+    preludeImports?: readonly string[];
     runtimeVocab?: {
       ailments?: readonly string[];
       damageTypes?: readonly string[];
     };
+    typePaths?: Record<string, string>;
   };
   verify?: {
     commands?: readonly StudioVerifyCommandInput[];
@@ -95,11 +102,17 @@ export interface ResolvedStudioProjectConfig {
   };
   raw: StudioProjectConfig;
   rust?: {
+    bindings: Record<string, unknown>;
     flexweaveModule: string;
+    generatedHeader?: string;
+    macroNames: Record<string, string>;
+    moduleAliases: Record<string, string>;
+    preludeImports: string[];
     runtimeVocab: {
       ailments: string[];
       damageTypes: string[];
     };
+    typePaths: Record<string, string>;
   };
   verify: {
     commands: StudioVerifyCommand[];
@@ -116,7 +129,12 @@ export const defineStudioConfig = <const Config extends StudioProjectConfig>(
   config: Config,
 ): Config => config;
 
-const error = (code: string, field: string, message: string, hint?: string): StudioDiagnostic => ({
+const configError = (
+  code: string,
+  field: string,
+  message: string,
+  hint?: string,
+): StudioDiagnostic => ({
   code,
   field,
   hint,
@@ -137,7 +155,7 @@ const readString = (
   }
 
   diagnostics.push(
-    error(
+    configError(
       "invalid-config-field",
       field,
       `Studio project config field ${field} must be a non-empty string.`,
@@ -160,7 +178,7 @@ const normalizeStringArray = (
 
   if (!Array.isArray(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         field,
         `Studio project config field ${field} must be an array of strings.`,
@@ -174,7 +192,7 @@ const normalizeStringArray = (
     const itemField = `${field}.${index}`;
     if (typeof item !== "string" || item.trim().length === 0) {
       diagnostics.push(
-        error(
+        configError(
           "invalid-config-field",
           itemField,
           `Studio project config field ${itemField} must be a non-empty string.`,
@@ -205,7 +223,7 @@ const validateCapabilities = (
 ): StudioDataAdapterCapability[] => {
   if (!Array.isArray(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-data-adapter",
         field,
         `Studio data adapter field ${field} must be an array of capabilities.`,
@@ -223,7 +241,7 @@ const validateCapabilities = (
       !(validAdapterCapabilities as readonly string[]).includes(item)
     ) {
       diagnostics.push(
-        error(
+        configError(
           "invalid-data-adapter",
           itemField,
           `Studio data adapter capability ${itemField} is not supported.`,
@@ -239,7 +257,7 @@ const validateCapabilities = (
 
   if (capabilities.length === 0) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-data-adapter",
         field,
         `Studio data adapter field ${field} must include at least one capability.`,
@@ -257,7 +275,7 @@ const validateDataAdapter = (
 ): StudioDataAdapter | undefined => {
   if (!hasObjectShape(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-data-adapter",
         field,
         `Studio data adapter ${field} must be an object returned by defineStudioDataAdapter.`,
@@ -277,7 +295,7 @@ const validateDataAdapter = (
 
   if (typeof value.load !== "function") {
     diagnostics.push(
-      error(
+      configError(
         "invalid-data-adapter",
         `${field}.load`,
         `Studio data adapter ${field} must provide a load function.`,
@@ -287,7 +305,7 @@ const validateDataAdapter = (
 
   if (value.write !== undefined && typeof value.write !== "function") {
     diagnostics.push(
-      error(
+      configError(
         "invalid-data-adapter",
         `${field}.write`,
         `Studio data adapter ${field}.write must be a function when provided.`,
@@ -297,7 +315,7 @@ const validateDataAdapter = (
 
   if (capabilities.includes("write") && typeof value.write !== "function") {
     diagnostics.push(
-      error(
+      configError(
         "invalid-data-adapter",
         `${field}.write`,
         `Writable Studio data adapter ${field} must provide a write function.`,
@@ -328,7 +346,7 @@ const validateDataAdapters = (
 
   if (!Array.isArray(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         field,
         `Studio project config field ${field} must be an array of data adapters.`,
@@ -346,7 +364,7 @@ const validateDataAdapters = (
     }
     if (seen.has(adapter.id)) {
       diagnostics.push(
-        error(
+        configError(
           "duplicate-data-adapter",
           `${field}.${index}.id`,
           `Studio data adapter "${adapter.id}" is registered more than once.`,
@@ -368,7 +386,11 @@ const validateContentMapper = (
 ): StudioContentMapper | undefined => {
   if (!hasObjectShape(value)) {
     diagnostics.push(
-      error("invalid-content-mapper", field, `Studio content mapper ${field} must be an object.`),
+      configError(
+        "invalid-content-mapper",
+        field,
+        `Studio content mapper ${field} must be an object.`,
+      ),
     );
     return undefined;
   }
@@ -379,7 +401,7 @@ const validateContentMapper = (
 
   if (typeof value.map !== "function") {
     diagnostics.push(
-      error(
+      configError(
         "invalid-content-mapper",
         `${field}.map`,
         `Studio content mapper ${field} must provide a map function.`,
@@ -409,7 +431,7 @@ const validateContentMappers = (
 
   if (!Array.isArray(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         field,
         `Studio extension field ${field} must be an array of content mappers.`,
@@ -427,7 +449,7 @@ const validateContentMappers = (
     }
     if (seen.has(mapper.id)) {
       diagnostics.push(
-        error(
+        configError(
           "duplicate-content-mapper",
           `${field}.${index}.id`,
           `Studio content mapper "${mapper.id}" is registered more than once.`,
@@ -449,7 +471,7 @@ const validateGeneratedTarget = (
 ): StudioGeneratedTargetDefinition | undefined => {
   if (!hasObjectShape(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-generated-target",
         field,
         `Studio generated target ${field} must be an object.`,
@@ -472,7 +494,7 @@ const validateGeneratedTarget = (
     value.cleanup !== "none"
   ) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-generated-target",
         `${field}.cleanup`,
         `Studio generated target ${field}.cleanup must be "managed-files" or "none" when provided.`,
@@ -482,7 +504,7 @@ const validateGeneratedTarget = (
 
   if (typeof value.plan !== "function") {
     diagnostics.push(
-      error(
+      configError(
         "invalid-generated-target",
         `${field}.plan`,
         `Studio generated target ${field} must provide a plan function.`,
@@ -513,7 +535,7 @@ const validateGeneratedTargets = (
 
   if (!Array.isArray(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         field,
         `Studio extension field ${field} must be an array of generated targets.`,
@@ -531,7 +553,7 @@ const validateGeneratedTargets = (
     }
     if (seen.has(target.id)) {
       diagnostics.push(
-        error(
+        configError(
           "duplicate-generated-target",
           `${field}.${index}.id`,
           `Studio generated target "${target.id}" is registered more than once.`,
@@ -546,6 +568,87 @@ const validateGeneratedTargets = (
   return targets;
 };
 
+const validateRustBindingConfigValidator = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioRustBindingConfigValidator | undefined => {
+  if (!hasObjectShape(value)) {
+    diagnostics.push(
+      configError(
+        "invalid-rust-binding-config",
+        field,
+        `Studio Rust binding config ${field} must be an object.`,
+      ),
+    );
+    return undefined;
+  }
+
+  const namespace = readString(value.namespace, `${field}.namespace`, diagnostics);
+  if (typeof value.validate !== "function") {
+    diagnostics.push(
+      configError(
+        "invalid-rust-binding-config",
+        `${field}.validate`,
+        `Studio Rust binding config ${field} must provide a validate function.`,
+      ),
+    );
+  }
+
+  if (!namespace || typeof value.validate !== "function") {
+    return undefined;
+  }
+
+  return {
+    ...(value as unknown as StudioRustBindingConfigValidator),
+    namespace,
+  };
+};
+
+const validateRustBindingConfigValidators = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioRustBindingConfigValidator[] => {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    diagnostics.push(
+      configError(
+        "invalid-config-field",
+        field,
+        `Studio extension field ${field} must be an array of Rust binding config validators.`,
+      ),
+    );
+    return [];
+  }
+
+  const validators: StudioRustBindingConfigValidator[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of value.entries()) {
+    const validator = validateRustBindingConfigValidator(item, `${field}.${index}`, diagnostics);
+    if (!validator) {
+      continue;
+    }
+    if (seen.has(validator.namespace)) {
+      diagnostics.push(
+        configError(
+          "duplicate-rust-binding-config",
+          `${field}.${index}.namespace`,
+          `Studio Rust binding config namespace "${validator.namespace}" is registered more than once.`,
+        ),
+      );
+      continue;
+    }
+    seen.add(validator.namespace);
+    validators.push(validator);
+  }
+
+  return validators;
+};
+
 const validateStudioExtension = (
   value: unknown,
   field: string,
@@ -553,7 +656,7 @@ const validateStudioExtension = (
 ): StudioExtension | undefined => {
   if (!hasObjectShape(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-studio-extension",
         field,
         `Studio extension ${field} must be an object returned by defineStudioExtension.`,
@@ -580,10 +683,15 @@ const validateStudioExtension = (
     `${field}.generatedTargets`,
     diagnostics,
   );
+  const rustBindingConfigs = validateRustBindingConfigValidators(
+    value.rustBindingConfigs,
+    `${field}.rustBindingConfigs`,
+    diagnostics,
+  );
 
   if (value.validateSources !== undefined && typeof value.validateSources !== "function") {
     diagnostics.push(
-      error(
+      configError(
         "invalid-studio-extension",
         `${field}.validateSources`,
         `Studio extension ${field}.validateSources must be a function when provided.`,
@@ -602,6 +710,7 @@ const validateStudioExtension = (
     generatedTargets,
     id,
     label,
+    rustBindingConfigs,
   };
 };
 
@@ -615,7 +724,7 @@ const validateStudioExtensions = (
 
   if (!Array.isArray(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         "extensions",
         "Studio project config field extensions must be an array of Studio extensions.",
@@ -633,7 +742,7 @@ const validateStudioExtensions = (
     }
     if (seen.has(extension.id)) {
       diagnostics.push(
-        error(
+        configError(
           "duplicate-studio-extension",
           `extensions.${index}.id`,
           `Studio extension "${extension.id}" is registered more than once.`,
@@ -655,7 +764,7 @@ const validateSourceConfig = (
 ): StudioSourceConfig | undefined => {
   if (!isObject(value)) {
     diagnostics.push(
-      error("invalid-source-config", field, `Studio source ${field} must be an object.`),
+      configError("invalid-source-config", field, `Studio source ${field} must be an object.`),
     );
     return undefined;
   }
@@ -666,7 +775,7 @@ const validateSourceConfig = (
     value.label === undefined ? undefined : readString(value.label, `${field}.label`, diagnostics);
   if (value.options !== undefined && !isObject(value.options)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-source-config",
         `${field}.options`,
         `Studio source field ${field}.options must be an object when provided.`,
@@ -700,7 +809,7 @@ const validateDataConfig = (
 
   if (!isObject(value.data)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         "data",
         "Studio project config field data must be an object when provided.",
@@ -717,7 +826,7 @@ const validateDataConfig = (
   const sources: StudioSourceConfig[] = [];
   if (sourcesValue !== undefined && !Array.isArray(sourcesValue)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         "data.sources",
         "Studio project config field data.sources must be an array of source declarations.",
@@ -738,7 +847,7 @@ const validateDataConfig = (
   for (const [index, source] of sources.entries()) {
     if (!availableAdapters.has(source.adapterId)) {
       diagnostics.push(
-        error(
+        configError(
           "missing-data-adapter",
           `data.sources.${index}.adapterId`,
           `Studio source "${source.id}" references missing data adapter "${source.adapterId}".`,
@@ -761,7 +870,7 @@ const validateVerifyCommands = (
 
   if (!Array.isArray(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         "verify.commands",
         "Studio project config field verify.commands must be an array.",
@@ -775,7 +884,7 @@ const validateVerifyCommands = (
     const field = `verify.commands.${index}`;
     if (!isObject(commandValue)) {
       diagnostics.push(
-        error(
+        configError(
           "invalid-config-field",
           field,
           `Studio project config field ${field} must be an object.`,
@@ -788,7 +897,7 @@ const validateVerifyCommands = (
     const command = normalizeStringArray(commandValue.command, `${field}.command`, diagnostics);
     if (command.length === 0) {
       diagnostics.push(
-        error(
+        configError(
           "invalid-config-field",
           `${field}.command`,
           `Studio project config field ${field}.command must include at least one argument.`,
@@ -798,7 +907,7 @@ const validateVerifyCommands = (
 
     if (commandValue.fast !== undefined && typeof commandValue.fast !== "boolean") {
       diagnostics.push(
-        error(
+        configError(
           "invalid-config-field",
           `${field}.fast`,
           `Studio project config field ${field}.fast must be a boolean when provided.`,
@@ -828,7 +937,7 @@ const validateVerifyConfig = (
 
   if (!isObject(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         "verify",
         "Studio project config field verify must be an object when provided.",
@@ -852,7 +961,7 @@ const validateOptionalCommand = (
   const command = normalizeStringArray(value, field, diagnostics);
   if (command.length === 0) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         field,
         `Studio project config field ${field} must include at least one argument when provided.`,
@@ -874,7 +983,7 @@ const validateAppConfig = (
 
   if (!isObject(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         "app",
         "Studio project config field app must be an object when provided.",
@@ -903,7 +1012,7 @@ const validateRuntimeVocabConfig = (
 
   if (!isObject(value)) {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         "rust.runtimeVocab",
         "Studio project config field rust.runtimeVocab must be an object when provided.",
@@ -925,6 +1034,66 @@ const validateRuntimeVocabConfig = (
   };
 };
 
+const validateStringRecord = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): Record<string, string> => {
+  if (value === undefined) {
+    return {};
+  }
+
+  if (!isObject(value)) {
+    diagnostics.push(
+      configError(
+        "invalid-config-field",
+        field,
+        `Studio project config field ${field} must be an object of strings when provided.`,
+      ),
+    );
+    return {};
+  }
+
+  const result: Record<string, string> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (typeof item !== "string" || item.trim().length === 0) {
+      diagnostics.push(
+        configError(
+          "invalid-config-field",
+          `${field}.${key}`,
+          `Studio project config field ${field}.${key} must be a non-empty string.`,
+        ),
+      );
+      continue;
+    }
+    result[key] = item;
+  }
+
+  return result;
+};
+
+const validateBindingsRecord = (
+  value: unknown,
+  diagnostics: StudioDiagnostic[],
+): Record<string, unknown> => {
+  if (value === undefined) {
+    return {};
+  }
+
+  if (!isObject(value)) {
+    diagnostics.push(
+      configError(
+        "invalid-config-field",
+        "rust.bindings",
+        "Studio project config field rust.bindings must be an object when provided.",
+      ),
+    );
+    return {};
+  }
+
+  return value;
+};
+
 const validateDuplicateOwnedPaths = (
   paths: Record<string, string | undefined>,
   diagnostics: StudioDiagnostic[],
@@ -938,7 +1107,7 @@ const validateDuplicateOwnedPaths = (
     const existing = byPath[value];
     if (existing) {
       diagnostics.push(
-        error(
+        configError(
           "duplicate-owned-path",
           field,
           `Studio project config fields ${existing} and ${field} resolve to the same owned path.`,
@@ -978,7 +1147,7 @@ const validateAmbiguousOwnedPaths = (
 
       if (pathContains(leftPath, rightPath) || pathContains(rightPath, leftPath)) {
         diagnostics.push(
-          error(
+          configError(
             "ambiguous-owned-path",
             rightField,
             `Studio project config fields ${leftField} and ${rightField} overlap owned paths.`,
@@ -991,10 +1160,10 @@ const validateAmbiguousOwnedPaths = (
 };
 
 interface FullConfigFields {
-  flexweaveModule?: string;
   hookDir?: string;
   hookTestStubsDir?: string;
   outputDirs: Partial<Record<string, string>>;
+  rust?: ResolvedStudioProjectConfig["rust"];
 }
 
 const validateCodegenConfig = (
@@ -1021,7 +1190,7 @@ const validateCodegenConfig = (
     for (const key of Object.keys(codegenValue.outputDirs)) {
       if (!activeTargetIds.includes(key)) {
         diagnostics.push(
-          error(
+          configError(
             "unknown-codegen-target",
             `codegen.outputDirs.${key}`,
             `Unknown Studio generated output target "${key}".`,
@@ -1047,7 +1216,7 @@ const validateCodegenConfig = (
   }
 
   diagnostics.push(
-    error(
+    configError(
       "missing-config-field",
       "codegen.outputDirs",
       "Full Studio project configs must declare codegen.outputDirs.",
@@ -1071,7 +1240,11 @@ const validateHookConfig = (
   }
 
   diagnostics.push(
-    error("missing-config-field", "hooks", "Full Studio project configs must declare hooks.dir."),
+    configError(
+      "missing-config-field",
+      "hooks",
+      "Full Studio project configs must declare hooks.dir.",
+    ),
   );
   return {};
 };
@@ -1079,19 +1252,85 @@ const validateHookConfig = (
 const validateRustConfig = (
   value: StudioProjectConfig,
   diagnostics: StudioDiagnostic[],
-): string | undefined => {
-  if (isObject(value.rust)) {
-    return readString(value.rust.flexweaveModule, "rust.flexweaveModule", diagnostics);
+): ResolvedStudioProjectConfig["rust"] | undefined => {
+  if (!isObject(value.rust)) {
+    diagnostics.push(
+      configError(
+        "missing-config-field",
+        "rust",
+        "Full Studio project configs must declare rust.flexweaveModule.",
+      ),
+    );
+    return undefined;
   }
 
-  diagnostics.push(
-    error(
-      "missing-config-field",
-      "rust",
-      "Full Studio project configs must declare rust.flexweaveModule.",
-    ),
+  const flexweaveModule = readString(
+    value.rust.flexweaveModule,
+    "rust.flexweaveModule",
+    diagnostics,
   );
-  return undefined;
+  const generatedHeader =
+    value.rust.generatedHeader === undefined
+      ? undefined
+      : readString(value.rust.generatedHeader, "rust.generatedHeader", diagnostics);
+
+  if (!flexweaveModule) {
+    return undefined;
+  }
+
+  return {
+    bindings: validateBindingsRecord(value.rust.bindings, diagnostics),
+    flexweaveModule,
+    generatedHeader,
+    macroNames: validateStringRecord(value.rust.macroNames, "rust.macroNames", diagnostics),
+    moduleAliases: validateStringRecord(
+      value.rust.moduleAliases,
+      "rust.moduleAliases",
+      diagnostics,
+    ),
+    preludeImports: normalizeStringArray(
+      value.rust.preludeImports,
+      "rust.preludeImports",
+      diagnostics,
+    ),
+    runtimeVocab: validateRuntimeVocabConfig(value.rust.runtimeVocab, diagnostics),
+    typePaths: validateStringRecord(value.rust.typePaths, "rust.typePaths", diagnostics),
+  };
+};
+
+const validateExtensionRustBindings = (
+  extensions: readonly StudioExtension[],
+  rust: ResolvedStudioProjectConfig["rust"] | undefined,
+): StudioDiagnostic[] => {
+  if (!rust) {
+    return [];
+  }
+
+  const diagnostics: StudioDiagnostic[] = [];
+  for (const extension of extensions) {
+    for (const validator of extension.rustBindingConfigs ?? []) {
+      try {
+        diagnostics.push(
+          ...validator.validate({
+            namespace: validator.namespace,
+            value: rust.bindings[validator.namespace],
+          }),
+        );
+      } catch (error) {
+        diagnostics.push(
+          configError(
+            "extension-rust-config-failed",
+            `extensions.${extension.id}.rustBindingConfigs.${validator.namespace}`,
+            error instanceof Error
+              ? `Studio extension "${extension.id}" failed Rust binding config validation: ${error.message}`
+              : `Studio extension "${extension.id}" failed Rust binding config validation.`,
+          ),
+        );
+      }
+    }
+  }
+
+  return diagnostics;
 };
 
 const validateFullConfigFields = (
@@ -1100,8 +1339,8 @@ const validateFullConfigFields = (
   extensionTargetIds: readonly string[],
 ): FullConfigFields => ({
   ...validateHookConfig(value, diagnostics),
-  flexweaveModule: validateRustConfig(value, diagnostics),
   outputDirs: validateCodegenConfig(value, diagnostics, extensionTargetIds),
+  rust: validateRustConfig(value, diagnostics),
 });
 
 export const validateStudioConfig = (
@@ -1128,7 +1367,7 @@ export const validateStudioConfig = (
   const mode = raw.mode ?? "full";
   if (mode !== "full" && mode !== "validate-only") {
     diagnostics.push(
-      error(
+      configError(
         "invalid-config-field",
         "mode",
         'Studio project config field mode must be "full" or "validate-only".',
@@ -1144,7 +1383,7 @@ export const validateStudioConfig = (
   for (const targetId of extensionTargetIds) {
     if (seenTargetIds.has(targetId)) {
       diagnostics.push(
-        error(
+        configError(
           "duplicate-generated-target",
           "extensions.generatedTargets",
           `Studio generated target "${targetId}" is registered more than once or shadows a built-in target.`,
@@ -1154,19 +1393,16 @@ export const validateStudioConfig = (
     }
     seenTargetIds.add(targetId);
   }
-  const fullFields =
+  const fullFields: FullConfigFields =
     mode === "full"
       ? validateFullConfigFields(raw, diagnostics, extensionTargetIds)
       : { outputDirs: {} };
+  diagnostics.push(...validateExtensionRustBindings(extensions, fullFields.rust));
 
   const verifyCommands = validateVerifyConfig(raw.verify, diagnostics);
   const appConfig = validateAppConfig(raw.app, diagnostics);
   const extensionAdapters = extensions.flatMap((extension) => extension.dataAdapters ?? []);
   const data = validateDataConfig(raw, diagnostics, extensionAdapters);
-  const runtimeVocab = validateRuntimeVocabConfig(
-    isObject(raw.rust) ? raw.rust.runtimeVocab : undefined,
-    diagnostics,
-  );
 
   const resolvedOutputDirs = Object.fromEntries(
     [...studioCodegenTargets, ...extensionTargetIds].map((target) => [
@@ -1236,12 +1472,7 @@ export const validateStudioConfig = (
         },
       },
       raw,
-      rust: fullFields.flexweaveModule
-        ? {
-            flexweaveModule: fullFields.flexweaveModule,
-            runtimeVocab,
-          }
-        : undefined,
+      rust: fullFields.rust,
       verify: {
         commands: verifyCommands,
       },

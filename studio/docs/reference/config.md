@@ -63,8 +63,23 @@ Optional directory for generated hook test stubs.
 `rust.flexweaveModule`:
 Consumer runtime import binding used by generated Rust definitions.
 
+`rust.generatedHeader`:
+Optional generated file header template. `{target}` is replaced with the active
+generated target id.
+
+`rust.moduleAliases`, `rust.typePaths`, and `rust.macroNames`:
+Optional objects of string aliases used by generated Rust targets.
+
+`rust.preludeImports`:
+Optional array of Rust imports available to generated targets.
+
 `rust.runtimeVocab`:
 Consumer-owned token lists needed by validation or generated code.
+
+`rust.bindings`:
+Optional object for extension-owned Rust binding config. Each extension owns
+and validates its own namespace under this object. Studio validates only the
+generic object shape.
 
 `verify.commands`:
 Structured verification commands. Each command has `name`, `command`, and an

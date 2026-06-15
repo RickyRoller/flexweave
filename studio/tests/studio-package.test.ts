@@ -502,6 +502,39 @@ test("extension generated targets run through the target registry", async () => 
   expect(unknown.diagnostics[0]?.hint).toContain("synthetic-summary");
 });
 
+test("extension Rust binding config feeds extension generated targets", async () => {
+  const checked = await codegenStudioProject({
+    check: true,
+    configPath: generatedTargetFixtureConfigPath,
+    targets: ["synthetic-rust"],
+  });
+  expect(checked.ok).toBe(true);
+  expect(checked.targets).toEqual([
+    {
+      files: [
+        {
+          path: join(fixtureRoot, "generated/synthetic-rust/synthetic.rs"),
+          status: "fresh",
+          target: "synthetic-rust",
+        },
+      ],
+      label: "Synthetic Rust binding",
+      target: "synthetic-rust",
+    },
+  ]);
+
+  const invalid = await loadStudioConfig({
+    configPath: join(fixtureRoot, "invalid-rust-binding.config.ts"),
+  });
+  expect(invalid.ok).toBe(false);
+  expect(invalid.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "invalid-synthetic-rust-binding",
+      field: "rust.bindings.synthetic.module",
+    }),
+  );
+});
+
 test("generated target registry blocks out-of-bounds target plans", async () => {
   const result = await codegenStudioProject({
     check: true,

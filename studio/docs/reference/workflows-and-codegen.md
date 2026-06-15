@@ -39,6 +39,11 @@ dependencies are included before the selected target and deduplicated
 deterministically. Unknown target diagnostics list target ids available for the
 active project.
 
+Generated Rust targets receive the resolved Rust codegen context. Built-in
+targets use the generic subset owned by Studio, including generated headers.
+Extension targets may read their own namespaced `rust.bindings` config after
+their extension validates it.
+
 Codegen write mode writes managed files only under configured output
 directories. Check mode compares expected files to disk and does not create,
 modify, or delete files. A target plan that writes outside its configured output

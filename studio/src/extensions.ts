@@ -91,12 +91,23 @@ export interface StudioSourceValidationContext {
   snapshots: readonly StudioSourceSnapshot[];
 }
 
+export interface StudioRustBindingValidationContext {
+  namespace: string;
+  value: unknown;
+}
+
+export interface StudioRustBindingConfigValidator {
+  namespace: string;
+  validate: (context: StudioRustBindingValidationContext) => readonly StudioDiagnostic[];
+}
+
 export interface StudioExtension {
   contentMappers?: readonly StudioContentMapper[];
   dataAdapters?: readonly StudioDataAdapter[];
   generatedTargets?: readonly StudioGeneratedTargetDefinition[];
   id: string;
   label?: string;
+  rustBindingConfigs?: readonly StudioRustBindingConfigValidator[];
   validateSources?: (
     context: StudioSourceValidationContext,
   ) => Promise<readonly StudioDiagnostic[]> | readonly StudioDiagnostic[];

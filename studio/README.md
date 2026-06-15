@@ -32,6 +32,10 @@ extension-owned generated outputs. Built-in and extension generated targets run
 through the same registry, dependency resolution, freshness checks, write mode,
 and managed-file cleanup.
 
+Rust generation uses a resolved Rust codegen context from project config.
+Generic fields are validated by Studio, while extension-owned Rust binding
+config stays namespaced to the extension that validates and consumes it.
+
 ## Command Family
 
 ```bash
