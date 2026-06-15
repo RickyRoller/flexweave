@@ -22,12 +22,12 @@ Commands:
 - `codegen`: refresh generated mechanics definitions.
 - `codegen --check`: fail when generated mechanics definitions are missing,
   stale, or unexpectedly present.
-- `verify`: run validation, generated freshness checks, and configured
-  verification commands. When a host app is configured, it also checks scaffold
-  health and runs the host app check or build command.
-- `migrate`: run package migrations after updates. It reads local host app
-  scaffold metadata when present and reports changed files plus manual
-  follow-ups.
+- `verify`: run config, extension, source, mapper, validation, generated target,
+  runtime hook, host app, and project command checks. When `--fast` is passed,
+  project commands are limited to commands marked `fast`.
+- `migrate`: run package and extension-owned migrations after updates. It reads
+  local host app scaffold metadata when present and reports changed files,
+  skipped work, unsupported versions, and manual follow-ups.
 
-Failures exit non-zero. JSON failures include structured diagnostics and do not
-require parsing human output.
+Failures exit non-zero. JSON output includes structured diagnostics plus
+per-check status records and does not require parsing human output.

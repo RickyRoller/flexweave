@@ -64,3 +64,21 @@ contributions through `@flexweave/studio-app`.
 Host app verification checks scaffold metadata, required managed files,
 project-owned file presence, contribution contract diagnostics, and the
 configured host app check or build command.
+
+Verify results include a `checks` array for unattended callers. Checks are
+reported for config load, active extensions, configured sources and adapters,
+extension mappers, validation, each generated target, runtime hooks, host app
+state, and project commands. Each check includes a name, mode, status, owning
+extension/adapter/target/command fields when applicable, diagnostics, and
+command output for failed project commands.
+
+`verify --fast` still runs the built-in health checks and host app checks. It
+filters project-declared verification commands to those marked `fast: true`.
+Full verify runs every project-declared command.
+
+Migrate results also include a `checks` array. The host app scaffold migration
+detects the current scaffold version, rejects unsupported future versions with
+manual follow-ups, and preserves project-owned adapter files. Extension-owned
+migrations run in deterministic extension id and migration id order; each
+extension owns its schema version detection, writes, skipped result, and
+unsupported-version diagnostics.

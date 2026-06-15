@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { defineStudioGeneratedTarget } from "@flexweave/studio/codegen";
@@ -6,6 +6,7 @@ import {
   defineStudioContentMapper,
   defineStudioDataAdapter,
   defineStudioExtension,
+  defineStudioExtensionMigration,
   defineStudioHostAppContribution,
   studioSourceLocationLabel,
 } from "@flexweave/studio/extensions";
@@ -292,6 +293,45 @@ export const syntheticHostAppContribution = defineStudioHostAppContribution({
   ],
 });
 
+export const syntheticSchemaMigration = defineStudioExtensionMigration({
+  fromVersion: 0,
+  id: "synthetic-source-schema",
+  label: "Synthetic source schema",
+  migrate: ({ config }) => {
+    const path = join(config.configDir, "sources/migration-state.json");
+    const value = JSON.parse(readFileSync(path, "utf-8")) as { version?: unknown };
+    const currentVersion = typeof value.version === "number" ? value.version : 0;
+
+    if (currentVersion === 1) {
+      return {
+        skipped: ["Synthetic source schema is current."],
+      };
+    }
+
+    if (currentVersion !== 0) {
+      const message = `Unsupported synthetic source schema version ${currentVersion}; expected 0 or 1.`;
+      return {
+        diagnostics: [
+          {
+            code: "unsupported-extension-migration",
+            message,
+            path,
+            severity: "error" as const,
+          },
+        ],
+        manualFollowUps: [message],
+      };
+    }
+
+    writeFileSync(path, `${JSON.stringify({ ...value, version: 1 }, null, 2)}\n`);
+    return {
+      applied: ["synthetic-source-extension: synthetic-source-schema 0 -> 1"],
+      changedFiles: [path],
+    };
+  },
+  toVersion: 1,
+});
+
 export const syntheticSourceExtension = defineStudioExtension({
   appContributions: [syntheticHostAppContribution],
   contentMappers: [syntheticTableContentMapper],
@@ -299,6 +339,7 @@ export const syntheticSourceExtension = defineStudioExtension({
   generatedTargets: [syntheticSummaryTarget, syntheticRustTarget],
   id: "synthetic-source-extension",
   label: "Synthetic source extension",
+  migrations: [syntheticSchemaMigration],
   rustBindingConfigs: [syntheticRustBindingConfig],
   validateSources: ({ snapshots }) =>
     snapshots

@@ -101,6 +101,29 @@ export interface StudioRustBindingConfigValidator {
   validate: (context: StudioRustBindingValidationContext) => readonly StudioDiagnostic[];
 }
 
+export interface StudioExtensionMigrationContext {
+  appRoot?: string;
+  config: ResolvedStudioProjectConfig;
+}
+
+export interface StudioExtensionMigrationResult {
+  applied?: readonly string[];
+  changedFiles?: readonly string[];
+  diagnostics?: readonly StudioDiagnostic[];
+  manualFollowUps?: readonly string[];
+  skipped?: readonly string[];
+}
+
+export interface StudioExtensionMigration {
+  fromVersion: number;
+  id: string;
+  label?: string;
+  migrate: (
+    context: StudioExtensionMigrationContext,
+  ) => Promise<StudioExtensionMigrationResult> | StudioExtensionMigrationResult;
+  toVersion: number;
+}
+
 export type StudioHostAppRouteKind =
   | "authoring-editor"
   | "diagnostics-panel"
@@ -211,6 +234,7 @@ export interface StudioExtension {
   generatedTargets?: readonly StudioGeneratedTargetDefinition[];
   id: string;
   label?: string;
+  migrations?: readonly StudioExtensionMigration[];
   rustBindingConfigs?: readonly StudioRustBindingConfigValidator[];
   validateSources?: (
     context: StudioSourceValidationContext,
@@ -236,6 +260,10 @@ export const defineStudioHostAppContribution = <
 >(
   contribution: Contribution,
 ): Contribution => contribution;
+
+export const defineStudioExtensionMigration = <const Migration extends StudioExtensionMigration>(
+  migration: Migration,
+): Migration => migration;
 
 export const defineStudioContentMapper = <const Mapper extends StudioContentMapper>(
   mapper: Mapper,

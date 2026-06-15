@@ -138,7 +138,27 @@ export interface StudioVerifyCommandResult {
   stdout: string;
 }
 
+export type StudioVerifyMode = "fast" | "full";
+
+export type StudioVerifyCheckStatus = "failed" | "passed" | "skipped";
+
+export interface StudioVerifyCheckResult {
+  adapterId?: string;
+  command?: string[];
+  diagnostics: StudioDiagnostic[];
+  exitCode?: number | null;
+  extensionId?: string;
+  mode: StudioVerifyMode;
+  name: string;
+  sourceId?: string;
+  status: StudioVerifyCheckStatus;
+  stdout?: string;
+  stderr?: string;
+  targetId?: string;
+}
+
 export interface VerifyStudioProjectResult extends StudioWorkflowResult {
+  checks: StudioVerifyCheckResult[];
   codegen: CodegenStudioResult;
   commands: StudioVerifyCommandResult[];
   hostApp: VerifyStudioHostAppResult;
@@ -148,8 +168,24 @@ export interface VerifyStudioProjectResult extends StudioWorkflowResult {
 export interface MigrateStudioProjectResult extends StudioWorkflowResult {
   applied: string[];
   changedFiles: string[];
+  checks: StudioMigrationCheckResult[];
   manualFollowUps: string[];
   skipped: string[];
+}
+
+export type StudioMigrationCheckStatus = "applied" | "failed" | "skipped";
+
+export interface StudioMigrationCheckResult {
+  applied: string[];
+  changedFiles: string[];
+  currentVersion?: number;
+  diagnostics: StudioDiagnostic[];
+  extensionId?: string;
+  manualFollowUps: string[];
+  name: string;
+  skipped: string[];
+  status: StudioMigrationCheckStatus;
+  targetVersion?: number;
 }
 
 export const STUDIO_HOST_APP_SCAFFOLD_VERSION = 2;
@@ -1531,11 +1567,330 @@ export const verifyStudioHostApp = async (
   };
 };
 
+const hasErrorDiagnostic = (diagnostics: readonly StudioDiagnostic[]) =>
+  diagnostics.some((diagnostic) => diagnostic.severity === "error");
+
+const verifyCheck = (
+  input: Omit<StudioVerifyCheckResult, "diagnostics" | "mode" | "status"> & {
+    diagnostics?: readonly StudioDiagnostic[];
+    mode: StudioVerifyMode;
+    passed: boolean;
+    skipped?: boolean;
+  },
+): StudioVerifyCheckResult => {
+  const { diagnostics: inputDiagnostics, passed, skipped, ...rest } = input;
+  const diagnostics = [...(inputDiagnostics ?? [])];
+  let status: StudioVerifyCheckStatus = "failed";
+  if (skipped) {
+    status = "skipped";
+  } else if (passed && !hasErrorDiagnostic(diagnostics)) {
+    status = "passed";
+  }
+
+  return {
+    ...rest,
+    diagnostics,
+    status,
+  };
+};
+
+const diagnosticsMatching = (
+  diagnostics: readonly StudioDiagnostic[],
+  patterns: readonly string[],
+) =>
+  diagnostics.filter((diagnostic) =>
+    patterns.some(
+      (pattern) =>
+        diagnostic.message.includes(pattern) ||
+        diagnostic.path?.includes(pattern) ||
+        diagnostic.field?.includes(pattern),
+    ),
+  );
+
+const buildVerifyChecks = (
+  config: ResolvedStudioProjectConfig,
+  validation: ValidateStudioCatalogResult,
+  codegen: CodegenStudioResult,
+  hostApp: VerifyStudioHostAppResult,
+  commands: readonly StudioVerifyCommandResult[],
+  mode: StudioVerifyMode,
+): StudioVerifyCheckResult[] => {
+  const checks: StudioVerifyCheckResult[] = [
+    verifyCheck({
+      diagnostics: [],
+      mode,
+      name: "config",
+      passed: true,
+    }),
+    ...config.extensions.map((extension) =>
+      verifyCheck({
+        diagnostics: [],
+        extensionId: extension.id,
+        mode,
+        name: `extension:${extension.id}`,
+        passed: true,
+      }),
+    ),
+    ...config.data.sources.map((source) => {
+      const diagnostics = diagnosticsMatching(validation.diagnostics, [
+        `source "${source.id}"`,
+        `adapter "${source.adapterId}"`,
+        source.id,
+        source.adapterId,
+      ]);
+      return verifyCheck({
+        adapterId: source.adapterId,
+        diagnostics,
+        mode,
+        name: `source:${source.id}`,
+        passed: !hasErrorDiagnostic(diagnostics),
+        sourceId: source.id,
+      });
+    }),
+    ...config.extensions.flatMap((extension) =>
+      (extension.contentMappers ?? []).map((mapper) => {
+        const diagnostics = diagnosticsMatching(validation.diagnostics, [
+          `content mapper "${mapper.id}"`,
+          mapper.id,
+        ]);
+        return verifyCheck({
+          diagnostics,
+          extensionId: extension.id,
+          mode,
+          name: `mapper:${mapper.id}`,
+          passed: !hasErrorDiagnostic(diagnostics),
+        });
+      }),
+    ),
+    verifyCheck({
+      diagnostics: validation.diagnostics,
+      mode,
+      name: "validation",
+      passed: validation.ok,
+    }),
+    ...codegen.targets.map((target) =>
+      verifyCheck({
+        diagnostics: diagnosticsMatching(codegen.diagnostics, [target.target]),
+        mode,
+        name: `generated-target:${target.target}`,
+        passed: target.files.every((file) => file.status === "fresh"),
+        targetId: target.target,
+      }),
+    ),
+    verifyCheck({
+      diagnostics: codegen.diagnostics,
+      mode,
+      name: "generated-freshness",
+      passed: codegen.ok,
+    }),
+    verifyCheck({
+      diagnostics: codegen.diagnostics.filter((diagnostic) =>
+        diagnostic.code.includes("runtime-hook"),
+      ),
+      mode,
+      name: "runtime-hooks",
+      passed: codegen.hooks.every(
+        (hook) => hook.status === "existing" || hook.status === "skipped",
+      ),
+    }),
+    verifyCheck({
+      diagnostics: hostApp.diagnostics,
+      mode,
+      name: "host-app",
+      passed: hostApp.ok,
+      skipped: hostApp.status === "not-configured",
+    }),
+    ...commands.map((command) =>
+      verifyCheck({
+        command: command.command,
+        diagnostics:
+          command.exitCode === 0
+            ? []
+            : [
+                workflowError(
+                  "verify-command-failed",
+                  `Studio verify command failed: ${command.name}.`,
+                  undefined,
+                  command.command.join(" "),
+                ),
+              ],
+        exitCode: command.exitCode,
+        mode,
+        name: `command:${command.name}`,
+        passed: command.exitCode === 0,
+        stderr: command.stderr,
+        stdout: command.stdout,
+      }),
+    ),
+  ];
+
+  return checks;
+};
+
+const migrationCheck = (
+  input: Omit<
+    StudioMigrationCheckResult,
+    "applied" | "changedFiles" | "diagnostics" | "manualFollowUps" | "skipped" | "status"
+  > & {
+    applied?: readonly string[];
+    changedFiles?: readonly string[];
+    diagnostics?: readonly StudioDiagnostic[];
+    manualFollowUps?: readonly string[];
+    skipped?: readonly string[];
+  },
+): StudioMigrationCheckResult => {
+  const applied = [...(input.applied ?? [])];
+  const changedFilePaths = [...(input.changedFiles ?? [])];
+  const diagnostics = [...(input.diagnostics ?? [])];
+  const followUps = [...(input.manualFollowUps ?? [])];
+  const skipped = [...(input.skipped ?? [])];
+  let status: StudioMigrationCheckStatus = "skipped";
+  if (hasErrorDiagnostic(diagnostics)) {
+    status = "failed";
+  } else if (applied.length > 0 || changedFilePaths.length > 0) {
+    status = "applied";
+  }
+
+  return {
+    ...input,
+    applied,
+    changedFiles: changedFilePaths,
+    diagnostics,
+    manualFollowUps: followUps,
+    skipped,
+    status,
+  };
+};
+
+const runHostAppMigration = (
+  config: ResolvedStudioProjectConfig,
+  root: string,
+): StudioMigrationCheckResult => {
+  if (!existsSync(hostAppMetadataPath(root))) {
+    return migrationCheck({
+      name: "host-app-scaffold",
+      skipped: ["No local host app scaffold metadata found."],
+      targetVersion: STUDIO_HOST_APP_SCAFFOLD_VERSION,
+    });
+  }
+
+  const currentVersion = readHostAppMetadataVersion(root) ?? 0;
+  if (currentVersion > STUDIO_HOST_APP_SCAFFOLD_VERSION) {
+    const followUp = `Unsupported local host app scaffold version ${currentVersion}; active Studio supports ${STUDIO_HOST_APP_SCAFFOLD_VERSION}.`;
+    return migrationCheck({
+      currentVersion,
+      diagnostics: [
+        workflowError(
+          "unsupported-host-app-scaffold-version",
+          followUp,
+          hostAppMetadataPath(root),
+          "Upgrade Flexweave Studio or recreate the local host app scaffold manually.",
+        ),
+      ],
+      manualFollowUps: [followUp],
+      name: "host-app-scaffold",
+      targetVersion: STUDIO_HOST_APP_SCAFFOLD_VERSION,
+    });
+  }
+
+  if (currentVersion === STUDIO_HOST_APP_SCAFFOLD_VERSION) {
+    return migrationCheck({
+      currentVersion,
+      name: "host-app-scaffold",
+      skipped: ["Local host app scaffold is current."],
+      targetVersion: STUDIO_HOST_APP_SCAFFOLD_VERSION,
+    });
+  }
+
+  const files = writeHostAppScaffold(config, root, {
+    updateMetadata: true,
+  });
+  const followUps = manualFollowUps(files);
+
+  return migrationCheck({
+    applied: [`host app scaffold ${currentVersion} -> ${STUDIO_HOST_APP_SCAFFOLD_VERSION}`],
+    changedFiles: changedFiles(files),
+    currentVersion,
+    diagnostics: followUps.map((followUp) =>
+      workflowWarning("host-app-manual-follow-up", followUp),
+    ),
+    manualFollowUps: followUps,
+    name: "host-app-scaffold",
+    targetVersion: STUDIO_HOST_APP_SCAFFOLD_VERSION,
+  });
+};
+
+const runExtensionMigrations = async (
+  config: ResolvedStudioProjectConfig,
+  appRoot: string,
+): Promise<StudioMigrationCheckResult[]> => {
+  const checks: StudioMigrationCheckResult[] = [];
+  const extensions = [...config.extensions].toSorted((left, right) =>
+    left.id.localeCompare(right.id),
+  );
+
+  for (const extension of extensions) {
+    const migrations = [...(extension.migrations ?? [])].toSorted((left, right) =>
+      left.id.localeCompare(right.id),
+    );
+    for (const migration of migrations) {
+      const name = `extension:${extension.id}:${migration.id}`;
+      try {
+        const result = await migration.migrate({ appRoot, config });
+        checks.push(
+          migrationCheck({
+            applied: result.applied,
+            changedFiles: result.changedFiles,
+            currentVersion: migration.fromVersion,
+            diagnostics: result.diagnostics,
+            extensionId: extension.id,
+            manualFollowUps: result.manualFollowUps,
+            name,
+            skipped: result.skipped,
+            targetVersion: migration.toVersion,
+          }),
+        );
+      } catch (error) {
+        checks.push(
+          migrationCheck({
+            currentVersion: migration.fromVersion,
+            diagnostics: [
+              workflowError(
+                "extension-migration-failed",
+                error instanceof Error
+                  ? `Studio extension "${extension.id}" migration "${migration.id}" failed: ${error.message}`
+                  : `Studio extension "${extension.id}" migration "${migration.id}" failed.`,
+              ),
+            ],
+            extensionId: extension.id,
+            manualFollowUps: [
+              `Review extension migration "${extension.id}:${migration.id}" before rerunning migrate.`,
+            ],
+            name,
+            targetVersion: migration.toVersion,
+          }),
+        );
+      }
+    }
+  }
+
+  return checks;
+};
+
 export const verifyStudioProject = async (
   options: StudioWorkflowOptions & { appRoot?: string; fast?: boolean } = {},
 ): Promise<VerifyStudioProjectResult> => {
   const resolved = await resolveWorkflowConfig(options);
   if (!resolved.ok) {
+    const mode = options.fast ? "fast" : "full";
+    const checks = [
+      verifyCheck({
+        diagnostics: resolved.diagnostics,
+        mode,
+        name: "config",
+        passed: false,
+      }),
+    ];
     const emptyValidation: ValidateStudioCatalogResult = {
       diagnostics: resolved.diagnostics,
       ok: false,
@@ -1558,6 +1913,7 @@ export const verifyStudioProject = async (
       status: "missing",
     };
     return {
+      checks,
       codegen: emptyCodegen,
       commands: [],
       diagnostics: resolved.diagnostics,
@@ -1615,8 +1971,17 @@ export const verifyStudioProject = async (
     ...hostApp.diagnostics,
     ...commandDiagnostics,
   ];
+  const checks = buildVerifyChecks(
+    resolved.config,
+    validation,
+    codegen,
+    hostApp,
+    commands,
+    options.fast ? "fast" : "full",
+  );
 
   return {
+    checks,
     codegen,
     commands,
     diagnostics,
@@ -1639,6 +2004,12 @@ export const migrateStudioProject = async (
     return {
       applied: [],
       changedFiles: [],
+      checks: [
+        migrationCheck({
+          diagnostics: resolved.diagnostics,
+          name: "config",
+        }),
+      ],
       diagnostics: resolved.diagnostics,
       manualFollowUps: [],
       ok: false,
@@ -1647,39 +2018,20 @@ export const migrateStudioProject = async (
   }
 
   const root = hostAppRoot(resolved.config, options.appRoot);
-  if (!existsSync(hostAppMetadataPath(root))) {
-    return {
-      applied: [],
-      changedFiles: [],
-      diagnostics: [],
-      manualFollowUps: [],
-      ok: true,
-      skipped: ["No local host app scaffold metadata found."],
-    };
-  }
-
-  const currentVersion = readHostAppMetadataVersion(root) ?? 0;
-  const files = writeHostAppScaffold(resolved.config, root, {
-    updateMetadata: true,
-  });
-  const followUps = manualFollowUps(files);
-  const updatedFiles = changedFiles(files);
+  const checks = [
+    runHostAppMigration(resolved.config, root),
+    ...(await runExtensionMigrations(resolved.config, root)),
+  ];
+  const diagnostics = checks.flatMap((check) => check.diagnostics);
 
   return {
-    applied:
-      currentVersion < STUDIO_HOST_APP_SCAFFOLD_VERSION
-        ? [`host app scaffold ${currentVersion} -> ${STUDIO_HOST_APP_SCAFFOLD_VERSION}`]
-        : [],
-    changedFiles: updatedFiles,
-    diagnostics: followUps.map((followUp) =>
-      workflowWarning("host-app-manual-follow-up", followUp),
-    ),
-    manualFollowUps: followUps,
-    ok: true,
-    skipped:
-      currentVersion < STUDIO_HOST_APP_SCAFFOLD_VERSION
-        ? []
-        : ["Local host app scaffold is current."],
+    applied: checks.flatMap((check) => check.applied),
+    changedFiles: checks.flatMap((check) => check.changedFiles),
+    checks,
+    diagnostics,
+    manualFollowUps: checks.flatMap((check) => check.manualFollowUps),
+    ok: diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
+    skipped: checks.flatMap((check) => check.skipped),
   };
 };
 

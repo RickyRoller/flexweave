@@ -60,6 +60,16 @@ prelude imports, runtime vocabulary, and extension binding config.
 **Extension Rust binding config**:
 A namespaced Rust config object validated by the extension that owns it.
 
+**Extension-owned migration**:
+A namespaced migration declared by a Studio extension. The extension owns its
+schema version check, file writes, skipped state, and unsupported-version
+diagnostics.
+
+**Verify check**:
+A structured health check reported by `flexweave-studio verify` for config,
+extensions, sources, mappers, validation, generated targets, runtime hooks,
+local host app state, and project commands.
+
 **Adapter capability**:
 An explicit data adapter feature declaration. Studio workflows use capabilities
 to distinguish read-only adapters from writable adapters.

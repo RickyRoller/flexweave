@@ -7,6 +7,7 @@ import type {
   StudioDataAdapter,
   StudioDataAdapterCapability,
   StudioExtension,
+  StudioExtensionMigration,
   StudioHostAppContribution,
   StudioRustBindingConfigValidator,
   StudioSourceConfig,
@@ -588,6 +589,132 @@ const readOptionalString = (
   field: string,
   diagnostics: StudioDiagnostic[],
 ): string | undefined => (value === undefined ? undefined : readString(value, field, diagnostics));
+
+const readNonNegativeInteger = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): number | undefined => {
+  if (typeof value === "number" && Number.isInteger(value) && value >= 0) {
+    return value;
+  }
+
+  diagnostics.push(
+    configError(
+      "invalid-config-field",
+      field,
+      `Studio project config field ${field} must be a non-negative integer.`,
+    ),
+  );
+  return undefined;
+};
+
+const validateExtensionMigration = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioExtensionMigration | undefined => {
+  if (!hasObjectShape(value)) {
+    diagnostics.push(
+      configError(
+        "invalid-extension-migration",
+        field,
+        `Studio extension migration ${field} must be an object.`,
+      ),
+    );
+    return undefined;
+  }
+
+  const id = readString(value.id, `${field}.id`, diagnostics);
+  const label = readOptionalString(value.label, `${field}.label`, diagnostics);
+  const fromVersion = readNonNegativeInteger(
+    value.fromVersion,
+    `${field}.fromVersion`,
+    diagnostics,
+  );
+  const toVersion = readNonNegativeInteger(value.toVersion, `${field}.toVersion`, diagnostics);
+  if (typeof value.migrate !== "function") {
+    diagnostics.push(
+      configError(
+        "invalid-extension-migration",
+        `${field}.migrate`,
+        `Studio extension migration ${field} must provide a migrate function.`,
+      ),
+    );
+  }
+
+  if (
+    !id ||
+    fromVersion === undefined ||
+    toVersion === undefined ||
+    typeof value.migrate !== "function"
+  ) {
+    return undefined;
+  }
+
+  if (fromVersion >= toVersion) {
+    diagnostics.push(
+      configError(
+        "invalid-extension-migration",
+        `${field}.toVersion`,
+        `Studio extension migration ${field} must move from a lower version to a higher version.`,
+      ),
+    );
+    return undefined;
+  }
+
+  return {
+    ...(value as unknown as StudioExtensionMigration),
+    fromVersion,
+    id,
+    label,
+    toVersion,
+  };
+};
+
+const validateExtensionMigrations = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioExtensionMigration[] => {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    diagnostics.push(
+      configError(
+        "invalid-config-field",
+        field,
+        `Studio extension field ${field} must be an array of migrations.`,
+      ),
+    );
+    return [];
+  }
+
+  const migrations: StudioExtensionMigration[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of value.entries()) {
+    const migration = validateExtensionMigration(item, `${field}.${index}`, diagnostics);
+    if (!migration) {
+      continue;
+    }
+    if (seen.has(migration.id)) {
+      diagnostics.push(
+        configError(
+          "duplicate-extension-migration",
+          `${field}.${index}.id`,
+          `Studio extension migration "${migration.id}" is registered more than once.`,
+        ),
+      );
+      continue;
+    }
+    seen.add(migration.id);
+    migrations.push(migration);
+  }
+
+  return migrations;
+};
 
 const validateHostAppWorkflowCommand = (
   value: unknown,
@@ -1214,6 +1341,11 @@ const validateStudioExtension = (
     `${field}.appContributions`,
     diagnostics,
   );
+  const migrations = validateExtensionMigrations(
+    value.migrations,
+    `${field}.migrations`,
+    diagnostics,
+  );
   const rustBindingConfigs = validateRustBindingConfigValidators(
     value.rustBindingConfigs,
     `${field}.rustBindingConfigs`,
@@ -1242,6 +1374,7 @@ const validateStudioExtension = (
     generatedTargets,
     id,
     label,
+    migrations,
     rustBindingConfigs,
   };
 };

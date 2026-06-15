@@ -42,6 +42,11 @@ app contributions. Extensions can add navigation, authoring editors, workflow
 actions, generated-output panels, diagnostics panels, and source views without
 copying or forking the shared Studio app shell.
 
+Extensions can also declare extension-owned migrations. `flexweave-studio
+migrate` runs those migrations in deterministic extension/id order and reports
+applied changes, skipped work, manual follow-ups, and unsupported version
+diagnostics.
+
 ## Command Family
 
 ```bash
@@ -66,6 +71,11 @@ config file.
 that imports `@flexweave/studio-app`, records scaffold metadata, composes
 active extension host app contributions, and preserves project-owned adapter
 code separately from scaffold-managed files.
+
+`flexweave-studio verify` reports structured checks for config loading,
+extensions, sources, mappers, validation, generated targets, runtime hooks,
+host app state, and project commands. `--fast` keeps built-in health checks and
+runs only project commands marked `fast`.
 
 ## Documentation
 

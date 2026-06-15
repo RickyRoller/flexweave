@@ -16,6 +16,7 @@ The Studio package owns contracts and workflows:
 - Generated freshness checks.
 - Runtime hook diagnostics.
 - Migration and verification workflows.
+- Structured verify and migrate result contracts.
 - Reusable local host app shell contracts.
 
 Projects own content, source systems, and runtime meaning:
@@ -25,6 +26,7 @@ Projects own content, source systems, and runtime meaning:
 - Mappers from adapter records into Studio content or project models.
 - Generated output directories.
 - Generated targets for project-specific outputs.
+- Extension-owned migrations for project-specific source or schema state.
 - Runtime hook implementations after stub creation.
 - Runtime bindings.
 - Local host app entry points.

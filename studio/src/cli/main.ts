@@ -324,6 +324,7 @@ const formatCodegen = (result: CodegenStudioResult) => [
 
 const formatVerify = (result: VerifyStudioProjectResult) => [
   "Studio verify complete.",
+  ...result.checks.map((check) => `${check.status}: ${check.name}`),
   `Validation: ${result.validation.ok ? "ok" : "failed"}.`,
   `Generated freshness: ${result.codegen.ok ? "ok" : "failed"}.`,
   `Local host app: ${result.hostApp.status}.`,
@@ -337,6 +338,7 @@ const formatVerify = (result: VerifyStudioProjectResult) => [
 
 const formatMigrate = (result: MigrateStudioProjectResult) => [
   "Studio project migrations complete.",
+  ...result.checks.map((check) => `${check.status}: ${check.name}`),
   `Applied: ${result.applied.length}.`,
   ...result.applied,
   `Changed files: ${result.changedFiles.length}.`,
