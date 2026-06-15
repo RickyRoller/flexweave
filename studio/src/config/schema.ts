@@ -27,6 +27,11 @@ export interface StudioVerifyCommand {
 }
 
 export interface StudioProjectConfig {
+  app?: {
+    buildCommand?: readonly string[];
+    checkCommand?: readonly string[];
+    root?: string;
+  };
   catalogRoot: string;
   codegen?: {
     outputDirs?: Partial<Record<StudioCodegenTarget, string>>;
@@ -49,10 +54,17 @@ export interface StudioProjectConfig {
 }
 
 export interface ResolvedStudioProjectConfig {
+  app: {
+    buildCommand?: string[];
+    checkCommand?: string[];
+  };
   configDir: string;
   configPath: string;
   mode: "full" | "validate-only";
   paths: {
+    app: {
+      root?: string;
+    };
     catalogRoot: string;
     codegen: {
       outputDirs: Record<StudioCodegenTarget, string>;
@@ -244,6 +256,56 @@ const validateVerifyConfig = (
   }
 
   return validateVerifyCommands(value.commands, diagnostics);
+};
+
+const validateOptionalCommand = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): string[] | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const command = normalizeStringArray(value, field, diagnostics);
+  if (command.length === 0) {
+    diagnostics.push(
+      error(
+        "invalid-config-field",
+        field,
+        `Studio project config field ${field} must include at least one argument when provided.`,
+      ),
+    );
+    return undefined;
+  }
+
+  return command;
+};
+
+const validateAppConfig = (
+  value: unknown,
+  diagnostics: StudioDiagnostic[],
+): { buildCommand?: string[]; checkCommand?: string[]; root?: string } => {
+  if (value === undefined) {
+    return {};
+  }
+
+  if (!isObject(value)) {
+    diagnostics.push(
+      error(
+        "invalid-config-field",
+        "app",
+        "Studio project config field app must be an object when provided.",
+      ),
+    );
+    return {};
+  }
+
+  return {
+    buildCommand: validateOptionalCommand(value.buildCommand, "app.buildCommand", diagnostics),
+    checkCommand: validateOptionalCommand(value.checkCommand, "app.checkCommand", diagnostics),
+    root: value.root === undefined ? undefined : readString(value.root, "app.root", diagnostics),
+  };
 };
 
 const validateRuntimeVocabConfig = (
@@ -481,6 +543,7 @@ export const validateStudioConfig = (
     mode === "full" ? validateFullConfigFields(raw, diagnostics) : { outputDirs: {} };
 
   const verifyCommands = validateVerifyConfig(raw.verify, diagnostics);
+  const appConfig = validateAppConfig(raw.app, diagnostics);
   const runtimeVocab = validateRuntimeVocabConfig(
     isObject(raw.rust) ? raw.rust.runtimeVocab : undefined,
     diagnostics,
@@ -499,6 +562,9 @@ export const validateStudioConfig = (
     : undefined;
   const resolvedHookTestStubsDir = fullFields.hookTestStubsDir
     ? resolveConfigPath(options.configDir, fullFields.hookTestStubsDir)
+    : undefined;
+  const resolvedAppRoot = appConfig.root
+    ? resolveConfigPath(options.configDir, appConfig.root)
     : undefined;
 
   if (mode === "full") {
@@ -522,10 +588,17 @@ export const validateStudioConfig = (
 
   return {
     config: {
+      app: {
+        buildCommand: appConfig.buildCommand,
+        checkCommand: appConfig.checkCommand,
+      },
       configDir: options.configDir,
       configPath: options.configPath,
       mode,
       paths: {
+        app: {
+          root: resolvedAppRoot,
+        },
         catalogRoot: resolveConfigPath(options.configDir, catalogRoot),
         codegen: {
           outputDirs: resolvedOutputDirs,

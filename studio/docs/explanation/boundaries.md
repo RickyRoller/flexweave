@@ -12,6 +12,7 @@ The Studio package owns contracts and workflows:
 - Generated freshness checks.
 - Runtime hook diagnostics.
 - Migration and verification workflows.
+- Reusable local host app shell contracts.
 
 Consumer projects own content and runtime meaning:
 
@@ -20,6 +21,7 @@ Consumer projects own content and runtime meaning:
 - Runtime hook implementations after stub creation.
 - Runtime bindings.
 - Local host app entry points.
+- Project adapters and labels.
 - Project adapters, labels, deployment, and verification commands.
 
 This boundary keeps the package reusable. Studio can create and verify files

@@ -26,8 +26,10 @@
     "test": "bun run test:core && bun run test:studio",
     "test:core": "cargo test -p flexweave",
     "test:studio": "bun run --filter @flexweave/studio test && bun run --filter @flexweave/studio-app test",
-    "verify": "bun run check && bun run test && bun run build && bun run docs:core",
-    "verify:core": "bun run check:core && bun run test:core && bun run build:core && bun run docs:core"
+    "verify": "bun run check && bun run test && bun run build && bun run verify:studio-host-app && bun run docs:core",
+    "verify:core": "bun run check:core && bun run test:core && bun run build:core && bun run docs:core",
+    "verify:studio": "bun run check:studio && bun run test:studio && bun run build:studio && bun run verify:studio-host-app",
+    "verify:studio-host-app": "bun scripts/verify-studio-host-app.ts"
   },
   "devDependencies": {
     "oxfmt": "^0.46.0",

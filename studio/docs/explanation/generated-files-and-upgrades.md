@@ -27,3 +27,9 @@ flexweave-studio verify --config studio.config.ts
 `migrate` gives package changes a stable command contract. `verify` runs
 catalog validation, generated freshness checks, and configured consumer
 verification commands.
+
+When a consumer project has a local host app scaffold, `migrate` updates
+supported scaffold metadata and `verify` checks the scaffold plus its
+configured typecheck or build command. Files that differ from the current
+scaffold template are reported as manual follow-ups instead of being
+overwritten.

@@ -19,7 +19,13 @@ catalog content, generated output directories, runtime hooks, local host app
 entry point, adapter, branding, and deployment.
 
 The shared Flexweave packages own the reusable workflows and app shell. Package
-updates use this flow:
+Create the initial local host app with:
+
+```bash
+flexweave-studio scaffold host-app
+```
+
+Package updates use this flow:
 
 ```bash
 bun update @flexweave/studio @flexweave/studio-app

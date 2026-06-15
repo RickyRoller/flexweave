@@ -5,6 +5,7 @@ import {
   describeStudioCatalog,
   listStudioCatalogRecords,
   migrateStudioProject,
+  scaffoldStudioHostApp,
   planStudioMechanic,
   scaffoldStudioMechanic,
   showStudioCatalogRecord,
@@ -19,6 +20,7 @@ import type {
   MigrateStudioProjectResult,
   PlanStudioMechanicOptions,
   PlanStudioMechanicResult,
+  ScaffoldStudioHostAppResult,
   ScaffoldStudioMechanicResult,
   ShowStudioCatalogRecordResult,
   StudioWorkflowResult,
@@ -65,7 +67,9 @@ const commandHelp: Record<string, string[]> = {
   ],
   scaffold: [
     "flexweave-studio scaffold --archetype mechanic --id <id> --name <name> [--params json] [--allow-existing] [--config path] [--json] [--quiet]",
+    "flexweave-studio scaffold host-app [--app-root path] [--config path] [--json] [--quiet]",
     "Write Studio catalog records, generated mechanics definitions, and runtime hook stubs transactionally.",
+    "Creates a local host app scaffold that imports @flexweave/studio and @flexweave/studio-app.",
     "Runtime hooks remain consumer-owned so the consumer runtime can bind behavior.",
   ],
   show: [
@@ -97,19 +101,28 @@ const rootHelp = () => [
 ];
 
 const booleanFlagNames = new Set(["allow-existing", "check", "fast", "help", "json", "quiet"]);
-const valueFlagNames = new Set(["archetype", "config", "filter", "id", "name", "params", "target"]);
+const valueFlagNames = new Set([
+  "app-root",
+  "archetype",
+  "config",
+  "filter",
+  "id",
+  "name",
+  "params",
+  "target",
+]);
 const commonFlagNames = ["config", "help", "json", "quiet"];
 
 const commandFlagNames: Record<string, string[]> = {
   codegen: [...commonFlagNames, "check", "target"],
   describe: [...commonFlagNames],
   list: [...commonFlagNames, "filter"],
-  migrate: [...commonFlagNames],
+  migrate: [...commonFlagNames, "app-root"],
   plan: [...commonFlagNames, "archetype", "id", "name", "params"],
-  scaffold: [...commonFlagNames, "allow-existing", "archetype", "id", "name", "params"],
+  scaffold: [...commonFlagNames, "allow-existing", "app-root", "archetype", "id", "name", "params"],
   show: [...commonFlagNames],
   validate: [...commonFlagNames],
-  verify: [...commonFlagNames, "fast"],
+  verify: [...commonFlagNames, "app-root", "fast"],
 };
 
 const commandPositionalLimits: Record<string, number> = {
@@ -118,7 +131,7 @@ const commandPositionalLimits: Record<string, number> = {
   list: 1,
   migrate: 0,
   plan: 0,
-  scaffold: 0,
+  scaffold: 1,
   show: 2,
   validate: 0,
   verify: 0,
@@ -188,6 +201,11 @@ const flagBoolean = (parsed: ParsedArgs, name: string): boolean => parsed.flags[
 
 const workflowOptions = (parsed: ParsedArgs) => ({
   configPath: flagString(parsed, "config"),
+});
+
+const hostAppOptions = (parsed: ParsedArgs) => ({
+  ...workflowOptions(parsed),
+  appRoot: flagString(parsed, "app-root"),
 });
 
 const parseParams = (value: string | undefined): Record<string, unknown> => {
@@ -281,6 +299,15 @@ const formatScaffold = (result: ScaffoldStudioMechanicResult) => [
   ...result.writtenFiles,
 ];
 
+const formatHostAppScaffold = (result: ScaffoldStudioHostAppResult) => [
+  "Local host app scaffold complete.",
+  ...(result.appRoot ? [`App root: ${result.appRoot}.`] : []),
+  `Changed files: ${result.changedFiles.length}.`,
+  ...result.changedFiles,
+  `Manual follow-ups: ${result.manualFollowUps.length}.`,
+  ...result.manualFollowUps,
+];
+
 const formatCodegen = (result: CodegenStudioResult) => [
   result.checked
     ? "Generated freshness check complete."
@@ -296,6 +323,10 @@ const formatVerify = (result: VerifyStudioProjectResult) => [
   "Studio verify complete.",
   `Validation: ${result.validation.ok ? "ok" : "failed"}.`,
   `Generated freshness: ${result.codegen.ok ? "ok" : "failed"}.`,
+  `Local host app: ${result.hostApp.status}.`,
+  ...(result.hostApp.command
+    ? [`Local host app command: ${result.hostApp.command.exitCode === 0 ? "ok" : "failed"}.`]
+    : []),
   ...result.commands.map(
     (command) => `${command.exitCode === 0 ? "ok" : "failed"}: ${command.name}`,
   ),
@@ -304,6 +335,11 @@ const formatVerify = (result: VerifyStudioProjectResult) => [
 const formatMigrate = (result: MigrateStudioProjectResult) => [
   "Studio project migrations complete.",
   `Applied: ${result.applied.length}.`,
+  ...result.applied,
+  `Changed files: ${result.changedFiles.length}.`,
+  ...result.changedFiles,
+  `Manual follow-ups: ${result.manualFollowUps.length}.`,
+  ...result.manualFollowUps,
   ...result.skipped,
 ];
 
@@ -328,7 +364,7 @@ const commandHandlers: Record<string, CommandHandler> = {
     return { lines: formatList(result), result };
   },
   migrate: async (parsed) => {
-    const result = await migrateStudioProject(workflowOptions(parsed));
+    const result = await migrateStudioProject(hostAppOptions(parsed));
     return { lines: formatMigrate(result), result };
   },
   plan: async (parsed) => {
@@ -336,6 +372,10 @@ const commandHandlers: Record<string, CommandHandler> = {
     return { lines: formatPlan(result), result };
   },
   scaffold: async (parsed) => {
+    if (parsed.positionals[0] === "host-app") {
+      const result = await scaffoldStudioHostApp(hostAppOptions(parsed));
+      return { lines: formatHostAppScaffold(result), result };
+    }
     const result = await scaffoldStudioMechanic(mechanicOptions(parsed));
     return { lines: formatScaffold(result), result };
   },
@@ -353,7 +393,7 @@ const commandHandlers: Record<string, CommandHandler> = {
   },
   verify: async (parsed) => {
     const result = await verifyStudioProject({
-      ...workflowOptions(parsed),
+      ...hostAppOptions(parsed),
       fast: flagBoolean(parsed, "fast"),
     });
     return { lines: formatVerify(result), result };

@@ -94,3 +94,34 @@ test("config validation preserves validate-only support", () => {
   expect(result.config?.paths.catalogRoot).toBe("/workspace/project/catalog");
   expect(result.config?.verify.commands).toEqual([]);
 });
+
+test("config validation resolves local host app metadata", () => {
+  const result = validateStudioConfig(
+    {
+      ...validFullConfig(),
+      app: {
+        buildCommand: ["bun", "run", "build"],
+        checkCommand: ["bun", "run", "typecheck"],
+        root: "studio-host",
+      },
+    },
+    configOptions,
+  );
+
+  expect(result.ok).toBe(true);
+  expect(result.config?.paths.app.root).toBe("/workspace/project/studio-host");
+  expect(result.config?.app.checkCommand).toEqual(["bun", "run", "typecheck"]);
+
+  const invalid = validateStudioConfig(
+    {
+      ...validFullConfig(),
+      app: {
+        checkCommand: [],
+      },
+    },
+    configOptions,
+  );
+
+  expect(invalid.ok).toBe(false);
+  expect(invalid.diagnostics.map((diagnostic) => diagnostic.field)).toContain("app.checkCommand");
+});

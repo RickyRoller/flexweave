@@ -21,6 +21,12 @@ flexweave-studio plan --archetype mechanic --id minimal_mechanic --name "Minimal
 flexweave-studio scaffold --archetype mechanic --id minimal_mechanic --name "Minimal mechanic" --config studio.config.ts
 ```
 
+Scaffold a local host app:
+
+```bash
+flexweave-studio scaffold host-app --config studio.config.ts
+```
+
 Refresh and check generated mechanics definitions:
 
 ```bash
@@ -39,3 +45,6 @@ Run migrations after package updates:
 ```bash
 flexweave-studio migrate --config studio.config.ts
 ```
+
+`migrate` reads host app scaffold metadata when present. It updates supported
+scaffold metadata and reports any host app files that need manual follow-up.

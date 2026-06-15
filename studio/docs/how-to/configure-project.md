@@ -7,6 +7,11 @@ Create `studio.config.ts` at the consumer project root or pass its path with
 import { defineStudioConfig } from "@flexweave/studio/config";
 
 export default defineStudioConfig({
+  app: {
+    buildCommand: ["bun", "run", "build"],
+    checkCommand: ["bun", "run", "typecheck"],
+    root: "studio-host",
+  },
   catalogRoot: "content/catalog",
   codegen: {
     outputDirs: {
@@ -44,6 +49,10 @@ export default defineStudioConfig({
 Relative paths resolve from the directory containing the active config file.
 Absolute paths remain absolute. Generated output directories and runtime hook
 directories must be distinct so Studio has clear ownership boundaries.
+
+`app.root` points at the consumer-owned local host app scaffold.
+`app.checkCommand` is used by `flexweave-studio verify`; `app.buildCommand`
+is the fallback when no check command is configured.
 
 Use a validate-only config only for validation flows:
 

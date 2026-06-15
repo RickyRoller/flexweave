@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 
 import { isStudioCodegenTarget, studioCodegenTargets } from "./codegen/types";
 import type {
@@ -87,6 +87,34 @@ export interface ScaffoldStudioMechanicResult extends PlanStudioMechanicResult {
   writtenFiles: string[];
 }
 
+export interface ScaffoldStudioHostAppOptions extends StudioWorkflowOptions {
+  appRoot?: string;
+}
+
+export type StudioHostAppFileStatus = "created" | "manual-follow-up" | "unchanged" | "updated";
+
+export interface StudioHostAppFileResult {
+  path: string;
+  reason?: string;
+  status: StudioHostAppFileStatus;
+}
+
+export interface ScaffoldStudioHostAppResult extends StudioWorkflowResult {
+  appRoot?: string;
+  changedFiles: string[];
+  files: StudioHostAppFileResult[];
+  manualFollowUps: string[];
+  metadataVersion?: number;
+}
+
+export interface VerifyStudioHostAppResult extends StudioWorkflowResult {
+  appRoot?: string;
+  command?: StudioVerifyCommandResult;
+  files: StudioHostAppFileResult[];
+  manualFollowUps: string[];
+  status: "checked" | "missing" | "not-configured";
+}
+
 export interface StudioVerifyCommandResult {
   command: string[];
   exitCode: number | null;
@@ -99,13 +127,18 @@ export interface StudioVerifyCommandResult {
 export interface VerifyStudioProjectResult extends StudioWorkflowResult {
   codegen: CodegenStudioResult;
   commands: StudioVerifyCommandResult[];
+  hostApp: VerifyStudioHostAppResult;
   validation: ValidateStudioCatalogResult;
 }
 
 export interface MigrateStudioProjectResult extends StudioWorkflowResult {
   applied: string[];
+  changedFiles: string[];
+  manualFollowUps: string[];
   skipped: string[];
 }
+
+export const STUDIO_HOST_APP_SCAFFOLD_VERSION = 1;
 
 const schemaDescriptions: StudioRecordDescription[] = [
   {
@@ -179,6 +212,231 @@ const resolveWorkflowConfig = async (
   }
 
   return { config: loaded.config, diagnostics: loaded.diagnostics, ok: true };
+};
+
+const hostAppRoot = (config: ResolvedStudioProjectConfig, appRoot?: string) =>
+  appRoot
+    ? join(config.configDir, appRoot)
+    : (config.paths.app.root ?? join(config.configDir, "studio-host"));
+
+const hostAppConfigPath = (config: ResolvedStudioProjectConfig, root: string) => {
+  const path = relative(root, config.configPath).replaceAll("\\", "/");
+  return path.startsWith(".") ? path : `./${path}`;
+};
+
+const hostAppMetadataPath = (root: string) => join(root, ".flexweave-studio-app.json");
+
+const hostAppScaffoldFiles = (config: ResolvedStudioProjectConfig, root: string) => {
+  const configPath = hostAppConfigPath(config, root);
+  const codegenTargets = studioCodegenTargets
+    .map(
+      (target) =>
+        `    { label: "Generated ${target}", outputLabel: "${target}", target: "${target}" },`,
+    )
+    .join("\n");
+
+  const metadata = {
+    files: [
+      ".flexweave-studio-app.json",
+      "package.json",
+      "src/main.ts",
+      "src/project-adapter.ts",
+      "tsconfig.json",
+    ],
+    packageName: "@flexweave/studio-app",
+    scaffold: "flexweave-studio-host-app",
+    studioPackageName: "@flexweave/studio",
+    version: STUDIO_HOST_APP_SCAFFOLD_VERSION,
+  };
+
+  return {
+    ".flexweave-studio-app.json": `${JSON.stringify(metadata, null, 2)}\n`,
+    "package.json": `${JSON.stringify(
+      {
+        dependencies: {
+          "@flexweave/studio": "0.0.0",
+          "@flexweave/studio-app": "0.0.0",
+        },
+        devDependencies: {
+          "bun-types": "^1.3.2",
+          typescript: "^6.0.3",
+        },
+        name: "flexweave-studio-host",
+        private: true,
+        scripts: {
+          build: "bun run typecheck",
+          typecheck: "tsc -p tsconfig.json --noEmit",
+        },
+        type: "module",
+      },
+      null,
+      2,
+    )}\n`,
+    "src/main.ts": [
+      'import { createStudioApp } from "@flexweave/studio-app";',
+      "",
+      'import { projectAdapter } from "./project-adapter";',
+      "",
+      "export const app = createStudioApp(projectAdapter);",
+      "export default app;",
+      "",
+    ].join("\n"),
+    "src/project-adapter.ts": [
+      "import {",
+      "  codegenStudioProject,",
+      "  describeStudioCatalog,",
+      "  listStudioCatalogRecords,",
+      "  migrateStudioProject,",
+      "  planStudioMechanic,",
+      "  scaffoldStudioMechanic,",
+      "  showStudioCatalogRecord,",
+      "  validateStudioCatalog,",
+      "  verifyStudioProject,",
+      '} from "@flexweave/studio/workflows";',
+      'import { defineStudioAppAdapter } from "@flexweave/studio-app";',
+      "",
+      `const workflowOptions = { configPath: "${configPath}" };`,
+      "",
+      "const asMechanicInput = (input: Record<string, unknown>) => ({",
+      '  archetype: typeof input.archetype === "string" ? input.archetype : "mechanic",',
+      '  id: typeof input.id === "string" ? input.id : "",',
+      '  name: typeof input.name === "string" ? input.name : "",',
+      "  params:",
+      '    typeof input.params === "object" && input.params !== null && !Array.isArray(input.params)',
+      "      ? (input.params as Record<string, unknown>)",
+      "      : undefined,",
+      "});",
+      "",
+      "export const projectAdapter = defineStudioAppAdapter({",
+      "  authoring: {",
+      "    areas: [",
+      '      { editorId: "tags", id: "tags", label: "Tags" },',
+      '      { editorId: "abilities", id: "abilities", label: "Abilities" },',
+      '      { editorId: "effects", id: "effects", label: "Effects" },',
+      "    ],",
+      "    editors: [",
+      '      { areaId: "tags", commandName: "list", id: "tags", label: "Tags", recordKind: "tags" },',
+      '      { areaId: "abilities", commandName: "list", id: "abilities", label: "Abilities", recordKind: "abilities" },',
+      '      { areaId: "effects", commandName: "list", id: "effects", label: "Effects", recordKind: "effects" },',
+      "    ],",
+      "  },",
+      "  codegenTargets: [",
+      codegenTargets,
+      "  ],",
+      '  id: "local-studio-host",',
+      "  labels: {",
+      '    productName: "Flexweave Studio",',
+      '    projectName: "Consumer project",',
+      '    shellSubtitle: "Catalog authoring",',
+      '    workspaceTitle: "Authoring workspace",',
+      '    workflowTrail: ["Studio catalog", "Generated mechanics definitions", "Consumer runtime"],',
+      "  },",
+      "  navigation: [",
+      '    { id: "workspace", label: "Workspace", links: [{ href: "/", id: "overview", label: "Overview" }] },',
+      '    { id: "generated", label: "Generated", links: [{ href: "/#generated-output", id: "generated-output", label: "Generated output" }] },',
+      "  ],",
+      "  serverFunctions: {",
+      "    codegen: (input) => codegenStudioProject({ ...workflowOptions, ...input }),",
+      "    describe: (input) => describeStudioCatalog(input?.kind, workflowOptions),",
+      "    list: (input) => listStudioCatalogRecords(input.kind, { ...workflowOptions, filter: input.filter }),",
+      "    migrate: () => migrateStudioProject(workflowOptions),",
+      "    plan: (input) => planStudioMechanic({ ...workflowOptions, ...asMechanicInput(input) }),",
+      "    scaffold: (input) => scaffoldStudioMechanic({ ...workflowOptions, ...asMechanicInput(input) }),",
+      "    show: (input) => showStudioCatalogRecord(input.kind, input.id, workflowOptions),",
+      "    validate: () => validateStudioCatalog(workflowOptions),",
+      "    verify: (input) => verifyStudioProject({ ...workflowOptions, ...input }),",
+      "  },",
+      "  workflowActions: [",
+      '    { commandName: "validate", id: "validate", label: "Validate", variant: "secondary" },',
+      '    { commandName: "codegen", id: "codegen", label: "Generate", variant: "secondary" },',
+      '    { commandName: "verify", id: "verify", label: "Verify", variant: "primary" },',
+      "  ],",
+      "});",
+      "",
+    ].join("\n"),
+    "tsconfig.json": `${JSON.stringify(
+      {
+        compilerOptions: {
+          allowSyntheticDefaultImports: true,
+          esModuleInterop: true,
+          forceConsistentCasingInFileNames: true,
+          lib: ["ES2023"],
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          skipLibCheck: true,
+          strict: true,
+          target: "ES2022",
+          types: ["bun-types"],
+        },
+        include: ["src/**/*.ts"],
+      },
+      null,
+      2,
+    )}\n`,
+  } satisfies Record<string, string>;
+};
+
+const scaffoldStatus = (
+  path: string,
+  expected: string,
+  allowMetadataUpdate: boolean,
+): StudioHostAppFileResult => {
+  const current = readTextIfExists(path);
+  if (current === undefined) {
+    writeTextFile(path, expected);
+    return { path, status: "created" };
+  }
+
+  if (current === expected) {
+    return { path, status: "unchanged" };
+  }
+
+  if (allowMetadataUpdate && path.endsWith(".flexweave-studio-app.json")) {
+    writeTextFile(path, expected);
+    return { path, status: "updated" };
+  }
+
+  return {
+    path,
+    reason: "Existing file differs from the current scaffold template.",
+    status: "manual-follow-up",
+  };
+};
+
+const writeHostAppScaffold = (
+  config: ResolvedStudioProjectConfig,
+  root: string,
+  options: { updateMetadata: boolean },
+): StudioHostAppFileResult[] => {
+  mkdirSync(root, { recursive: true });
+  const templates = hostAppScaffoldFiles(config, root);
+  return Object.entries(templates).map(([relativePath, value]) =>
+    scaffoldStatus(join(root, relativePath), value, options.updateMetadata),
+  );
+};
+
+const manualFollowUps = (files: StudioHostAppFileResult[]) =>
+  files
+    .filter((file) => file.status === "manual-follow-up")
+    .map((file) => `${file.path}: ${file.reason ?? "manual review required"}`);
+
+const changedFiles = (files: StudioHostAppFileResult[]) =>
+  files
+    .filter((file) => file.status === "created" || file.status === "updated")
+    .map((file) => file.path);
+
+const readHostAppMetadataVersion = (root: string): number | undefined => {
+  const value = readTextIfExists(hostAppMetadataPath(root));
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as { version?: unknown };
+    return typeof parsed.version === "number" ? parsed.version : undefined;
+  } catch {
+    return undefined;
+  }
 };
 
 const fullConfigRequired = (config: ResolvedStudioProjectConfig): StudioDiagnostic[] =>
@@ -883,8 +1141,158 @@ export const scaffoldStudioMechanic = async (
   }
 };
 
+export const scaffoldStudioHostApp = async (
+  options: ScaffoldStudioHostAppOptions = {},
+): Promise<ScaffoldStudioHostAppResult> => {
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    return {
+      changedFiles: [],
+      diagnostics: resolved.diagnostics,
+      files: [],
+      manualFollowUps: [],
+      ok: false,
+    };
+  }
+
+  const root = hostAppRoot(resolved.config, options.appRoot);
+  const files = writeHostAppScaffold(resolved.config, root, {
+    updateMetadata: false,
+  });
+  const followUps = manualFollowUps(files);
+
+  return {
+    appRoot: root,
+    changedFiles: changedFiles(files),
+    diagnostics: followUps.map((followUp) =>
+      workflowWarning("host-app-manual-follow-up", followUp),
+    ),
+    files,
+    manualFollowUps: followUps,
+    metadataVersion: STUDIO_HOST_APP_SCAFFOLD_VERSION,
+    ok: true,
+  };
+};
+
+const verifyHostAppFiles = (
+  config: ResolvedStudioProjectConfig,
+  root: string,
+): StudioHostAppFileResult[] =>
+  Object.entries(hostAppScaffoldFiles(config, root)).map(([relativePath, expected]) => {
+    const path = join(root, relativePath);
+    const current = readTextIfExists(path);
+    if (current === undefined) {
+      return {
+        path,
+        reason: "Required host app scaffold file is missing.",
+        status: "manual-follow-up",
+      };
+    }
+    if (current !== expected) {
+      return {
+        path,
+        reason: "Host app scaffold file differs from the current scaffold template.",
+        status: "manual-follow-up",
+      };
+    }
+    return { path, status: "unchanged" };
+  });
+
+const runHostAppCommand = async (
+  config: ResolvedStudioProjectConfig,
+  root: string,
+): Promise<StudioVerifyCommandResult> => {
+  const command = config.app.checkCommand ?? config.app.buildCommand ?? ["bun", "run", "typecheck"];
+  const proc = Bun.spawn(command, {
+    cwd: root,
+    stderr: "pipe",
+    stdout: "pipe",
+  });
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  return {
+    command,
+    exitCode,
+    fast: false,
+    name: "local host app check",
+    stderr,
+    stdout,
+  };
+};
+
+export const verifyStudioHostApp = async (
+  options: ScaffoldStudioHostAppOptions = {},
+): Promise<VerifyStudioHostAppResult> => {
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    return {
+      diagnostics: resolved.diagnostics,
+      files: [],
+      manualFollowUps: [],
+      ok: false,
+      status: "missing",
+    };
+  }
+
+  const root = hostAppRoot(resolved.config, options.appRoot);
+  const configured = resolved.config.paths.app.root !== undefined || options.appRoot !== undefined;
+  const metadataExists = existsSync(hostAppMetadataPath(root));
+  if (!existsSync(root) || !metadataExists) {
+    if (!configured) {
+      return {
+        appRoot: root,
+        diagnostics: [],
+        files: [],
+        manualFollowUps: [],
+        ok: true,
+        status: "not-configured",
+      };
+    }
+
+    const message = `Local host app scaffold metadata is missing at ${hostAppMetadataPath(root)}.`;
+    return {
+      appRoot: root,
+      diagnostics: [workflowError("host-app-metadata-missing", message)],
+      files: [],
+      manualFollowUps: [message],
+      ok: false,
+      status: "missing",
+    };
+  }
+
+  const files = verifyHostAppFiles(resolved.config, root);
+  const followUps = manualFollowUps(files);
+  const command = await runHostAppCommand(resolved.config, root);
+  const diagnostics = [
+    ...followUps.map((followUp) => workflowError("host-app-manual-follow-up", followUp)),
+    ...(command.exitCode === 0
+      ? []
+      : [
+          workflowError(
+            "host-app-check-failed",
+            "Local host app check command failed.",
+            undefined,
+            command.command.join(" "),
+          ),
+        ]),
+  ];
+
+  return {
+    appRoot: root,
+    command,
+    diagnostics,
+    files,
+    manualFollowUps: followUps,
+    ok: diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
+    status: "checked",
+  };
+};
+
 export const verifyStudioProject = async (
-  options: StudioWorkflowOptions & { fast?: boolean } = {},
+  options: StudioWorkflowOptions & { appRoot?: string; fast?: boolean } = {},
 ): Promise<VerifyStudioProjectResult> => {
   const resolved = await resolveWorkflowConfig(options);
   if (!resolved.ok) {
@@ -900,10 +1308,18 @@ export const verifyStudioProject = async (
       ok: false,
       targets: [],
     };
+    const emptyHostApp: VerifyStudioHostAppResult = {
+      diagnostics: resolved.diagnostics,
+      files: [],
+      manualFollowUps: [],
+      ok: false,
+      status: "missing",
+    };
     return {
       codegen: emptyCodegen,
       commands: [],
       diagnostics: resolved.diagnostics,
+      hostApp: emptyHostApp,
       ok: false,
       validation: emptyValidation,
     };
@@ -911,6 +1327,10 @@ export const verifyStudioProject = async (
 
   const validation = await validateStudioCatalog({ config: resolved.config });
   const codegen = await codegenStudioProject({ check: true, config: resolved.config });
+  const hostApp = await verifyStudioHostApp({
+    appRoot: options.appRoot,
+    config: resolved.config,
+  });
   const commandConfigs = options.fast
     ? resolved.config.verify.commands.filter((command) => command.fast)
     : resolved.config.verify.commands;
@@ -947,15 +1367,22 @@ export const verifyStudioProject = async (
         command.command.join(" "),
       ),
     );
-  const diagnostics = [...validation.diagnostics, ...codegen.diagnostics, ...commandDiagnostics];
+  const diagnostics = [
+    ...validation.diagnostics,
+    ...codegen.diagnostics,
+    ...hostApp.diagnostics,
+    ...commandDiagnostics,
+  ];
 
   return {
     codegen,
     commands,
     diagnostics,
+    hostApp,
     ok:
       validation.ok &&
       codegen.ok &&
+      hostApp.ok &&
       commands.every((command) => command.exitCode === 0) &&
       diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
     validation,
@@ -963,18 +1390,54 @@ export const verifyStudioProject = async (
 };
 
 export const migrateStudioProject = async (
-  options: StudioWorkflowOptions = {},
+  options: ScaffoldStudioHostAppOptions = {},
 ): Promise<MigrateStudioProjectResult> => {
   const resolved = await resolveWorkflowConfig(options);
   if (!resolved.ok) {
-    return { applied: [], diagnostics: resolved.diagnostics, ok: false, skipped: [] };
+    return {
+      applied: [],
+      changedFiles: [],
+      diagnostics: resolved.diagnostics,
+      manualFollowUps: [],
+      ok: false,
+      skipped: [],
+    };
   }
 
+  const root = hostAppRoot(resolved.config, options.appRoot);
+  if (!existsSync(hostAppMetadataPath(root))) {
+    return {
+      applied: [],
+      changedFiles: [],
+      diagnostics: [],
+      manualFollowUps: [],
+      ok: true,
+      skipped: ["No local host app scaffold metadata found."],
+    };
+  }
+
+  const currentVersion = readHostAppMetadataVersion(root) ?? 0;
+  const files = writeHostAppScaffold(resolved.config, root, {
+    updateMetadata: true,
+  });
+  const followUps = manualFollowUps(files);
+  const updatedFiles = changedFiles(files);
+
   return {
-    applied: [],
-    diagnostics: [],
+    applied:
+      currentVersion < STUDIO_HOST_APP_SCAFFOLD_VERSION
+        ? [`host app scaffold ${currentVersion} -> ${STUDIO_HOST_APP_SCAFFOLD_VERSION}`]
+        : [],
+    changedFiles: updatedFiles,
+    diagnostics: followUps.map((followUp) =>
+      workflowWarning("host-app-manual-follow-up", followUp),
+    ),
+    manualFollowUps: followUps,
     ok: true,
-    skipped: ["No Studio migrations are registered."],
+    skipped:
+      currentVersion < STUDIO_HOST_APP_SCAFFOLD_VERSION
+        ? []
+        : ["Local host app scaffold is current."],
   };
 };
 

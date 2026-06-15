@@ -31,6 +31,7 @@ Prefer the narrowest meaningful command first, then broaden:
 | Core              | `cargo test -p flexweave`                     |
 | Studio package    | `bun run --filter @flexweave/studio test`     |
 | Studio app        | `bun run --filter @flexweave/studio-app test` |
+| Studio Phase 5    | `bun run verify:studio`                       |
 | Structure guard   | `bun run check:structure`                     |
 | Retired-term scan | `bun run check:terms`                         |
 | Full gate         | `bun run verify`                              |

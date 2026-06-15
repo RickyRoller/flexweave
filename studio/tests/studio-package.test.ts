@@ -21,9 +21,11 @@ import {
   listStudioCatalogRecords,
   migrateStudioProject,
   planStudioMechanic,
+  scaffoldStudioHostApp,
   scaffoldStudioMechanic,
   showStudioCatalogRecord,
   validateStudioCatalog,
+  verifyStudioHostApp,
   verifyStudioProject,
 } from "@flexweave/studio/workflows";
 
@@ -46,6 +48,34 @@ const linkWorkspacePackage = (root: string) => {
   const linkPath = join(scopeRoot, "studio");
   if (!existsSync(linkPath)) {
     symlinkSync(studioRoot, linkPath, "dir");
+  }
+};
+
+const linkHostAppPackages = (root: string) => {
+  const scopeRoot = join(root, "node_modules/@flexweave");
+  mkdirSync(scopeRoot, { recursive: true });
+
+  const packageLinks = [
+    ["studio", studioRoot],
+    ["studio-app", join(studioRoot, "app")],
+  ];
+  for (const [name, target] of packageLinks) {
+    const linkPath = join(scopeRoot, name);
+    if (!existsSync(linkPath)) {
+      symlinkSync(target, linkPath, "dir");
+    }
+  }
+
+  const bunTypesLink = join(root, "node_modules/bun-types");
+  if (!existsSync(bunTypesLink)) {
+    symlinkSync(join(studioRoot, "node_modules/bun-types"), bunTypesLink, "dir");
+  }
+
+  const binRoot = join(root, "node_modules/.bin");
+  mkdirSync(binRoot, { recursive: true });
+  const tscLink = join(binRoot, "tsc");
+  if (!existsSync(tscLink)) {
+    symlinkSync(join(repoRoot, "node_modules/typescript/bin/tsc"), tscLink);
   }
 };
 
@@ -334,16 +364,102 @@ test("mechanic planning and scaffolding are transactional", async () => {
   expect(existsSync(join(root, "catalog/abilities/broken_mechanic.json"))).toBe(false);
 });
 
+test("host app scaffold is idempotent and preserves consumer-owned edits", async () => {
+  const root = copyFixture();
+  const configPath = join(root, "studio.config.ts");
+  const appRoot = join(root, "studio-host");
+
+  const scaffolded = await scaffoldStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(scaffolded.ok).toBe(true);
+  expect(scaffolded.changedFiles.map((path) => relative(appRoot, path)).toSorted()).toEqual([
+    ".flexweave-studio-app.json",
+    "package.json",
+    "src/main.ts",
+    "src/project-adapter.ts",
+    "tsconfig.json",
+  ]);
+  expect(scaffolded.manualFollowUps).toEqual([]);
+
+  const second = await scaffoldStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(second.ok).toBe(true);
+  expect(second.changedFiles).toEqual([]);
+  expect(second.manualFollowUps).toEqual([]);
+
+  const entryPath = join(appRoot, "src/main.ts");
+  writeFileSync(
+    entryPath,
+    `${readFileSync(entryPath, "utf-8")}\nexport const localValue = true;\n`,
+  );
+  const preserved = await scaffoldStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(preserved.ok).toBe(true);
+  expect(preserved.changedFiles).toEqual([]);
+  expect(preserved.manualFollowUps[0]).toContain("src/main.ts");
+});
+
+test("host app migrate and verify cover scaffold metadata and typecheck", async () => {
+  const root = copyFixture();
+  const configPath = join(root, "studio.config.ts");
+  const appRoot = join(root, "studio-host");
+
+  const scaffolded = await scaffoldStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(scaffolded.ok).toBe(true);
+
+  const metadataPath = join(appRoot, ".flexweave-studio-app.json");
+  const metadata = JSON.parse(readFileSync(metadataPath, "utf-8")) as Record<string, unknown>;
+  writeFileSync(metadataPath, `${JSON.stringify({ ...metadata, version: 0 }, null, 2)}\n`);
+
+  const migrated = await migrateStudioProject({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(migrated.ok).toBe(true);
+  expect(migrated.applied).toEqual(["host app scaffold 0 -> 1"]);
+  expect(migrated.changedFiles.map((path) => relative(appRoot, path))).toEqual([
+    ".flexweave-studio-app.json",
+  ]);
+
+  const secondMigration = await migrateStudioProject({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(secondMigration.ok).toBe(true);
+  expect(secondMigration.applied).toEqual([]);
+  expect(secondMigration.changedFiles).toEqual([]);
+
+  linkHostAppPackages(appRoot);
+  const verified = await verifyStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(verified.ok).toBe(true);
+  expect(verified.status).toBe("checked");
+  expect(verified.command?.exitCode).toBe(0);
+});
+
 test("verify and migrate expose stable package workflows", async () => {
   const verified = await verifyStudioProject({ configPath: fixtureConfigPath });
   expect(verified.ok).toBe(true);
   expect(verified.validation.ok).toBe(true);
   expect(verified.codegen.ok).toBe(true);
   expect(verified.commands[0]?.name).toBe("fixture command");
+  expect(verified.hostApp.status).toBe("not-configured");
 
   const migrated = await migrateStudioProject({ configPath: fixtureConfigPath });
   expect(migrated.ok).toBe(true);
   expect(migrated.applied).toEqual([]);
+  expect(migrated.changedFiles).toEqual([]);
 });
 
 test("CLI help and JSON output use the Studio command contract", async () => {
@@ -381,4 +497,19 @@ test("CLI help and JSON output use the Studio command contract", async () => {
   ]);
   expect(badTarget.exitCode).not.toBe(0);
   expect(JSON.parse(badTarget.stdout).diagnostics[0].code).toBe("unknown-codegen-target");
+
+  const root = copyFixture();
+  const scaffold = await runCli([
+    "scaffold",
+    "host-app",
+    "--json",
+    "--app-root",
+    "studio-host",
+    "--config",
+    join(root, "studio.config.ts"),
+  ]);
+  const scaffoldJson = JSON.parse(scaffold.stdout) as { changedFiles: string[]; ok: boolean };
+  expect(scaffold.exitCode).toBe(0);
+  expect(scaffoldJson.ok).toBe(true);
+  expect(scaffoldJson.changedFiles).toHaveLength(5);
 });

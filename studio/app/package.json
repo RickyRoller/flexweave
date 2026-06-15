@@ -10,7 +10,8 @@
     "build": "tsc -p tsconfig.json --emitDeclarationOnly --outDir dist",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "bun test ./tests/*.test.ts",
-    "phase:status": "bun test ./tests/*.test.ts"
+    "phase:status": "bun test ./tests/*.test.ts",
+    "verify": "bun run test && bun run typecheck && bun run build"
   },
   "dependencies": {
     "@flexweave/studio": "workspace:*"

@@ -19,12 +19,14 @@ import { codegenStudioProject } from "../studio/src/workflows";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const studioRoot = join(root, "studio");
+const studioAppRoot = join(studioRoot, "app");
 const fixtureRoot = join(studioRoot, "tests/fixtures/minimal");
 const fixtureConfigPath = join(fixtureRoot, "studio.config.ts");
 const studioRetiredTermScanRoots = [
   "studio/package.json",
   "studio/README.md",
   "studio/CONTEXT.md",
+  "studio/app",
   "studio/docs",
   "studio/src",
   "studio/tests",
@@ -105,7 +107,10 @@ const assertPackageMetadata = () => {
 
 const assertPackageImportBoundary = () => {
   const forbiddenPatterns = [
-    { label: "Studio app import", pattern: /@flexweave\/studio-app|studio\/app|\.\.\/app/ },
+    {
+      label: "Studio app import",
+      pattern: /(^|\n)\s*import\s+.*@flexweave\/studio-app|(^|\n)\s*import\s+.*\.\.\/app/,
+    },
     { label: "consumer app source", pattern: /(?:^|["'])apps\// },
     { label: "old package source", pattern: /packages\/game-data|gamedata\.config/ },
     { label: "old package import", pattern: /@forge\// },
@@ -122,6 +127,38 @@ const assertPackageImportBoundary = () => {
       for (const { label, pattern } of forbiddenPatterns) {
         if (pattern.test(content)) {
           fail(`${relative(root, file)} crosses Studio package boundary: ${label}.`);
+        }
+      }
+    }
+  }
+};
+
+const assertAppPackageBoundary = () => {
+  const packageJson = readJson(join(studioAppRoot, "package.json"));
+  if (packageJson.name !== "@flexweave/studio-app") {
+    fail('studio/app/package.json name must remain "@flexweave/studio-app".');
+  }
+  if (packageJson.dependencies?.["@flexweave/studio"] !== "workspace:*") {
+    fail("studio/app/package.json must depend on @flexweave/studio.");
+  }
+
+  const forbiddenPatterns = [
+    { label: "consumer app source", pattern: /(?:^|["'])apps\// },
+    { label: "old package source", pattern: /packages\/game-data|gamedata\.config/ },
+    { label: "old package import", pattern: /@forge\// },
+    { label: "old Studio app name", pattern: /atlas-design-studio/ },
+  ];
+
+  for (const scanRoot of [join(studioAppRoot, "src"), join(studioAppRoot, "tests")]) {
+    for (const file of listFilesRecursive(scanRoot)) {
+      if (![".json", ".md", ".ts", ".tsx"].some((extension) => file.endsWith(extension))) {
+        continue;
+      }
+
+      const content = readFileSync(file, "utf-8");
+      for (const { label, pattern } of forbiddenPatterns) {
+        if (pattern.test(content)) {
+          fail(`${relative(root, file)} crosses Studio app package boundary: ${label}.`);
         }
       }
     }
@@ -320,6 +357,7 @@ const assertGeneratedWritesStayConfigured = async () => {
 
 assertPackageMetadata();
 assertPackageImportBoundary();
+assertAppPackageBoundary();
 assertRetiredTermInventory();
 await assertFixtureBoundary();
 await assertGeneratedWritesStayConfigured();

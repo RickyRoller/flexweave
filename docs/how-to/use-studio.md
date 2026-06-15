@@ -28,6 +28,12 @@ The consumer project owns:
 - Project adapter
 - Branding and deployment settings
 
+Create the initial local host app scaffold:
+
+```bash
+flexweave-studio scaffold host-app --config studio.config.ts
+```
+
 ## Run the Local Host App
 
 The local host app imports `@flexweave/studio-app` for reusable UI behavior and

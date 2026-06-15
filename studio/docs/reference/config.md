@@ -10,6 +10,15 @@ Discovery searches upward from the provided working directory for
 
 ## Fields
 
+`app.root`:
+Optional path to the consumer-owned local host app scaffold.
+
+`app.checkCommand`:
+Optional command used by `flexweave-studio verify` to check the local host app.
+
+`app.buildCommand`:
+Optional fallback command used by `verify` when `app.checkCommand` is omitted.
+
 `catalogRoot`:
 Directory containing the Studio catalog.
 
@@ -39,4 +48,4 @@ optional `fast` boolean.
 
 Validation reports all practical shape errors in one pass, including missing
 fields, invalid command arrays, invalid path values, unknown generated targets,
-and duplicate owned output paths.
+duplicate owned output paths, and malformed local host app commands.

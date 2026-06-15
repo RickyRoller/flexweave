@@ -34,6 +34,10 @@ package and provides a project adapter.
 **Project adapter**:
 Consumer-owned wiring for labels, config, workflow calls, and deployment needs.
 
+**Host app scaffold**:
+Files created by `flexweave-studio scaffold host-app` for the consumer-owned
+local host app package, entry point, project adapter, and scaffold metadata.
+
 ## Relationships
 
 - Studio builds on Core concepts but remains optional.
@@ -41,3 +45,4 @@ Consumer-owned wiring for labels, config, workflow calls, and deployment needs.
 - Consumer projects provide content, config, runtime hooks, generated output
   paths, adapters, branding, and deployment.
 - Package updates should be followed by migrate and verify commands.
+- Host app scaffolds are updated through migrate and checked through verify.

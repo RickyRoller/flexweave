@@ -17,6 +17,7 @@ Those belong to the consumer project and are declared through `studio.config.ts`
 - `@flexweave/studio/config/load`
 - `@flexweave/studio/workflows`
 - `@flexweave/studio/codegen`
+- `@flexweave/studio-app`
 - `flexweave-studio`
 
 ## Command Family
@@ -28,6 +29,7 @@ flexweave-studio list
 flexweave-studio show
 flexweave-studio plan
 flexweave-studio scaffold
+flexweave-studio scaffold host-app
 flexweave-studio codegen
 flexweave-studio verify
 flexweave-studio migrate
@@ -37,6 +39,10 @@ Every project command accepts `--config <path>`. When omitted, Studio discovers
 `studio.config.ts` by walking upward from the current working directory.
 Consumer paths in the config resolve from the directory containing the active
 config file.
+
+`flexweave-studio scaffold host-app` creates a consumer-owned local host app
+that imports `@flexweave/studio-app`, records scaffold metadata, and preserves
+existing files that differ from the current scaffold template.
 
 ## Documentation
 
@@ -53,5 +59,5 @@ config file.
 ## Verification
 
 ```bash
-bun run --filter @flexweave/studio verify
+bun run verify:studio
 ```

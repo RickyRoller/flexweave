@@ -17,12 +17,18 @@ set.
    bun run flexweave-studio migrate
    ```
 
+   `migrate` reads local host app scaffold metadata when present and lists
+   changed files plus manual follow-ups.
+
 3. Verify catalog contracts, generated output freshness, and runtime hook
    wiring.
 
    ```bash
    bun run flexweave-studio verify
    ```
+
+   When `studio.config.ts` declares `app.root`, `verify` also checks the local
+   host app scaffold and runs its configured check or build command.
 
 ## Expected Ownership
 

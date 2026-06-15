@@ -16,13 +16,17 @@ Commands:
 - `show`: show one record.
 - `plan`: preview mechanic scaffolding writes.
 - `scaffold`: write mechanic records and runtime hook stubs transactionally.
+- `scaffold host-app`: create a local host app package manifest, entry point,
+  project adapter, TypeScript config, and scaffold metadata.
 - `codegen`: refresh generated mechanics definitions.
 - `codegen --check`: fail when generated mechanics definitions are missing,
   stale, or unexpectedly present.
 - `verify`: run validation, generated freshness checks, and configured
-  verification commands.
-- `migrate`: run package migrations after updates. The initial registry is
-  empty and reports an up-to-date project.
+  verification commands. When a host app is configured, it also checks scaffold
+  health and runs the host app check or build command.
+- `migrate`: run package migrations after updates. It reads local host app
+  scaffold metadata when present and reports changed files plus manual
+  follow-ups.
 
 Failures exit non-zero. JSON failures include structured diagnostics and do not
 require parsing human output.
