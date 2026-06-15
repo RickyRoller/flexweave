@@ -22,6 +22,13 @@ Exports include:
 generated targets are `abilities`, `effects`, `executions`, `modifiers`,
 `reference`, and `tags`.
 
+Validation loads configured data sources through active Studio extensions and
+data adapters before reporting workflow results. Source-backed diagnostics keep
+adapter-provided source locations so callers can point users at file paths,
+JSON pointers, sheet names, row numbers, column numbers, cells, or fields.
+Source snapshots are ingestion results only; mapping and generated output remain
+separate workflow stages.
+
 Codegen write mode writes managed files only under configured output
 directories. Check mode compares expected files to disk and does not create,
 modify, or delete files. Target summaries contain file statuses that a local

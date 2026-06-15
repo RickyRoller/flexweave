@@ -28,11 +28,14 @@ import {
   verifyStudioHostApp,
   verifyStudioProject,
 } from "@flexweave/studio/workflows";
+import { studioDataAdapterCanWrite } from "@flexweave/studio/extensions";
 
 const studioRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(studioRoot, "..");
 const fixtureRoot = join(studioRoot, "tests/fixtures/minimal");
 const fixtureConfigPath = join(fixtureRoot, "studio.config.ts");
+const extensionFixtureRoot = join(studioRoot, "tests/fixtures/extension-sources");
+const extensionFixtureConfigPath = join(extensionFixtureRoot, "studio.config.ts");
 
 const pathContains = (parent: string, child: string) => {
   const childRelativeToParent = relative(parent, child);
@@ -110,6 +113,7 @@ test("package metadata exposes only the Studio public contract", () => {
     "./codegen",
     "./config",
     "./config/load",
+    "./extensions",
     "./workflows",
   ]);
   expect(studioCodegenTargets).toEqual([
@@ -124,8 +128,9 @@ test("package metadata exposes only the Studio public contract", () => {
   expect(
     readdirSync(join(studioRoot, "tests/fixtures"), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())
-      .map((entry) => entry.name),
-  ).toEqual(["minimal"]);
+      .map((entry) => entry.name)
+      .toSorted(),
+  ).toEqual(["extension-sources", "minimal"]);
 });
 
 test("config loading supports explicit paths, discovery, relative paths, and validate-only configs", async () => {
@@ -263,6 +268,98 @@ test("catalog workflows validate, describe, list, and show fixture records", asy
     configPath: fixtureConfigPath,
   });
   expect(shown.record?.effectId).toBe("minimal_effect");
+});
+
+test("extension and data adapter contracts load file-backed and table-backed sources", async () => {
+  const loaded = await loadStudioConfig({ configPath: extensionFixtureConfigPath });
+  expect(loaded.ok).toBe(true);
+  expect(loaded.config?.extensions.map((extension) => extension.id)).toEqual([
+    "synthetic-source-extension",
+  ]);
+  expect(loaded.config?.data.sources.map((source) => source.id)).toEqual([
+    "file-backed",
+    "table-backed",
+  ]);
+
+  const adapters = loaded.config?.extensions.flatMap((extension) => extension.dataAdapters ?? []);
+  expect(adapters?.map((adapter) => adapter.id).toSorted()).toEqual([
+    "synthetic-file",
+    "synthetic-table",
+  ]);
+  expect(adapters?.some(studioDataAdapterCanWrite)).toBe(true);
+
+  const validation = await validateStudioCatalog({
+    configPath: extensionFixtureConfigPath,
+  });
+  expect(validation.ok).toBe(true);
+  expect(validation.recordCount).toBe(0);
+  expect(validation.sourceRecordCount).toBe(2);
+  expect(validation.sources).toEqual([
+    {
+      adapterId: "synthetic-file",
+      recordCount: 1,
+      sourceId: "file-backed",
+    },
+    {
+      adapterId: "synthetic-table",
+      recordCount: 1,
+      sourceId: "table-backed",
+    },
+  ]);
+});
+
+test("extension-backed source diagnostics retain file and table provenance", async () => {
+  const brokenFile = await validateStudioCatalog({
+    configPath: join(extensionFixtureRoot, "broken-file.config.ts"),
+  });
+  expect(brokenFile.ok).toBe(false);
+  expect(brokenFile.diagnostics[0]).toMatchObject({
+    code: "synthetic-source-invalid",
+    path: "sources/broken-file-record.json",
+    source: {
+      jsonPointer: "/",
+      path: "sources/broken-file-record.json",
+    },
+  });
+
+  const brokenTable = await validateStudioCatalog({
+    configPath: join(extensionFixtureRoot, "broken-table.config.ts"),
+  });
+  expect(brokenTable.ok).toBe(false);
+  expect(brokenTable.diagnostics[0]).toMatchObject({
+    code: "synthetic-source-invalid",
+    path: "synthetic-table (row 2, column 1, field id)",
+    source: {
+      column: 1,
+      field: "id",
+      row: 2,
+      sheet: "synthetic-table",
+    },
+  });
+});
+
+test("extension loading reports malformed declarations and missing adapters", async () => {
+  const malformed = await loadStudioConfig({
+    configPath: join(extensionFixtureRoot, "malformed-extension.config.ts"),
+  });
+  expect(malformed.ok).toBe(false);
+  expect(malformed.diagnostics.map((diagnostic) => diagnostic.code)).toContain(
+    "invalid-data-adapter",
+  );
+  expect(malformed.diagnostics.map((diagnostic) => diagnostic.field)).toContain(
+    "extensions.0.dataAdapters.0.load",
+  );
+
+  const missingAdapter = await loadStudioConfig({
+    configPath: join(extensionFixtureRoot, "missing-adapter.config.ts"),
+  });
+  expect(missingAdapter.ok).toBe(false);
+  expect(missingAdapter.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "missing-data-adapter",
+      field: "data.sources.0.adapterId",
+    }),
+  );
 });
 
 test("codegen check detects stale, missing, and unexpected managed files without writing", async () => {
@@ -482,6 +579,22 @@ test("CLI help and JSON output use the Studio command contract", async () => {
   const validate = await runCli(["validate", "--json", "--config", fixtureConfigPath]);
   expect(validate.exitCode).toBe(0);
   expect(JSON.parse(validate.stdout).recordCount).toBe(6);
+
+  const extensionValidate = await runCli([
+    "validate",
+    "--json",
+    "--config",
+    extensionFixtureConfigPath,
+  ]);
+  expect(extensionValidate.exitCode).toBe(0);
+  expect(JSON.parse(extensionValidate.stdout)).toMatchObject({
+    ok: true,
+    sourceRecordCount: 2,
+    sources: [
+      { adapterId: "synthetic-file", recordCount: 1, sourceId: "file-backed" },
+      { adapterId: "synthetic-table", recordCount: 1, sourceId: "table-backed" },
+    ],
+  });
 
   const missing = await runCli(["validate", "--json"], join(repoRoot, "docs"));
   expect(missing.exitCode).not.toBe(0);

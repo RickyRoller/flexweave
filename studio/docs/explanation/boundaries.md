@@ -6,6 +6,8 @@ optional authoring and build-time layer on top of those primitives.
 The Studio package owns contracts and workflows:
 
 - Studio project config loading.
+- Studio extension and data adapter contracts.
+- Source snapshot and source location contracts.
 - Studio catalog validation.
 - Mechanic planning and scaffolding.
 - Generated mechanics definition rendering.
@@ -14,9 +16,11 @@ The Studio package owns contracts and workflows:
 - Migration and verification workflows.
 - Reusable local host app shell contracts.
 
-Consumer projects own content and runtime meaning:
+Projects own content, source systems, and runtime meaning:
 
 - Studio catalog records.
+- Source adapters for project-specific file layouts, tables, services, or APIs.
+- Source mappings from adapter records into Studio content or project models.
 - Generated output directories.
 - Runtime hook implementations after stub creation.
 - Runtime bindings.

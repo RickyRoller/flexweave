@@ -11,6 +11,7 @@ import type {
 import { loadStudioConfig } from "./config/load";
 import type { LoadStudioConfigOptions } from "./config/load";
 import type { ResolvedStudioProjectConfig, StudioDiagnostic } from "./config/schema";
+import { loadStudioSourceSnapshots } from "./extensions";
 import {
   normalizeRecordKind,
   readStudioCatalog,
@@ -41,6 +42,14 @@ export interface StudioWorkflowResult {
 export interface ValidateStudioCatalogResult extends StudioWorkflowResult {
   configPath?: string;
   recordCount: number;
+  sourceRecordCount: number;
+  sources: StudioSourceSummary[];
+}
+
+export interface StudioSourceSummary {
+  adapterId?: string;
+  recordCount: number;
+  sourceId?: string;
 }
 
 export interface StudioRecordDescription {
@@ -455,15 +464,32 @@ export const validateStudioCatalog = async (
 ): Promise<ValidateStudioCatalogResult> => {
   const resolved = await resolveWorkflowConfig(options);
   if (!resolved.ok) {
-    return { diagnostics: resolved.diagnostics, ok: false, recordCount: 0 };
+    return {
+      diagnostics: resolved.diagnostics,
+      ok: false,
+      recordCount: 0,
+      sourceRecordCount: 0,
+      sources: [],
+    };
   }
 
   const catalog = readStudioCatalog(resolved.config);
+  const sourceLoad = await loadStudioSourceSnapshots(resolved.config);
+  const diagnostics = [...catalog.diagnostics, ...sourceLoad.diagnostics];
   return {
     configPath: resolved.config.configPath,
-    diagnostics: catalog.diagnostics,
-    ok: catalog.diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
+    diagnostics,
+    ok: diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
     recordCount: catalog.records.length,
+    sourceRecordCount: sourceLoad.snapshots.reduce(
+      (total, snapshot) => total + snapshot.records.length,
+      0,
+    ),
+    sources: sourceLoad.snapshots.map((snapshot) => ({
+      adapterId: snapshot.adapterId,
+      recordCount: snapshot.records.length,
+      sourceId: snapshot.sourceId,
+    })),
   };
 };
 
@@ -1300,6 +1326,8 @@ export const verifyStudioProject = async (
       diagnostics: resolved.diagnostics,
       ok: false,
       recordCount: 0,
+      sourceRecordCount: 0,
+      sources: [],
     };
     const emptyCodegen: CodegenStudioResult = {
       checked: true,

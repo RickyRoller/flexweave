@@ -2,11 +2,19 @@ import { isAbsolute, normalize, relative, resolve } from "node:path";
 
 import { isStudioCodegenTarget, studioCodegenTargets } from "../codegen/types";
 import type { StudioCodegenTarget } from "../codegen/types";
+import type {
+  StudioDataAdapter,
+  StudioDataAdapterCapability,
+  StudioExtension,
+  StudioSourceConfig,
+  StudioSourceLocation,
+} from "../extensions";
 
 export const STUDIO_CONFIG_FILE_NAME = "studio.config.ts";
 
 export interface StudioDiagnostic {
   code: string;
+  source?: StudioSourceLocation;
   field?: string;
   hint?: string;
   message: string;
@@ -36,6 +44,11 @@ export interface StudioProjectConfig {
   codegen?: {
     outputDirs?: Partial<Record<StudioCodegenTarget, string>>;
   };
+  data?: {
+    adapters?: readonly StudioDataAdapter[];
+    sources?: readonly StudioSourceConfig[];
+  };
+  extensions?: readonly StudioExtension[];
   hooks?: {
     dir?: string;
     testStubsDir?: string;
@@ -61,6 +74,11 @@ export interface ResolvedStudioProjectConfig {
   configDir: string;
   configPath: string;
   mode: "full" | "validate-only";
+  data: {
+    adapters: StudioDataAdapter[];
+    sources: StudioSourceConfig[];
+  };
+  extensions: StudioExtension[];
   paths: {
     app: {
       root?: string;
@@ -167,6 +185,372 @@ const normalizeStringArray = (
   }
 
   return normalized;
+};
+
+const validAdapterCapabilities: readonly StudioDataAdapterCapability[] = [
+  "diff",
+  "read",
+  "schema",
+  "watch",
+  "write",
+];
+
+const hasObjectShape = (value: unknown): value is Record<string, unknown> => isObject(value);
+
+const validateCapabilities = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioDataAdapterCapability[] => {
+  if (!Array.isArray(value)) {
+    diagnostics.push(
+      error(
+        "invalid-data-adapter",
+        field,
+        `Studio data adapter field ${field} must be an array of capabilities.`,
+        `Expected one or more of: ${validAdapterCapabilities.join(", ")}.`,
+      ),
+    );
+    return [];
+  }
+
+  const capabilities: StudioDataAdapterCapability[] = [];
+  for (const [index, item] of value.entries()) {
+    const itemField = `${field}.${index}`;
+    if (
+      typeof item !== "string" ||
+      !(validAdapterCapabilities as readonly string[]).includes(item)
+    ) {
+      diagnostics.push(
+        error(
+          "invalid-data-adapter",
+          itemField,
+          `Studio data adapter capability ${itemField} is not supported.`,
+          `Expected one of: ${validAdapterCapabilities.join(", ")}.`,
+        ),
+      );
+      continue;
+    }
+    if (!capabilities.includes(item as StudioDataAdapterCapability)) {
+      capabilities.push(item as StudioDataAdapterCapability);
+    }
+  }
+
+  if (capabilities.length === 0) {
+    diagnostics.push(
+      error(
+        "invalid-data-adapter",
+        field,
+        `Studio data adapter field ${field} must include at least one capability.`,
+      ),
+    );
+  }
+
+  return capabilities;
+};
+
+const validateDataAdapter = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioDataAdapter | undefined => {
+  if (!hasObjectShape(value)) {
+    diagnostics.push(
+      error(
+        "invalid-data-adapter",
+        field,
+        `Studio data adapter ${field} must be an object returned by defineStudioDataAdapter.`,
+      ),
+    );
+    return undefined;
+  }
+
+  const id = readString(value.id, `${field}.id`, diagnostics);
+  const label =
+    value.label === undefined ? undefined : readString(value.label, `${field}.label`, diagnostics);
+  const capabilities = validateCapabilities(
+    value.capabilities,
+    `${field}.capabilities`,
+    diagnostics,
+  );
+
+  if (typeof value.load !== "function") {
+    diagnostics.push(
+      error(
+        "invalid-data-adapter",
+        `${field}.load`,
+        `Studio data adapter ${field} must provide a load function.`,
+      ),
+    );
+  }
+
+  if (value.write !== undefined && typeof value.write !== "function") {
+    diagnostics.push(
+      error(
+        "invalid-data-adapter",
+        `${field}.write`,
+        `Studio data adapter ${field}.write must be a function when provided.`,
+      ),
+    );
+  }
+
+  if (capabilities.includes("write") && typeof value.write !== "function") {
+    diagnostics.push(
+      error(
+        "invalid-data-adapter",
+        `${field}.write`,
+        `Writable Studio data adapter ${field} must provide a write function.`,
+      ),
+    );
+  }
+
+  if (!id || typeof value.load !== "function" || capabilities.length === 0) {
+    return undefined;
+  }
+
+  return {
+    ...(value as unknown as StudioDataAdapter),
+    capabilities,
+    id,
+    label,
+  };
+};
+
+const validateDataAdapters = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioDataAdapter[] => {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    diagnostics.push(
+      error(
+        "invalid-config-field",
+        field,
+        `Studio project config field ${field} must be an array of data adapters.`,
+      ),
+    );
+    return [];
+  }
+
+  const adapters: StudioDataAdapter[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of value.entries()) {
+    const adapter = validateDataAdapter(item, `${field}.${index}`, diagnostics);
+    if (!adapter) {
+      continue;
+    }
+    if (seen.has(adapter.id)) {
+      diagnostics.push(
+        error(
+          "duplicate-data-adapter",
+          `${field}.${index}.id`,
+          `Studio data adapter "${adapter.id}" is registered more than once.`,
+        ),
+      );
+      continue;
+    }
+    seen.add(adapter.id);
+    adapters.push(adapter);
+  }
+
+  return adapters;
+};
+
+const validateStudioExtension = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioExtension | undefined => {
+  if (!hasObjectShape(value)) {
+    diagnostics.push(
+      error(
+        "invalid-studio-extension",
+        field,
+        `Studio extension ${field} must be an object returned by defineStudioExtension.`,
+      ),
+    );
+    return undefined;
+  }
+
+  const id = readString(value.id, `${field}.id`, diagnostics);
+  const label =
+    value.label === undefined ? undefined : readString(value.label, `${field}.label`, diagnostics);
+  const dataAdapters = validateDataAdapters(
+    value.dataAdapters,
+    `${field}.dataAdapters`,
+    diagnostics,
+  );
+
+  if (value.validateSources !== undefined && typeof value.validateSources !== "function") {
+    diagnostics.push(
+      error(
+        "invalid-studio-extension",
+        `${field}.validateSources`,
+        `Studio extension ${field}.validateSources must be a function when provided.`,
+      ),
+    );
+  }
+
+  if (!id) {
+    return undefined;
+  }
+
+  return {
+    ...(value as unknown as StudioExtension),
+    dataAdapters,
+    id,
+    label,
+  };
+};
+
+const validateStudioExtensions = (
+  value: unknown,
+  diagnostics: StudioDiagnostic[],
+): StudioExtension[] => {
+  if (value === undefined) {
+    return [];
+  }
+
+  if (!Array.isArray(value)) {
+    diagnostics.push(
+      error(
+        "invalid-config-field",
+        "extensions",
+        "Studio project config field extensions must be an array of Studio extensions.",
+      ),
+    );
+    return [];
+  }
+
+  const extensions: StudioExtension[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of value.entries()) {
+    const extension = validateStudioExtension(item, `extensions.${index}`, diagnostics);
+    if (!extension) {
+      continue;
+    }
+    if (seen.has(extension.id)) {
+      diagnostics.push(
+        error(
+          "duplicate-studio-extension",
+          `extensions.${index}.id`,
+          `Studio extension "${extension.id}" is registered more than once.`,
+        ),
+      );
+      continue;
+    }
+    seen.add(extension.id);
+    extensions.push(extension);
+  }
+
+  return extensions;
+};
+
+const validateSourceConfig = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioSourceConfig | undefined => {
+  if (!isObject(value)) {
+    diagnostics.push(
+      error("invalid-source-config", field, `Studio source ${field} must be an object.`),
+    );
+    return undefined;
+  }
+
+  const id = readString(value.id, `${field}.id`, diagnostics);
+  const adapterId = readString(value.adapterId, `${field}.adapterId`, diagnostics);
+  const label =
+    value.label === undefined ? undefined : readString(value.label, `${field}.label`, diagnostics);
+  if (value.options !== undefined && !isObject(value.options)) {
+    diagnostics.push(
+      error(
+        "invalid-source-config",
+        `${field}.options`,
+        `Studio source field ${field}.options must be an object when provided.`,
+      ),
+    );
+  }
+
+  if (!id || !adapterId) {
+    return undefined;
+  }
+
+  return {
+    adapterId,
+    id,
+    label,
+    options: isObject(value.options) ? value.options : undefined,
+  };
+};
+
+const validateDataConfig = (
+  value: StudioProjectConfig,
+  diagnostics: StudioDiagnostic[],
+  extensionAdapters: StudioDataAdapter[],
+): { adapters: StudioDataAdapter[]; sources: StudioSourceConfig[] } => {
+  if (value.data === undefined) {
+    return {
+      adapters: [],
+      sources: [],
+    };
+  }
+
+  if (!isObject(value.data)) {
+    diagnostics.push(
+      error(
+        "invalid-config-field",
+        "data",
+        "Studio project config field data must be an object when provided.",
+      ),
+    );
+    return {
+      adapters: [],
+      sources: [],
+    };
+  }
+
+  const adapters = validateDataAdapters(value.data.adapters, "data.adapters", diagnostics);
+  const sourcesValue = value.data.sources;
+  const sources: StudioSourceConfig[] = [];
+  if (sourcesValue !== undefined && !Array.isArray(sourcesValue)) {
+    diagnostics.push(
+      error(
+        "invalid-config-field",
+        "data.sources",
+        "Studio project config field data.sources must be an array of source declarations.",
+      ),
+    );
+  } else {
+    for (const [index, item] of (sourcesValue ?? []).entries()) {
+      const source = validateSourceConfig(item, `data.sources.${index}`, diagnostics);
+      if (source) {
+        sources.push(source);
+      }
+    }
+  }
+
+  const availableAdapters = new Set(
+    [...adapters, ...extensionAdapters].map((adapter) => adapter.id),
+  );
+  for (const [index, source] of sources.entries()) {
+    if (!availableAdapters.has(source.adapterId)) {
+      diagnostics.push(
+        error(
+          "missing-data-adapter",
+          `data.sources.${index}.adapterId`,
+          `Studio source "${source.id}" references missing data adapter "${source.adapterId}".`,
+          "Register the adapter in data.adapters or through an active Studio extension.",
+        ),
+      );
+    }
+  }
+
+  return { adapters, sources };
 };
 
 const validateVerifyCommands = (
@@ -544,6 +928,9 @@ export const validateStudioConfig = (
 
   const verifyCommands = validateVerifyConfig(raw.verify, diagnostics);
   const appConfig = validateAppConfig(raw.app, diagnostics);
+  const extensions = validateStudioExtensions(raw.extensions, diagnostics);
+  const extensionAdapters = extensions.flatMap((extension) => extension.dataAdapters ?? []);
+  const data = validateDataConfig(raw, diagnostics, extensionAdapters);
   const runtimeVocab = validateRuntimeVocabConfig(
     isObject(raw.rust) ? raw.rust.runtimeVocab : undefined,
     diagnostics,
@@ -594,6 +981,8 @@ export const validateStudioConfig = (
       },
       configDir: options.configDir,
       configPath: options.configPath,
+      data,
+      extensions,
       mode,
       paths: {
         app: {

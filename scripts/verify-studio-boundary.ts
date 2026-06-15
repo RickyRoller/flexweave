@@ -99,7 +99,7 @@ const assertPackageMetadata = () => {
   }
 
   const exportNames = Object.keys(packageJson.exports ?? {}).toSorted();
-  const expectedExports = ["./codegen", "./config", "./config/load", "./workflows"];
+  const expectedExports = ["./codegen", "./config", "./config/load", "./extensions", "./workflows"];
   if (JSON.stringify(exportNames) !== JSON.stringify(expectedExports)) {
     fail(`studio/package.json exports must be ${expectedExports.join(", ")}.`);
   }
@@ -203,15 +203,20 @@ const assertFixtureBoundary = async () => {
         .map((entry) => entry.name)
         .toSorted()
     : [];
-  if (JSON.stringify(fixtureNames) !== JSON.stringify(["minimal"])) {
-    fail("studio/tests/fixtures/minimal must be the only Studio-owned fixture.");
+  if (JSON.stringify(fixtureNames) !== JSON.stringify(["extension-sources", "minimal"])) {
+    fail(
+      "studio/tests/fixtures must contain only the minimal and extension-sources Studio-owned fixtures.",
+    );
   }
 
   const catalogDirs = listDirectoriesRecursive(join(studioRoot, "tests"))
     .filter((path) => basename(path) === "catalog")
     .map((path) => relative(studioRoot, path));
-  if (JSON.stringify(catalogDirs) !== JSON.stringify(["tests/fixtures/minimal/catalog"])) {
-    fail("Minimal fixture must be the only Studio-owned catalog fixture.");
+  if (
+    JSON.stringify(catalogDirs) !==
+    JSON.stringify(["tests/fixtures/extension-sources/catalog", "tests/fixtures/minimal/catalog"])
+  ) {
+    fail("Only the minimal and extension-sources fixtures may include Studio-owned catalogs.");
   }
 
   const loaded = await loadStudioConfig({ configPath: fixtureConfigPath });

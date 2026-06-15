@@ -5,6 +5,27 @@ Create `studio.config.ts` at the consumer project root or pass its path with
 
 ```ts
 import { defineStudioConfig } from "@flexweave/studio/config";
+import { defineStudioDataAdapter, defineStudioExtension } from "@flexweave/studio/extensions";
+
+const tableAdapter = defineStudioDataAdapter({
+  capabilities: ["read", "schema"],
+  id: "local-table",
+  load: ({ source }) => ({
+    records: [
+      {
+        id: "sample-row",
+        kind: "sample.table",
+        location: { column: 1, row: 2, sheet: "balance" },
+        value: source.options?.row,
+      },
+    ],
+  }),
+});
+
+const projectSources = defineStudioExtension({
+  dataAdapters: [tableAdapter],
+  id: "project-sources",
+});
 
 export default defineStudioConfig({
   app: {
@@ -13,6 +34,21 @@ export default defineStudioConfig({
     root: "studio-host",
   },
   catalogRoot: "content/catalog",
+  data: {
+    sources: [
+      {
+        adapterId: "local-table",
+        id: "balance-table",
+        options: {
+          row: {
+            id: "sample-row",
+            label: "Sample row",
+          },
+        },
+      },
+    ],
+  },
+  extensions: [projectSources],
   codegen: {
     outputDirs: {
       abilities: "runtime/generated/abilities",

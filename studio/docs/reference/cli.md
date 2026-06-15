@@ -10,7 +10,8 @@ Every project command supports:
 
 Commands:
 
-- `validate`: validate the configured Studio catalog.
+- `validate`: load configured data sources and validate the configured Studio
+  catalog.
 - `describe`: describe record schemas.
 - `list`: list records for one kind.
 - `show`: show one record.

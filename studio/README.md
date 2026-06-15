@@ -15,10 +15,16 @@ Those belong to the consumer project and are declared through `studio.config.ts`
 
 - `@flexweave/studio/config`
 - `@flexweave/studio/config/load`
+- `@flexweave/studio/extensions`
 - `@flexweave/studio/workflows`
 - `@flexweave/studio/codegen`
 - `@flexweave/studio-app`
 - `flexweave-studio`
+
+`@flexweave/studio/extensions` exposes `defineStudioExtension`,
+`defineStudioDataAdapter`, source snapshot types, source record types, source
+location metadata, and adapter capability helpers. Data adapters load source
+records and preserve provenance; they do not generate Rust directly.
 
 ## Command Family
 

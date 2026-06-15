@@ -19,6 +19,10 @@
       "types": "./src/config/load.ts",
       "default": "./src/config/load.ts"
     },
+    "./extensions": {
+      "types": "./src/extensions.ts",
+      "default": "./src/extensions.ts"
+    },
     "./workflows": {
       "types": "./src/workflows.ts",
       "default": "./src/workflows.ts"

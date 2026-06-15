@@ -13,6 +13,7 @@ import {
   validateStudioCatalog,
   verifyStudioProject,
 } from "../workflows";
+import { studioSourceLocationLabel } from "../extensions";
 import type {
   CodegenStudioResult,
   DescribeStudioCatalogResult,
@@ -254,8 +255,9 @@ const printJson = (command: string, result: unknown) => {
 
 const diagnosticLines = (result: StudioWorkflowResult) =>
   result.diagnostics.map((diagnostic) => {
-    const location = diagnostic.path ? `${diagnostic.path}: ` : "";
-    return `${diagnostic.severity}: ${location}${diagnostic.message}`;
+    const location = diagnostic.path ?? studioSourceLocationLabel(diagnostic.source);
+    const prefix = location ? `${location}: ` : "";
+    return `${diagnostic.severity}: ${prefix}${diagnostic.message}`;
   });
 
 const printResult = (command: string, result: StudioWorkflowResult, lines: string[]) => {
@@ -271,6 +273,7 @@ const printResult = (command: string, result: StudioWorkflowResult, lines: strin
 const formatValidate = (result: ValidateStudioCatalogResult) => [
   `Studio catalog ${result.ok ? "valid" : "invalid"}.`,
   `Records checked: ${result.recordCount}.`,
+  `Source records loaded: ${result.sourceRecordCount}.`,
   ...(result.configPath ? [`Config: ${result.configPath}.`] : []),
 ];
 

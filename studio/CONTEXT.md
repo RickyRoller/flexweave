@@ -13,12 +13,39 @@ runtime contract docs.
 **Studio app package**:
 The `@flexweave/studio-app` package that owns the reusable application shell.
 
+**Studio extension**:
+A project-neutral contribution object registered through `studio.config.ts`.
+Extensions can provide data adapters, source validation, and later workflow
+contributions without importing Studio internals.
+
+**Data adapter**:
+A pluggable source integration that loads authored records into a source
+snapshot. Adapters declare capabilities such as read, write, schema, watch, and
+diff.
+
+**Source snapshot**:
+The result of loading a configured source through a data adapter. Snapshots
+contain source records and diagnostics.
+
+**Source record**:
+One authored source item loaded by an adapter before it is normalized into
+Studio content or project-owned models.
+
+**Source location**:
+Diagnostic provenance for a source record. Locations may include file paths,
+JSON pointers, sheet names, row numbers, column numbers, cells, or fields.
+
+**Adapter capability**:
+An explicit data adapter feature declaration. Studio workflows use capabilities
+to distinguish read-only adapters from writable adapters.
+
 **Studio catalog**:
-Consumer-owned authored content read by Studio workflows.
+Project-owned authored content read by Studio workflows.
 
 **Studio project config**:
-Consumer-owned configuration that declares catalog roots, generated output
-roots, runtime hook roots, and verification commands.
+Project-owned configuration that declares catalog roots, data sources,
+extensions, generated output roots, runtime hook roots, and verification
+commands.
 
 **Generated mechanics definitions**:
 Output written by Studio workflows to consumer-declared paths.
@@ -42,7 +69,7 @@ local host app package, entry point, project adapter, and scaffold metadata.
 
 - Studio builds on Core concepts but remains optional.
 - Studio packages provide reusable workflows and shell behavior.
-- Consumer projects provide content, config, runtime hooks, generated output
-  paths, adapters, branding, and deployment.
+- Projects provide content, config, data adapters, source mappings, runtime
+  hooks, generated output paths, branding, and deployment.
 - Package updates should be followed by migrate and verify commands.
 - Host app scaffolds are updated through migrate and checked through verify.

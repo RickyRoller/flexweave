@@ -8,6 +8,12 @@ does not perform filesystem IO.
 Discovery searches upward from the provided working directory for
 `studio.config.ts`.
 
+`@flexweave/studio/extensions` exports `defineStudioExtension`,
+`defineStudioDataAdapter`, source snapshot types, source record types, source
+location metadata, and adapter capability helpers. Project configs register
+extensions and sources explicitly; Studio does not discover extension modules
+from the filesystem.
+
 ## Fields
 
 `app.root`:
@@ -21,6 +27,20 @@ Optional fallback command used by `verify` when `app.checkCommand` is omitted.
 
 `catalogRoot`:
 Directory containing the Studio catalog.
+
+`extensions`:
+Optional array of Studio extensions. Each extension has an `id` and may provide
+data adapters or source validation.
+
+`data.adapters`:
+Optional array of project-local data adapters. Adapters declare capabilities
+such as `read`, `write`, `schema`, `watch`, and `diff`.
+
+`data.sources`:
+Optional array of source declarations. Each source has an `id`, `adapterId`,
+and adapter-owned `options` object. Source records keep provenance through
+source locations such as file paths, JSON pointers, sheet names, rows, columns,
+cells, and fields.
 
 `mode`:
 `"full"` by default. `"validate-only"` allows validation without generated
@@ -48,4 +68,5 @@ optional `fast` boolean.
 
 Validation reports all practical shape errors in one pass, including missing
 fields, invalid command arrays, invalid path values, unknown generated targets,
-duplicate owned output paths, and malformed local host app commands.
+duplicate owned output paths, malformed extensions, malformed data adapters,
+missing data adapters, and malformed local host app commands.
