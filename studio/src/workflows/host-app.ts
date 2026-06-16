@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync } from "node:fs";
 import { join, relative } from "node:path";
 
-import { studioCodegenTargets } from "../codegen/types";
 import type { ResolvedStudioProjectConfig } from "../config/schema";
+import type { StudioHostAppCodegenTargetDefinition } from "../extensions";
 import { readTextIfExists, writeTextFile } from "../internal/files";
 import { STUDIO_HOST_APP_SCAFFOLD_VERSION } from "./constants";
+import { activeGeneratedTargetCodegenMetadata } from "./generated-target-registry";
 import { resolveWorkflowConfig, workflowError, workflowWarning } from "./shared";
 import type {
   ScaffoldStudioHostAppOptions,
@@ -136,17 +137,36 @@ export const readHostAppPackageDependencies = (
 const isHostAppProjectOwnedFile = (relativePath: string, metadata?: HostAppScaffoldMetadata) =>
   (metadata?.projectOwnedFiles ?? hostAppProjectOwnedFiles).includes(relativePath);
 
+const extensionContributedCodegenTargetIds = (config: ResolvedStudioProjectConfig) =>
+  new Set(
+    config.extensions.flatMap((extension) =>
+      (extension.appContributions ?? []).flatMap((contribution) =>
+        (contribution.codegenTargets ?? []).map((target) => target.target),
+      ),
+    ),
+  );
+
+const renderHostAppCodegenTarget = (target: StudioHostAppCodegenTargetDefinition) => {
+  const fields = [
+    `label: ${JSON.stringify(target.label)}`,
+    ...(target.outputLabel === undefined
+      ? []
+      : [`outputLabel: ${JSON.stringify(target.outputLabel)}`]),
+    `target: ${JSON.stringify(target.target)}`,
+  ];
+  return `    { ${fields.join(", ")} },`;
+};
+
 const hostAppScaffoldFiles = (
   config: ResolvedStudioProjectConfig,
   root: string,
   existingMetadata?: HostAppScaffoldMetadata,
 ) => {
   const configPath = hostAppConfigPath(config, join(root, "src"));
-  const codegenTargets = studioCodegenTargets
-    .map(
-      (target) =>
-        `    { label: "Generated ${target}", outputLabel: "${target}", target: "${target}" },`,
-    )
+  const extensionCodegenTargetIds = extensionContributedCodegenTargetIds(config);
+  const codegenTargets = activeGeneratedTargetCodegenMetadata(config)
+    .filter((target) => !extensionCodegenTargetIds.has(target.target))
+    .map(renderHostAppCodegenTarget)
     .join("\n");
 
   const metadata = hostAppMetadataForScaffold(existingMetadata);

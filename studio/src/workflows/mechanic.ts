@@ -1,12 +1,9 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
-
-import { normalizeRecordKind, writeStudioCatalogRecord } from "../internal/catalog";
-import type { StudioCatalogRecord, StudioRecordKind } from "../internal/catalog";
-import { displayPath, restoreSnapshots, snapshotPaths } from "../internal/files";
+import { planStudioCatalogWrite, prepareStudioCatalogWrite } from "../internal/catalog";
+import type { StudioCatalogRecord } from "../internal/catalog";
+import { displayPath } from "../internal/files";
 import { validateStudioCatalog } from "./catalog";
 import { codegenStudioProject } from "./codegen";
-import { resolveWorkflowConfig, workflowError } from "./shared";
+import { hasErrorDiagnostic, resolveWorkflowConfig, workflowError } from "./shared";
 import type {
   PlanStudioMechanicOptions,
   PlanStudioMechanicResult,
@@ -57,14 +54,6 @@ const mechanicRecords = (
   ];
 };
 
-const kindForRecord = (record: StudioCatalogRecord): StudioRecordKind => {
-  const kind = normalizeRecordKind(record.kind);
-  if (!kind) {
-    throw new Error(`Unsupported Studio catalog record kind ${record.kind}.`);
-  }
-  return kind;
-};
-
 export const planStudioMechanic = async (
   options: PlanStudioMechanicOptions,
 ): Promise<PlanStudioMechanicResult> => {
@@ -90,26 +79,14 @@ export const planStudioMechanic = async (
   }
 
   const records = mechanicRecords(options.id, options.name, options.params);
-  const plannedFiles = records.map((record) =>
-    join(resolved.config.paths.catalogRoot, kindForRecord(record), `${record.id}.json`),
-  );
-  const diagnostics =
-    options.allowExisting === true
-      ? []
-      : plannedFiles
-          .filter((path) => existsSync(path))
-          .map((path) =>
-            workflowError(
-              "planned-file-exists",
-              `Planned Studio catalog file already exists: ${displayPath(resolved.config.configDir, path)}`,
-              displayPath(resolved.config.configDir, path),
-            ),
-          );
+  const writePlan = planStudioCatalogWrite(resolved.config, records, {
+    allowExisting: options.allowExisting,
+  });
 
   return {
-    diagnostics,
-    ok: diagnostics.length === 0,
-    plannedFiles: plannedFiles.map((path) => displayPath(resolved.config.configDir, path)),
+    diagnostics: writePlan.diagnostics,
+    ok: !hasErrorDiagnostic(writePlan.diagnostics),
+    plannedFiles: writePlan.plannedPaths,
     records,
   };
 };
@@ -134,39 +111,48 @@ export const scaffoldStudioMechanic = async (
     return { ...planned, rolledBack: false, writtenFiles: [] };
   }
 
-  const absolutePlannedFiles = planned.records.map((record) =>
-    join(resolved.config.paths.catalogRoot, kindForRecord(record), `${record.id}.json`),
-  );
-  const snapshots = snapshotPaths(absolutePlannedFiles);
-  const writtenFiles: string[] = [];
+  const writeSession = prepareStudioCatalogWrite(resolved.config, planned.records, {
+    allowExisting: options.allowExisting,
+  });
+  if (hasErrorDiagnostic(writeSession.diagnostics)) {
+    const rollback = writeSession.rollback();
+    return {
+      diagnostics: [...writeSession.diagnostics, ...rollback.diagnostics],
+      ok: false,
+      plannedFiles: planned.plannedFiles,
+      records: planned.records,
+      rolledBack: rollback.rolledBack,
+      writtenFiles: [],
+    };
+  }
+
+  let writtenFiles: string[] = [];
 
   try {
-    for (const record of planned.records) {
-      const writeResult = writeStudioCatalogRecord(resolved.config, kindForRecord(record), record);
-      if (writeResult.diagnostics.length > 0 || !writeResult.path) {
-        restoreSnapshots(snapshots);
-        return {
-          diagnostics: writeResult.diagnostics,
-          ok: false,
-          plannedFiles: planned.plannedFiles,
-          records: planned.records,
-          rolledBack: true,
-          writtenFiles,
-        };
-      }
-      const { path } = writeResult;
-      writtenFiles.push(displayPath(resolved.config.configDir, path));
+    const writeResult = await writeSession.write();
+    const writeDiagnostics = [...writeSession.diagnostics, ...writeResult.diagnostics];
+    writtenFiles = writeResult.writtenPaths;
+    if (hasErrorDiagnostic(writeDiagnostics)) {
+      const rollback = writeSession.rollback();
+      return {
+        diagnostics: [...writeDiagnostics, ...rollback.diagnostics],
+        ok: false,
+        plannedFiles: planned.plannedFiles,
+        records: planned.records,
+        rolledBack: rollback.rolledBack,
+        writtenFiles,
+      };
     }
 
     const validation = await validateStudioCatalog({ config: resolved.config });
     if (!validation.ok) {
-      restoreSnapshots(snapshots);
+      const rollback = writeSession.rollback();
       return {
-        diagnostics: validation.diagnostics,
+        diagnostics: [...writeDiagnostics, ...validation.diagnostics, ...rollback.diagnostics],
         ok: false,
         plannedFiles: planned.plannedFiles,
         records: planned.records,
-        rolledBack: true,
+        rolledBack: rollback.rolledBack,
         writtenFiles,
       };
     }
@@ -176,7 +162,7 @@ export const scaffoldStudioMechanic = async (
       targets: ["executions"],
     });
     return {
-      diagnostics: codegen.diagnostics,
+      diagnostics: [...writeDiagnostics, ...codegen.diagnostics],
       ok: codegen.ok,
       plannedFiles: planned.plannedFiles,
       records: planned.records,
@@ -189,7 +175,7 @@ export const scaffoldStudioMechanic = async (
       ],
     };
   } catch (error) {
-    restoreSnapshots(snapshots);
+    const rollback = writeSession.rollback();
     return {
       diagnostics: [
         workflowError(
@@ -198,11 +184,13 @@ export const scaffoldStudioMechanic = async (
             ? `Failed to scaffold Studio mechanic: ${error.message}`
             : "Failed to scaffold Studio mechanic.",
         ),
+        ...writeSession.diagnostics,
+        ...rollback.diagnostics,
       ],
       ok: false,
       plannedFiles: planned.plannedFiles,
       records: planned.records,
-      rolledBack: true,
+      rolledBack: rollback.rolledBack,
       writtenFiles,
     };
   }

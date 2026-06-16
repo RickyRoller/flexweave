@@ -32,7 +32,10 @@ numbers, cells, or fields.
 
 Scaffold writes go through the active writable content adapter. The built-in
 JSON catalog adapter supports transactional scaffold writes and rollback. Source
-configurations without a writable content adapter fail before writing files.
+adapters can provide `writeSnapshotPaths` for filesystem-backed rollback;
+otherwise rollback diagnostics report that source writes could not be restored
+automatically. Source configurations without a writable content adapter fail
+before writing files.
 
 Codegen resolves selected target ids through the active registry. Target
 dependencies are included before the selected target and deduplicated

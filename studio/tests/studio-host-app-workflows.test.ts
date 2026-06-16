@@ -8,6 +8,9 @@ import {
   scaffoldStudioHostApp,
   verifyStudioHostApp,
 } from "@flexweave/studio/workflows";
+import { defineStudioGeneratedTarget } from "@flexweave/studio/codegen";
+import { defineStudioConfig, validateStudioConfig } from "@flexweave/studio/config";
+import { defineStudioExtension } from "@flexweave/studio/extensions";
 
 import {
   copyExtensionFixture,
@@ -204,6 +207,55 @@ test("host app scaffold composes extension contributions and verifies extension 
     "synthetic-source-diagnostics",
   ]);
   expect(imported.app.sourceViews.map((view) => view.id)).toEqual(["synthetic-table-source"]);
+});
+
+test("host app scaffold derives codegen target metadata from active generated targets", async () => {
+  const root = copyMinimalFixture();
+  const appRoot = join(root, "studio-host");
+  const generatedTarget = defineStudioGeneratedTarget({
+    id: "tags",
+    label: "Consumer tags",
+    plan: () => ({ files: [] }),
+  });
+  const validated = validateStudioConfig(
+    defineStudioConfig({
+      catalogRoot: "catalog",
+      codegen: {
+        builtInTargets: [],
+        outputDirs: {
+          tags: "generated/shadow-tags",
+        },
+      },
+      extensions: [
+        defineStudioExtension({
+          generatedTargets: [generatedTarget],
+          id: "consumer-generated-targets",
+        }),
+      ],
+      hooks: {
+        dir: "runtime-hooks",
+      },
+      rust: {
+        flexweaveModule: "flexweave",
+      },
+    }),
+    {
+      configDir: root,
+      configPath: join(root, "studio.config.ts"),
+    },
+  );
+
+  expect(validated.ok).toBe(true);
+
+  const scaffolded = await scaffoldStudioHostApp({
+    appRoot: "studio-host",
+    config: validated.config,
+  });
+
+  expect(scaffolded.ok).toBe(true);
+  const adapter = readFileSync(join(appRoot, "src/project-adapter.ts"), "utf-8");
+  expect([...adapter.matchAll(/target: "([^"]+)"/g)].map((match) => match[1])).toEqual(["tags"]);
+  expect(adapter).toContain('{ label: "Consumer tags", outputLabel: "tags", target: "tags" },');
 });
 
 test("host app verification reports malformed extension app contributions", async () => {

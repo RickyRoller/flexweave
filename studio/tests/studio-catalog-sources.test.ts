@@ -13,6 +13,7 @@ import {
 } from "@flexweave/studio/workflows";
 
 import {
+  copyExtensionFixture,
   copyMinimalFixture,
   extensionFixtureConfigPath,
   extensionFixtureRoot,
@@ -203,6 +204,28 @@ test("extension loading reports malformed declarations and missing adapters", as
     }),
   );
 
+  const duplicateProjectExtensionAdapter = await loadStudioConfig({
+    configPath: join(extensionFixtureRoot, "duplicate-project-extension-adapter.config.ts"),
+  });
+  expect(duplicateProjectExtensionAdapter.ok).toBe(false);
+  expect(duplicateProjectExtensionAdapter.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "duplicate-data-adapter",
+      field: "extensions.0.dataAdapters.0.id",
+    }),
+  );
+
+  const duplicateExtensionAdapter = await loadStudioConfig({
+    configPath: join(extensionFixtureRoot, "duplicate-extension-adapter.config.ts"),
+  });
+  expect(duplicateExtensionAdapter.ok).toBe(false);
+  expect(duplicateExtensionAdapter.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "duplicate-data-adapter",
+      field: "extensions.1.dataAdapters.0.id",
+    }),
+  );
+
   const malformedAppContribution = await loadStudioConfig({
     configPath: join(extensionFixtureRoot, "malformed-app-contribution.config.ts"),
   });
@@ -231,4 +254,52 @@ test("scaffold rejects source configurations without a writable content adapter"
   expect(
     existsSync(join(extensionFixtureRoot, "catalog/abilities/source_backed_scaffold.json")),
   ).toBe(false);
+});
+
+test("scaffold writes mechanics through a writable source adapter", async () => {
+  const root = copyExtensionFixture();
+  const configPath = join(root, "writable-content.config.ts");
+  const result = await scaffoldStudioMechanic({
+    archetype: "mechanic",
+    configPath,
+    id: "source_backed_scaffold",
+    name: "Source backed scaffold",
+  });
+
+  expect(result.ok).toBe(true);
+  expect(result.rolledBack).toBe(false);
+  expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+  expect(result.writtenFiles.filter((path) => path.startsWith("synthetic-table"))).toHaveLength(6);
+  expect(result.writtenFiles).toContain("runtime-hooks/source_backed_scaffold_runtime_hook.rs");
+  expect(existsSync(join(root, "catalog/abilities/source_backed_scaffold.json"))).toBe(false);
+  expect(existsSync(join(root, "catalog/mechanics/source_backed_scaffold.json"))).toBe(false);
+
+  const validation = await validateStudioCatalog({ configPath });
+  expect(validation.ok).toBe(true);
+  expect(validation.recordCount).toBe(6);
+});
+
+test("source-backed scaffold restores adapter snapshots on validation failure", async () => {
+  const root = copyExtensionFixture();
+  const configPath = join(root, "writable-content.config.ts");
+  const sourcePath = join(root, "sources/writable-table.json");
+  const result = await scaffoldStudioMechanic({
+    archetype: "mechanic",
+    configPath,
+    id: "broken_source_backed_scaffold",
+    name: "Broken source backed scaffold",
+    params: { broken: true },
+  });
+
+  expect(result.ok).toBe(false);
+  expect(result.rolledBack).toBe(true);
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "missing-record-reference",
+    }),
+  );
+  expect(JSON.parse(readFileSync(sourcePath, "utf-8"))).toEqual([]);
+  expect(existsSync(join(root, "catalog/abilities/broken_source_backed_scaffold.json"))).toBe(
+    false,
+  );
 });

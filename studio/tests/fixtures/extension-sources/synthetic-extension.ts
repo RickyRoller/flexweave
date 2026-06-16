@@ -23,6 +23,61 @@ const optionString = (
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
+const tableRecordKinds = {
+  ability: "abilities",
+  effect: "effects",
+  execution: "executions",
+  mechanic: "mechanics",
+  modifier: "modifiers",
+  tag: "tags",
+} as const;
+
+const tableRows = (
+  config: { configDir: string },
+  source: { options?: Record<string, unknown> },
+): Record<string, unknown>[] => {
+  const path = optionString(source.options, "path");
+  const rows = path
+    ? JSON.parse(readFileSync(join(config.configDir, path), "utf-8"))
+    : source.options?.rows;
+
+  if (!Array.isArray(rows)) {
+    return [];
+  }
+
+  return rows.filter(isObject);
+};
+
+const tableRowRecord = (row: Record<string, unknown>, index: number): StudioSourceRecord => {
+  if (typeof row.id !== "string") {
+    throw new TypeError(`Expected table row ${index + 2} to contain an id.`);
+  }
+
+  return {
+    id: row.id,
+    kind: "synthetic.table",
+    location: {
+      column: 1,
+      field: "id",
+      row: index + 2,
+      sheet: "synthetic-table",
+    },
+    value: row,
+  };
+};
+
+const writableTableRow = (record: StudioSourceRecord): Record<string, unknown> => {
+  if (!isObject(record.value)) {
+    throw new Error(`Expected writable synthetic table record ${record.id} to contain an object.`);
+  }
+
+  const kind = typeof record.value.kind === "string" ? record.value.kind : record.kind;
+  return {
+    ...record.value,
+    contentKind: kind,
+  };
+};
+
 const sourceRecordDiagnostic = (record: StudioSourceRecord): StudioDiagnostic => ({
   code: "synthetic-source-invalid",
   message: `Synthetic source record ${record.id} is invalid.`,
@@ -66,30 +121,35 @@ export const syntheticTableAdapter = defineStudioDataAdapter({
   capabilities: ["read", "schema", "write"],
   id: "synthetic-table",
   label: "Synthetic table adapter",
-  load: ({ source }) => {
-    const rows = Array.isArray(source.options?.rows) ? source.options.rows : [];
+  load: ({ config, source }) => {
+    const rows = tableRows(config, source);
 
     return {
-      records: rows.map((row, index) => {
-        if (!isObject(row) || typeof row.id !== "string") {
-          throw new Error(`Expected table row ${index + 2} to contain an id.`);
-        }
-
-        return {
-          id: row.id,
-          kind: "synthetic.table",
-          location: {
-            column: 1,
-            field: "id",
-            row: index + 2,
-            sheet: "synthetic-table",
-          },
-          value: row,
-        };
-      }),
+      records: rows.map(tableRowRecord),
     };
   },
-  write: ({ records }) => ({ records }),
+  write: ({ config, records, source }) => {
+    const existingRows = tableRows(config, source);
+    const newRows = records.map(writableTableRow);
+    const rows = [...existingRows, ...newRows];
+    const path = optionString(source.options, "path");
+
+    if (path) {
+      writeFileSync(join(config.configDir, path), `${JSON.stringify(rows, null, 2)}\n`);
+    } else if (source.options) {
+      source.options.rows = rows;
+    }
+
+    return {
+      records: rows
+        .slice(existingRows.length)
+        .map((row, index) => tableRowRecord(row, existingRows.length + index)),
+    };
+  },
+  writeSnapshotPaths: ({ config, source }) => {
+    const path = optionString(source.options, "path");
+    return path ? [join(config.configDir, path)] : [];
+  },
 });
 
 export const syntheticTableContentMapper = defineStudioContentMapper({
@@ -98,25 +158,30 @@ export const syntheticTableContentMapper = defineStudioContentMapper({
   map: ({ snapshots }) => ({
     records: snapshots.flatMap((snapshot) =>
       snapshot.records
-        .filter(
-          (record) =>
-            record.kind === "synthetic.table" &&
-            isObject(record.value) &&
-            record.value.contentKind === "tag",
-        )
-        .map((record) => {
+        .filter((record) => record.kind === "synthetic.table" && isObject(record.value))
+        .flatMap((record) => {
           const value = isObject(record.value) ? record.value : {};
-          return {
-            expectedKind: "tags",
-            location: record.location,
-            path: studioSourceLocationLabel(record.location),
-            sourceRecord: record,
-            value: {
-              id: String(value.id),
-              kind: "tag",
-              label: String(value.label),
+          const contentKind = typeof value.contentKind === "string" ? value.contentKind : undefined;
+          const expectedKind =
+            contentKind && contentKind in tableRecordKinds
+              ? tableRecordKinds[contentKind as keyof typeof tableRecordKinds]
+              : undefined;
+          if (!expectedKind) {
+            return [];
+          }
+
+          return [
+            {
+              expectedKind,
+              location: record.location,
+              path: studioSourceLocationLabel(record.location),
+              sourceRecord: record,
+              value: {
+                ...value,
+                kind: contentKind,
+              },
             },
-          };
+          ];
         }),
     ),
   }),

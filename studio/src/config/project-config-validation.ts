@@ -1,4 +1,8 @@
 import type { StudioBuiltInCodegenTarget, StudioCodegenTarget } from "../codegen/types";
+import {
+  createStudioDataAdapterRegistry,
+  validateStudioSourceAdapterReferences,
+} from "./data-adapter-registry";
 import { validateDataConfig } from "./data-config-validation";
 import { configError } from "./diagnostics";
 import {
@@ -266,8 +270,9 @@ export const validateStudioConfig = (
 
   const verifyCommands = validateVerifyConfig(raw.verify, diagnostics);
   const appConfig = validateAppConfig(raw.app, diagnostics);
-  const extensionAdapters = extensions.flatMap((extension) => extension.dataAdapters ?? []);
-  const data = validateDataConfig(raw, diagnostics, extensionAdapters);
+  const data = validateDataConfig(raw, diagnostics);
+  const adapterRegistry = createStudioDataAdapterRegistry(data.adapters, extensions, diagnostics);
+  validateStudioSourceAdapterReferences(data.sources, adapterRegistry, diagnostics);
 
   const resolvedOutputDirs = Object.fromEntries(
     [...fullFields.builtInTargets, ...extensionTargetIds].map((target) => [
@@ -325,7 +330,10 @@ export const validateStudioConfig = (
       },
       configDir: options.configDir,
       configPath: options.configPath,
-      data,
+      data: {
+        ...data,
+        adapterRegistry,
+      },
       extensions,
       mode,
       paths: {

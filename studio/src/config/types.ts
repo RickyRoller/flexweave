@@ -1,4 +1,5 @@
 import type { StudioBuiltInCodegenTarget, StudioCodegenTarget } from "../codegen/types";
+import type { StudioDataAdapterRegistry } from "./data-adapter-registry";
 import type {
   StudioDataAdapter,
   StudioExtension,
@@ -83,6 +84,7 @@ export interface ResolvedStudioProjectConfig {
     builtInTargets: StudioBuiltInCodegenTarget[];
   };
   data: {
+    adapterRegistry: StudioDataAdapterRegistry;
     adapters: StudioDataAdapter[];
     sources: StudioSourceConfig[];
   };

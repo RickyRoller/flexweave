@@ -112,6 +112,16 @@ const validateDataAdapter = (
     );
   }
 
+  if (value.writeSnapshotPaths !== undefined && typeof value.writeSnapshotPaths !== "function") {
+    diagnostics.push(
+      configError(
+        "invalid-data-adapter",
+        `${field}.writeSnapshotPaths`,
+        `Studio data adapter ${field}.writeSnapshotPaths must be a function when provided.`,
+      ),
+    );
+  }
+
   if (capabilities.includes("write") && typeof value.write !== "function") {
     diagnostics.push(
       configError(
@@ -219,7 +229,6 @@ const validateSourceConfig = (
 export const validateDataConfig = (
   value: StudioProjectConfig,
   diagnostics: StudioDiagnostic[],
-  extensionAdapters: StudioDataAdapter[],
 ): { adapters: StudioDataAdapter[]; sources: StudioSourceConfig[] } => {
   if (value.data === undefined) {
     return {
@@ -259,22 +268,6 @@ export const validateDataConfig = (
       if (source) {
         sources.push(source);
       }
-    }
-  }
-
-  const availableAdapters = new Set(
-    [...adapters, ...extensionAdapters].map((adapter) => adapter.id),
-  );
-  for (const [index, source] of sources.entries()) {
-    if (!availableAdapters.has(source.adapterId)) {
-      diagnostics.push(
-        configError(
-          "missing-data-adapter",
-          `data.sources.${index}.adapterId`,
-          `Studio source "${source.id}" references missing data adapter "${source.adapterId}".`,
-          "Register the adapter in data.adapters or through an active Studio extension.",
-        ),
-      );
     }
   }
 

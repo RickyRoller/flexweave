@@ -1,4 +1,5 @@
 import type { ResolvedStudioProjectConfig, StudioDiagnostic } from "./config/schema";
+import { resolveStudioDataAdapter } from "./config/data-adapter-registry";
 import type { StudioGeneratedTargetDefinition } from "./codegen/types";
 
 export type { StudioDiagnostic } from "./config/schema";
@@ -84,6 +85,7 @@ export interface StudioDataAdapter {
   write?: (
     context: StudioDataAdapterWriteContext,
   ) => Promise<StudioSourceSnapshot> | StudioSourceSnapshot;
+  writeSnapshotPaths?: (context: StudioDataAdapterWriteContext) => readonly string[];
 }
 
 export interface StudioSourceValidationContext {
@@ -312,21 +314,11 @@ const extensionError = (
 export const loadStudioSourceSnapshots = async (
   config: ResolvedStudioProjectConfig,
 ): Promise<StudioSourceLoadResult> => {
-  const adapters: Record<string, StudioDataAdapter | undefined> = {};
-  for (const adapter of config.data.adapters) {
-    adapters[adapter.id] = adapter;
-  }
-  for (const extension of config.extensions) {
-    for (const adapter of extension.dataAdapters ?? []) {
-      adapters[adapter.id] = adapter;
-    }
-  }
-
   const diagnostics: StudioDiagnostic[] = [];
   const snapshots: StudioSourceSnapshot[] = [];
 
   for (const source of config.data.sources) {
-    const adapter = adapters[source.adapterId];
+    const adapter = resolveStudioDataAdapter(config.data.adapterRegistry, source.adapterId);
     if (!adapter) {
       diagnostics.push(
         extensionError(
