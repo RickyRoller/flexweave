@@ -654,10 +654,14 @@ test("codegen writes only configured outputs, preserves hooks, and reports orpha
   const configPath = join(root, "studio.config.ts");
   const hookPath = join(root, "runtime-hooks/minimal_execution.rs");
   const hookValue = "//! consumer-owned hook\n\npub fn minimal_execution() {}\n";
+  const libPath = join(root, "runtime-hooks/lib.rs");
+  const modPath = join(root, "runtime-hooks/mod.rs");
   const orphanPath = join(root, "runtime-hooks/orphan.rs");
 
   rmSync(join(root, "generated/abilities/generated.rs"));
   writeFileSync(hookPath, hookValue);
+  writeFileSync(libPath, "//! hook module index\n");
+  writeFileSync(modPath, "//! hook module index\n");
   writeFileSync(orphanPath, "//! orphan runtime hook\n");
 
   const result = await codegenStudioProject({ configPath });
@@ -671,7 +675,13 @@ test("codegen writes only configured outputs, preserves hooks, and reports orpha
   expect(result.ok).toBe(true);
   expect(existsSync(join(root, "generated/abilities/generated.rs"))).toBe(true);
   expect(readFileSync(hookPath, "utf-8")).toBe(hookValue);
-  expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("orphan-runtime-hook");
+  expect(
+    result.diagnostics.filter((diagnostic) => diagnostic.code === "orphan-runtime-hook"),
+  ).toEqual([
+    expect.objectContaining({
+      path: "runtime-hooks/orphan.rs",
+    }),
+  ]);
   expect(existsSync(orphanPath)).toBe(true);
   for (const target of studioCodegenTargets) {
     expect(

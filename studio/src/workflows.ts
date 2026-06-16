@@ -1084,6 +1084,8 @@ const summarizeGeneratedFiles = (
 
 const hookFileName = (hook: string) => `${rustIdentifier(hook)}.rs`;
 
+const hookModuleIndexFiles = new Set(["lib.rs", "mod.rs"]);
+
 const hookStub = (hook: string) =>
   `//! Runtime hook stub created by Flexweave Studio. Consumer-owned after creation.\n\npub fn ${rustIdentifier(hook)}() {}\n`;
 
@@ -1147,10 +1149,11 @@ const summarizeHooks = (
   }
 
   for (const path of listFilesRecursive(hookDir)) {
-    if (!path.endsWith(".rs")) {
+    const fileName = path.split("/").at(-1) ?? "";
+    if (!path.endsWith(".rs") || hookModuleIndexFiles.has(fileName)) {
       continue;
     }
-    const hook = path.split("/").at(-1)?.replace(/\.rs$/, "") ?? "";
+    const hook = fileName.replace(/\.rs$/, "");
     if (!expectedHooks.has(hook)) {
       summaries.push({ hook, path, status: "orphan" });
     }
