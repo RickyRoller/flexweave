@@ -24,7 +24,10 @@ import {
   workflowWarning,
 } from "./shared";
 import type { CodegenStudioResult, StudioWorkflowOptions } from "./types";
-import { activeGeneratedTargets } from "./generated-target-registry";
+import {
+  activeGeneratedTargets,
+  defaultSelectedGeneratedTargets,
+} from "./generated-target-registry";
 import type { RegisteredGeneratedTarget, StudioCatalogContent } from "./generated-target-registry";
 
 const rustIdentifier = (value: string) =>
@@ -57,6 +60,7 @@ const pathContains = (parent: string, child: string) => {
 
 const selectTargets = (
   registeredTargets: RegisteredGeneratedTarget[],
+  defaultTargetIds: readonly string[],
   requestedTargets?: readonly string[],
 ): { diagnostics: StudioDiagnostic[]; targets: RegisteredGeneratedTarget[] } => {
   const byId: Record<string, RegisteredGeneratedTarget | undefined> = {};
@@ -66,7 +70,7 @@ const selectTargets = (
 
   const availableTargetIds = registeredTargets.map((target) => target.id);
   const rootTargetIds =
-    requestedTargets && requestedTargets.length > 0 ? [...requestedTargets] : availableTargetIds;
+    requestedTargets && requestedTargets.length > 0 ? [...requestedTargets] : [...defaultTargetIds];
   const diagnostics: StudioDiagnostic[] = [];
   const orderedTargets: RegisteredGeneratedTarget[] = [];
   const visiting = new Set<string>();
@@ -193,6 +197,9 @@ const detectUnexpectedManagedFiles = (
       continue;
     }
     const outputDir = config.paths.codegen.outputDirs[target.id];
+    if (!outputDir) {
+      continue;
+    }
     for (const path of listFilesRecursive(outputDir)) {
       if (expectedPaths.has(path)) {
         continue;
@@ -351,7 +358,11 @@ export const codegenStudioProject = async (
 
   const fullConfigDiagnostics = fullConfigRequired(resolved.config);
   const registeredTargets = activeGeneratedTargets(resolved.config);
-  const selected = selectTargets(registeredTargets, options.targets);
+  const selected = selectTargets(
+    registeredTargets,
+    defaultSelectedGeneratedTargets(resolved.config).map((target) => target.id),
+    options.targets,
+  );
   if (fullConfigDiagnostics.length > 0 || selected.diagnostics.length > 0) {
     return {
       checked: options.check === true,

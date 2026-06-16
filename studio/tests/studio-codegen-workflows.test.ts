@@ -141,6 +141,61 @@ test("extension targets can replace disabled built-in target ids", async () => {
   ]);
 });
 
+test("default codegen skips unconfigured extension targets until selected", async () => {
+  const root = copyMinimalFixture();
+  const generatedTarget = defineStudioGeneratedTarget({
+    id: "optional-summary",
+    label: "Optional summary",
+    plan: () => ({ files: [] }),
+  });
+  const validated = validateStudioConfig(
+    defineStudioConfig({
+      catalogRoot: "catalog",
+      codegen: {
+        builtInTargets: [],
+        outputDirs: {},
+      },
+      extensions: [
+        defineStudioExtension({
+          generatedTargets: [generatedTarget],
+          id: "optional-generated-targets",
+        }),
+      ],
+      hooks: {
+        dir: "runtime-hooks",
+      },
+      rust: {
+        flexweaveModule: "flexweave",
+      },
+    }),
+    {
+      configDir: root,
+      configPath: join(root, "studio.config.ts"),
+    },
+  );
+
+  expect(validated.ok).toBe(true);
+
+  const defaultCheck = await codegenStudioProject({
+    check: true,
+    config: validated.config,
+  });
+  expect(defaultCheck.ok).toBe(true);
+  expect(defaultCheck.targets).toEqual([]);
+
+  const selected = await codegenStudioProject({
+    check: true,
+    config: validated.config,
+    targets: ["optional-summary"],
+  });
+  expect(selected.ok).toBe(false);
+  expect(selected.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "missing-generated-output-root",
+    }),
+  );
+});
+
 test("extension Rust binding config feeds extension generated targets", async () => {
   const checked = await codegenStudioProject({
     check: true,

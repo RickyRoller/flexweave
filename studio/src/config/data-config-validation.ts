@@ -132,6 +132,16 @@ const validateDataAdapter = (
     );
   }
 
+  if (capabilities.includes("write") && typeof value.writeSnapshotPaths !== "function") {
+    diagnostics.push(
+      configError(
+        "invalid-data-adapter",
+        `${field}.writeSnapshotPaths`,
+        `Writable Studio data adapter ${field} must provide writeSnapshotPaths for transactional scaffold rollback.`,
+      ),
+    );
+  }
+
   if (!id || typeof value.load !== "function" || capabilities.length === 0) {
     return undefined;
   }

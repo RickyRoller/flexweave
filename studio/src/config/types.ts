@@ -95,7 +95,7 @@ export interface ResolvedStudioProjectConfig {
     };
     catalogRoot: string;
     codegen: {
-      outputDirs: Record<StudioCodegenTarget, string>;
+      outputDirs: Partial<Record<StudioCodegenTarget, string>>;
     };
     hooks: {
       dir?: string;

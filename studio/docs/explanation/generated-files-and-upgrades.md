@@ -32,8 +32,10 @@ When a consumer project has a local host app scaffold, `migrate` updates
 supported scaffold metadata and `verify` checks the scaffold plus its
 configured typecheck or build command. Files that differ from the current
 scaffold template are reported as manual follow-ups instead of being
-overwritten. Unsupported future scaffold versions fail with manual follow-ups
-instead of guessing through an ambiguous migration.
+overwritten. Legacy project adapters that still contain copied scaffold wiring
+are reported as manual follow-ups so projects can move customizations onto the
+package-owned default adapter module. Unsupported future scaffold versions fail
+with manual follow-ups instead of guessing through an ambiguous migration.
 
 Extensions may register migrations for their own schema or source metadata.
 Those migrations run after host app scaffold detection, report changed files

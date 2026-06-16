@@ -32,15 +32,18 @@ numbers, cells, or fields.
 
 Scaffold writes go through the active writable content adapter. The built-in
 JSON catalog adapter supports transactional scaffold writes and rollback. Source
-adapters can provide `writeSnapshotPaths` for filesystem-backed rollback;
-otherwise rollback diagnostics report that source writes could not be restored
-automatically. Source configurations without a writable content adapter fail
-before writing files.
+adapters with the `write` capability must provide `writeSnapshotPaths`, and the
+configured source must return at least one snapshot path before scaffold writes
+begin. Source configurations without a writable content adapter or without
+snapshot-backed rollback fail before writing files.
 
 Codegen resolves selected target ids through the active registry. Target
 dependencies are included before the selected target and deduplicated
 deterministically. Unknown target diagnostics list target ids available for the
-active project.
+active project. When no target is selected, Codegen runs the active targets
+that have configured output directories; unconfigured extension targets stay
+available for explicit selection and report a missing-output diagnostic when
+selected without an output directory.
 
 Generated Rust targets receive the resolved Rust codegen context. Built-in
 targets use the generic subset owned by Studio, including generated headers.

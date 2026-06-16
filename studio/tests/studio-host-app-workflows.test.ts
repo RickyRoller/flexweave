@@ -58,7 +58,7 @@ test("host app scaffold is idempotent and preserves consumer-owned edits", async
     studioApp: "@flexweave/studio-app",
   });
   expect(readFileSync(join(appRoot, "src/project-adapter.ts"), "utf-8")).toContain(
-    "composeStudioAppContributions",
+    "createDefaultStudioProjectAdapter",
   );
 
   const second = await scaffoldStudioHostApp({
@@ -181,7 +181,7 @@ test("host app scaffold composes extension contributions and verifies extension 
   });
   expect(scaffolded.ok).toBe(true);
   expect(readFileSync(join(appRoot, "src/project-adapter.ts"), "utf-8")).toContain(
-    "collectStudioAppContributions",
+    "createDefaultStudioProjectAdapter",
   );
 
   linkHostAppPackages(appRoot);
@@ -254,8 +254,7 @@ test("host app scaffold derives codegen target metadata from active generated ta
 
   expect(scaffolded.ok).toBe(true);
   const adapter = readFileSync(join(appRoot, "src/project-adapter.ts"), "utf-8");
-  expect([...adapter.matchAll(/target: "([^"]+)"/g)].map((match) => match[1])).toEqual(["tags"]);
-  expect(adapter).toContain('{ label: "Consumer tags", outputLabel: "tags", target: "tags" },');
+  expect(adapter).toContain("createDefaultStudioProjectAdapter");
 });
 
 test("host app verification reports malformed extension app contributions", async () => {
@@ -302,6 +301,18 @@ test("host app migrate and verify cover scaffold metadata and typecheck", async 
   expect(secondMigration.ok).toBe(true);
   expect(secondMigration.applied).toEqual([]);
   expect(secondMigration.changedFiles).toEqual([]);
+
+  const adapterPath = join(appRoot, "src/project-adapter.ts");
+  const currentAdapter = readFileSync(adapterPath, "utf-8");
+  writeFileSync(adapterPath, "export const projectAdapter = { legacy: true };\n");
+  writeFileSync(metadataPath, `${JSON.stringify({ ...metadata, version: 0 }, null, 2)}\n`);
+  const legacyMigration = await migrateStudioProject({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(legacyMigration.ok).toBe(true);
+  expect(legacyMigration.manualFollowUps[0]).toContain("src/project-adapter.ts");
+  writeFileSync(adapterPath, currentAdapter);
 
   linkHostAppPackages(appRoot);
   const verified = await verifyStudioHostApp({

@@ -50,7 +50,10 @@ diagnostics, and manual follow-ups.
 
 `data.adapters`:
 Optional array of project-local data adapters. Adapters declare capabilities
-such as `read`, `write`, `schema`, `watch`, and `diff`.
+such as `read`, `write`, `schema`, `watch`, and `diff`. Adapters that declare
+`write` must provide both a `write` function and `writeSnapshotPaths` so
+scaffold workflows can restore source files if later validation or generation
+fails.
 
 `data.sources`:
 Optional array of source declarations. Each source has an `id`, `adapterId`,
@@ -67,7 +70,9 @@ Directories for `abilities`, `effects`, `executions`, `modifiers`,
 `reference`, and `tags` generated outputs. Extension generated targets may add
 their own output directory keys after they are registered by an active
 extension. Built-in output directories are required in full configs; extension
-target output directories are required only when that target is selected.
+target output directories are required only when that target is selected. The
+default Codegen workflow selects configured targets, so unconfigured extension
+targets remain optional until a caller explicitly requests them.
 
 `hooks.dir`:
 Directory where missing runtime hook stubs may be created.

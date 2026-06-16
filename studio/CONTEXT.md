@@ -96,6 +96,12 @@ package and provides a project adapter.
 **Project adapter**:
 Consumer-owned wiring for labels, config, workflow calls, and deployment needs.
 
+**Default project adapter module**:
+Package-owned Studio app module that provides the default local host app
+workflow wiring, generated target metadata, and active host app contribution
+composition. Consumer-owned project adapters can delegate to this module and
+layer project customizations around it.
+
 **Host app scaffold**:
 Files created by `flexweave-studio scaffold host-app` for the consumer-owned
 local host app package, entry point, project adapter, and scaffold metadata.

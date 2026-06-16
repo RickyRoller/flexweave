@@ -99,11 +99,23 @@ export const activeGeneratedTargets = (
   ) as RegisteredGeneratedTarget[]),
 ];
 
-export const activeGeneratedTargetCodegenMetadata = (
+export const defaultSelectedGeneratedTargets = (
   config: ResolvedStudioProjectConfig,
-): StudioHostAppCodegenTargetDefinition[] =>
-  activeGeneratedTargets(config).map((target) => ({
+): RegisteredGeneratedTarget[] =>
+  activeGeneratedTargets(config).filter((target) => config.paths.codegen.outputDirs[target.id]);
+
+export const listStudioGeneratedTargetMetadata = (
+  config: ResolvedStudioProjectConfig,
+  options: { configuredOnly?: boolean } = {},
+): StudioHostAppCodegenTargetDefinition[] => {
+  const targets =
+    options.configuredOnly === true
+      ? defaultSelectedGeneratedTargets(config)
+      : activeGeneratedTargets(config);
+
+  return targets.map((target) => ({
     label: target.label,
     outputLabel: target.id,
     target: target.id,
   }));
+};

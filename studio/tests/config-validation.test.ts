@@ -162,6 +162,33 @@ test("config validation rejects invalid verify shape", () => {
   );
 });
 
+test("config validation rejects writable data adapters without rollback snapshots", () => {
+  const result = validateStudioConfig(
+    {
+      ...validFullConfig(),
+      data: {
+        adapters: [
+          {
+            capabilities: ["read", "write"],
+            id: "writable-without-snapshots",
+            load: () => ({ records: [] }),
+            write: () => ({ records: [] }),
+          },
+        ],
+      },
+    },
+    configOptions,
+  );
+
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "invalid-data-adapter",
+      field: "data.adapters.0.writeSnapshotPaths",
+    }),
+  );
+});
+
 test("config validation preserves validate-only support", () => {
   const result = validateStudioConfig(
     {

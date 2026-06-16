@@ -1,4 +1,5 @@
-import type { StudioDiagnostic } from "@flexweave/studio/config";
+import type { ResolvedStudioProjectConfig, StudioDiagnostic } from "@flexweave/studio/config";
+import { loadStudioConfig } from "@flexweave/studio/config/load";
 import type {
   StudioExtension,
   StudioHostAppActionVariant,
@@ -16,6 +17,18 @@ import type {
   StudioHostAppWorkflowActionDefinition,
   StudioHostAppWorkflowCommandName,
 } from "@flexweave/studio/extensions";
+import {
+  codegenStudioProject,
+  describeStudioCatalog,
+  listStudioCatalogRecords,
+  listStudioGeneratedTargetMetadata,
+  migrateStudioProject,
+  planStudioMechanic,
+  scaffoldStudioMechanic,
+  showStudioCatalogRecord,
+  validateStudioCatalog,
+  verifyStudioProject,
+} from "@flexweave/studio/workflows";
 
 export type StudioAppRouteKind = StudioHostAppRouteKind;
 
@@ -275,6 +288,132 @@ export const composeStudioAppContributions = (
     adapter: composed,
     diagnostics,
     ok: diagnostics.length === 0,
+  };
+};
+
+export interface CreateDefaultStudioProjectAdapterOptions {
+  configPath: string;
+  id?: string;
+  labels?: Partial<StudioAppLabels>;
+}
+
+const defaultStudioAppLabels: StudioAppLabels = {
+  productName: "Flexweave Studio",
+  projectName: "Consumer project",
+  shellSubtitle: "Catalog authoring",
+  workflowTrail: ["Studio catalog", "Generated mechanics definitions", "Consumer runtime"],
+  workspaceTitle: "Authoring workspace",
+};
+
+const asMechanicInput = (input: Record<string, unknown>) => ({
+  archetype: typeof input.archetype === "string" ? input.archetype : "mechanic",
+  id: typeof input.id === "string" ? input.id : "",
+  name: typeof input.name === "string" ? input.name : "",
+  params:
+    typeof input.params === "object" && input.params !== null && !Array.isArray(input.params)
+      ? (input.params as Record<string, unknown>)
+      : undefined,
+});
+
+const extensionContributedCodegenTargetIds = (config: ResolvedStudioProjectConfig) =>
+  new Set(
+    config.extensions.flatMap((extension) =>
+      (extension.appContributions ?? []).flatMap((contribution) =>
+        (contribution.codegenTargets ?? []).map((target) => target.target),
+      ),
+    ),
+  );
+
+const defaultCodegenTargets = (config?: ResolvedStudioProjectConfig) => {
+  if (!config) {
+    return [];
+  }
+
+  const extensionCodegenTargetIds = extensionContributedCodegenTargetIds(config);
+  return listStudioGeneratedTargetMetadata(config, { configuredOnly: true }).filter(
+    (target) => !extensionCodegenTargetIds.has(target.target),
+  );
+};
+
+const defaultServerFunctions = (configPath: string): StudioAppServerFunctionBindings => ({
+  codegen: (input = {}) => codegenStudioProject({ configPath, ...input }),
+  describe: (input = {}) => describeStudioCatalog(input.kind, { configPath }),
+  list: (input) => listStudioCatalogRecords(input.kind, { configPath, filter: input.filter }),
+  migrate: () => migrateStudioProject({ configPath }),
+  plan: (input) => planStudioMechanic({ configPath, ...asMechanicInput(input) }),
+  scaffold: (input) => scaffoldStudioMechanic({ configPath, ...asMechanicInput(input) }),
+  show: (input) => showStudioCatalogRecord(input.kind, input.id, { configPath }),
+  validate: () => validateStudioCatalog({ configPath }),
+  verify: (input = {}) => verifyStudioProject({ configPath, ...input }),
+});
+
+export const createDefaultStudioProjectAdapter = async (
+  options: CreateDefaultStudioProjectAdapterOptions,
+): Promise<StudioAppCompositionResult> => {
+  const loadedConfig = await loadStudioConfig({ configPath: options.configPath });
+  const extensionContributions = loadedConfig.config
+    ? collectStudioAppContributions(loadedConfig.config.extensions)
+    : [];
+  const baseProjectAdapter = defineStudioAppAdapter({
+    authoring: {
+      areas: [
+        { editorId: "tags", id: "tags", label: "Tags" },
+        { editorId: "abilities", id: "abilities", label: "Abilities" },
+        { editorId: "effects", id: "effects", label: "Effects" },
+      ],
+      editors: [
+        { areaId: "tags", commandName: "list", id: "tags", label: "Tags", recordKind: "tags" },
+        {
+          areaId: "abilities",
+          commandName: "list",
+          id: "abilities",
+          label: "Abilities",
+          recordKind: "abilities",
+        },
+        {
+          areaId: "effects",
+          commandName: "list",
+          id: "effects",
+          label: "Effects",
+          recordKind: "effects",
+        },
+      ],
+    },
+    codegenTargets: defaultCodegenTargets(loadedConfig.config),
+    id: options.id ?? "local-studio-host",
+    labels: {
+      ...defaultStudioAppLabels,
+      ...options.labels,
+    },
+    navigation: [
+      {
+        id: "workspace",
+        label: "Workspace",
+        links: [{ href: "/", id: "overview", label: "Overview" }],
+      },
+      {
+        id: "generated",
+        label: "Generated",
+        links: [{ href: "/#generated-output", id: "generated-output", label: "Generated output" }],
+      },
+    ],
+    serverFunctions: defaultServerFunctions(options.configPath),
+    workflowActions: [
+      { commandName: "validate", id: "validate", label: "Validate", variant: "secondary" },
+      { commandName: "codegen", id: "codegen", label: "Generate", variant: "secondary" },
+      { commandName: "verify", id: "verify", label: "Verify", variant: "primary" },
+    ],
+  });
+  const composedProjectAdapter = composeStudioAppContributions(
+    baseProjectAdapter,
+    extensionContributions,
+  );
+  const diagnostics = [...loadedConfig.diagnostics, ...composedProjectAdapter.diagnostics];
+
+  return {
+    adapter: composedProjectAdapter.adapter,
+    diagnostics,
+    ok: loadedConfig.ok && composedProjectAdapter.ok,
   };
 };
 

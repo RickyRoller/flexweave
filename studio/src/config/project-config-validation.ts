@@ -275,13 +275,11 @@ export const validateStudioConfig = (
   validateStudioSourceAdapterReferences(data.sources, adapterRegistry, diagnostics);
 
   const resolvedOutputDirs = Object.fromEntries(
-    [...fullFields.builtInTargets, ...extensionTargetIds].map((target) => [
-      target,
-      fullFields.outputDirs[target]
-        ? resolveConfigPath(options.configDir, fullFields.outputDirs[target])
-        : "",
-    ]),
-  ) as Record<StudioCodegenTarget, string>;
+    [...fullFields.builtInTargets, ...extensionTargetIds].flatMap((target) => {
+      const configuredPath = fullFields.outputDirs[target];
+      return configuredPath ? [[target, resolveConfigPath(options.configDir, configuredPath)]] : [];
+    }),
+  ) as Partial<Record<StudioCodegenTarget, string>>;
   const resolvedHookDir = fullFields.hookDir
     ? resolveConfigPath(options.configDir, fullFields.hookDir)
     : undefined;

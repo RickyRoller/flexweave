@@ -68,9 +68,10 @@ Consumer paths in the config resolve from the directory containing the active
 config file.
 
 `flexweave-studio scaffold host-app` creates a consumer-owned local host app
-that imports `@flexweave/studio-app`, records scaffold metadata, composes
-active extension host app contributions, and preserves project-owned adapter
-code separately from scaffold-managed files.
+that imports `@flexweave/studio-app`, records scaffold metadata, delegates
+default workflow wiring and active extension host app contributions to the
+Studio app package, and preserves project-owned adapter customizations
+separately from scaffold-managed files.
 
 `flexweave-studio verify` reports structured checks for config loading,
 extensions, sources, mappers, validation, generated targets, runtime hooks,

@@ -2,10 +2,8 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import type { ResolvedStudioProjectConfig } from "../config/schema";
-import type { StudioHostAppCodegenTargetDefinition } from "../extensions";
 import { readTextIfExists, writeTextFile } from "../internal/files";
 import { STUDIO_HOST_APP_SCAFFOLD_VERSION } from "./constants";
-import { activeGeneratedTargetCodegenMetadata } from "./generated-target-registry";
 import { resolveWorkflowConfig, workflowError, workflowWarning } from "./shared";
 import type {
   ScaffoldStudioHostAppOptions,
@@ -36,7 +34,9 @@ const hostAppManagedFiles = [
   "tsconfig.json",
 ];
 
-const hostAppProjectOwnedFiles = ["src/project-adapter.ts"];
+const hostAppProjectAdapterPath = "src/project-adapter.ts";
+const hostAppDefaultAdapterFactoryName = "createDefaultStudioProjectAdapter";
+const hostAppProjectOwnedFiles = [hostAppProjectAdapterPath];
 
 interface HostAppScaffoldMetadata {
   files?: string[];
@@ -137,25 +137,10 @@ export const readHostAppPackageDependencies = (
 const isHostAppProjectOwnedFile = (relativePath: string, metadata?: HostAppScaffoldMetadata) =>
   (metadata?.projectOwnedFiles ?? hostAppProjectOwnedFiles).includes(relativePath);
 
-const extensionContributedCodegenTargetIds = (config: ResolvedStudioProjectConfig) =>
-  new Set(
-    config.extensions.flatMap((extension) =>
-      (extension.appContributions ?? []).flatMap((contribution) =>
-        (contribution.codegenTargets ?? []).map((target) => target.target),
-      ),
-    ),
-  );
-
-const renderHostAppCodegenTarget = (target: StudioHostAppCodegenTargetDefinition) => {
-  const fields = [
-    `label: ${JSON.stringify(target.label)}`,
-    ...(target.outputLabel === undefined
-      ? []
-      : [`outputLabel: ${JSON.stringify(target.outputLabel)}`]),
-    `target: ${JSON.stringify(target.target)}`,
-  ];
-  return `    { ${fields.join(", ")} },`;
-};
+const needsDefaultProjectAdapterMigration = (path: string, current: string | undefined) =>
+  path.endsWith(hostAppProjectAdapterPath) &&
+  current !== undefined &&
+  !current.includes(hostAppDefaultAdapterFactoryName);
 
 const hostAppScaffoldFiles = (
   config: ResolvedStudioProjectConfig,
@@ -163,12 +148,6 @@ const hostAppScaffoldFiles = (
   existingMetadata?: HostAppScaffoldMetadata,
 ) => {
   const configPath = hostAppConfigPath(config, join(root, "src"));
-  const extensionCodegenTargetIds = extensionContributedCodegenTargetIds(config);
-  const codegenTargets = activeGeneratedTargetCodegenMetadata(config)
-    .filter((target) => !extensionCodegenTargetIds.has(target.target))
-    .map(renderHostAppCodegenTarget)
-    .join("\n");
-
   const metadata = hostAppMetadataForScaffold(existingMetadata);
 
   return {
@@ -204,97 +183,16 @@ const hostAppScaffoldFiles = (
       "",
     ].join("\n"),
     "src/project-adapter.ts": [
-      "import {",
-      "  codegenStudioProject,",
-      "  describeStudioCatalog,",
-      "  listStudioCatalogRecords,",
-      "  migrateStudioProject,",
-      "  planStudioMechanic,",
-      "  scaffoldStudioMechanic,",
-      "  showStudioCatalogRecord,",
-      "  validateStudioCatalog,",
-      "  verifyStudioProject,",
-      '} from "@flexweave/studio/workflows";',
-      'import { loadStudioConfig } from "@flexweave/studio/config/load";',
       'import { fileURLToPath } from "node:url";',
-      "import {",
-      "  collectStudioAppContributions,",
-      "  composeStudioAppContributions,",
-      "  defineStudioAppAdapter,",
-      '} from "@flexweave/studio-app";',
       "",
-      `const workflowOptions = { configPath: fileURLToPath(new URL("${configPath}", import.meta.url)) };`,
-      "const loadedConfig = await loadStudioConfig(workflowOptions);",
-      "const extensionContributions = loadedConfig.config",
-      "  ? collectStudioAppContributions(loadedConfig.config.extensions)",
-      "  : [];",
+      'import { createDefaultStudioProjectAdapter } from "@flexweave/studio-app";',
       "",
-      "const asMechanicInput = (input: Record<string, unknown>) => ({",
-      '  archetype: typeof input.archetype === "string" ? input.archetype : "mechanic",',
-      '  id: typeof input.id === "string" ? input.id : "",',
-      '  name: typeof input.name === "string" ? input.name : "",',
-      "  params:",
-      '    typeof input.params === "object" && input.params !== null && !Array.isArray(input.params)',
-      "      ? (input.params as Record<string, unknown>)",
-      "      : undefined,",
+      "const defaultProjectAdapter = await createDefaultStudioProjectAdapter({",
+      `  configPath: fileURLToPath(new URL("${configPath}", import.meta.url)),`,
       "});",
       "",
-      "const baseProjectAdapter = defineStudioAppAdapter({",
-      "  authoring: {",
-      "    areas: [",
-      '      { editorId: "tags", id: "tags", label: "Tags" },',
-      '      { editorId: "abilities", id: "abilities", label: "Abilities" },',
-      '      { editorId: "effects", id: "effects", label: "Effects" },',
-      "    ],",
-      "    editors: [",
-      '      { areaId: "tags", commandName: "list", id: "tags", label: "Tags", recordKind: "tags" },',
-      '      { areaId: "abilities", commandName: "list", id: "abilities", label: "Abilities", recordKind: "abilities" },',
-      '      { areaId: "effects", commandName: "list", id: "effects", label: "Effects", recordKind: "effects" },',
-      "    ],",
-      "  },",
-      "  codegenTargets: [",
-      codegenTargets,
-      "  ],",
-      '  id: "local-studio-host",',
-      "  labels: {",
-      '    productName: "Flexweave Studio",',
-      '    projectName: "Consumer project",',
-      '    shellSubtitle: "Catalog authoring",',
-      '    workspaceTitle: "Authoring workspace",',
-      '    workflowTrail: ["Studio catalog", "Generated mechanics definitions", "Consumer runtime"],',
-      "  },",
-      "  navigation: [",
-      '    { id: "workspace", label: "Workspace", links: [{ href: "/", id: "overview", label: "Overview" }] },',
-      '    { id: "generated", label: "Generated", links: [{ href: "/#generated-output", id: "generated-output", label: "Generated output" }] },',
-      "  ],",
-      "  serverFunctions: {",
-      "    codegen: (input) => codegenStudioProject({ ...workflowOptions, ...input }),",
-      "    describe: (input) => describeStudioCatalog(input?.kind, workflowOptions),",
-      "    list: (input) => listStudioCatalogRecords(input.kind, { ...workflowOptions, filter: input.filter }),",
-      "    migrate: () => migrateStudioProject(workflowOptions),",
-      "    plan: (input) => planStudioMechanic({ ...workflowOptions, ...asMechanicInput(input) }),",
-      "    scaffold: (input) => scaffoldStudioMechanic({ ...workflowOptions, ...asMechanicInput(input) }),",
-      "    show: (input) => showStudioCatalogRecord(input.kind, input.id, workflowOptions),",
-      "    validate: () => validateStudioCatalog(workflowOptions),",
-      "    verify: (input) => verifyStudioProject({ ...workflowOptions, ...input }),",
-      "  },",
-      "  workflowActions: [",
-      '    { commandName: "validate", id: "validate", label: "Validate", variant: "secondary" },',
-      '    { commandName: "codegen", id: "codegen", label: "Generate", variant: "secondary" },',
-      '    { commandName: "verify", id: "verify", label: "Verify", variant: "primary" },',
-      "  ],",
-      "});",
-      "",
-      "const composedProjectAdapter = composeStudioAppContributions(",
-      "  baseProjectAdapter,",
-      "  extensionContributions,",
-      ");",
-      "",
-      "export const projectAdapter = composedProjectAdapter.adapter;",
-      "export const projectAdapterDiagnostics = [",
-      "  ...(loadedConfig.ok ? [] : loadedConfig.diagnostics),",
-      "  ...composedProjectAdapter.diagnostics,",
-      "];",
+      "export const projectAdapter = defaultProjectAdapter.adapter;",
+      "export const projectAdapterDiagnostics = defaultProjectAdapter.diagnostics;",
       "",
     ].join("\n"),
     "tsconfig.json": `${JSON.stringify(
@@ -335,6 +233,7 @@ const scaffoldStatus = (
   expected: string,
   allowMetadataUpdate: boolean,
   projectOwned: boolean,
+  requireDefaultProjectAdapter: boolean,
 ): StudioHostAppFileResult => {
   const current = readTextIfExists(path);
   if (current === undefined) {
@@ -356,6 +255,15 @@ const scaffoldStatus = (
   }
 
   if (projectOwned) {
+    if (requireDefaultProjectAdapter && needsDefaultProjectAdapterMigration(path, current)) {
+      return {
+        path,
+        reason:
+          "Project adapter uses legacy copied scaffold wiring. Move local customizations onto createDefaultStudioProjectAdapter so package-owned workflow wiring can update with Studio.",
+        status: "manual-follow-up",
+      };
+    }
+
     return {
       path,
       reason: "Project-owned host app file preserved.",
@@ -373,7 +281,7 @@ const scaffoldStatus = (
 export const writeHostAppScaffold = (
   config: ResolvedStudioProjectConfig,
   root: string,
-  options: { updateMetadata: boolean },
+  options: { requireDefaultProjectAdapter?: boolean; updateMetadata: boolean },
 ): StudioHostAppFileResult[] => {
   mkdirSync(root, { recursive: true });
   const metadata = readHostAppMetadata(root);
@@ -384,6 +292,7 @@ export const writeHostAppScaffold = (
       value,
       options.updateMetadata,
       isHostAppProjectOwnedFile(relativePath, metadata),
+      options.requireDefaultProjectAdapter === true,
     ),
   );
 };

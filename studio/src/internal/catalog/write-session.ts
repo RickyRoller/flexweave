@@ -156,8 +156,13 @@ const builtInJsonCatalogWriter = (
 
 const sourceCanWrite = (
   adapter: StudioDataAdapter | undefined,
-): adapter is StudioDataAdapter & { write: NonNullable<StudioDataAdapter["write"]> } =>
-  adapter !== undefined && studioDataAdapterCanWrite(adapter);
+): adapter is StudioDataAdapter & {
+  write: NonNullable<StudioDataAdapter["write"]>;
+  writeSnapshotPaths: NonNullable<StudioDataAdapter["writeSnapshotPaths"]>;
+} =>
+  adapter !== undefined &&
+  studioDataAdapterCanWrite(adapter) &&
+  typeof adapter.writeSnapshotPaths === "function";
 
 const sourceWriteLabel = (source: StudioSourceConfig, record: StudioCatalogRecord) => {
   const label = source.label ?? source.id;
@@ -177,78 +182,80 @@ const sourceRecordWritePath = (
 const sourceBackedCatalogWriter = (
   config: ResolvedStudioProjectConfig,
   source: StudioSourceConfig,
-  adapter: StudioDataAdapter & { write: NonNullable<StudioDataAdapter["write"]> },
+  adapter: StudioDataAdapter & {
+    write: NonNullable<StudioDataAdapter["write"]>;
+    writeSnapshotPaths: NonNullable<StudioDataAdapter["writeSnapshotPaths"]>;
+  },
 ): StudioCatalogWriterAdapter => {
+  const sourceWriteContext = (records: readonly StudioCatalogRecord[]) => ({
+    config,
+    records: records.map(catalogWriteRecord),
+    source,
+  });
+
+  const rollbackPaths = (records: readonly StudioCatalogRecord[]) => {
+    try {
+      const paths = adapter.writeSnapshotPaths(sourceWriteContext(records));
+      if (paths.length === 0) {
+        return {
+          diagnostics: [
+            catalogDiagnostic(
+              "source-write-rollback-unsupported",
+              `Studio source adapter "${adapter.id}" did not provide filesystem snapshots for source "${source.id}"; source writes could not be rolled back automatically.`,
+              config.configPath,
+            ),
+          ],
+          paths: [],
+        };
+      }
+
+      return {
+        diagnostics: [],
+        paths: paths.map((path) => (isAbsolute(path) ? path : resolve(config.configDir, path))),
+      };
+    } catch (error) {
+      return {
+        diagnostics: [
+          catalogDiagnostic(
+            "source-write-snapshot-failed",
+            error instanceof Error
+              ? `Studio data adapter "${adapter.id}" could not prepare write snapshots for source "${source.id}": ${error.message}`
+              : `Studio data adapter "${adapter.id}" could not prepare write snapshots for source "${source.id}".`,
+            config.configPath,
+          ),
+        ],
+        paths: [],
+      };
+    }
+  };
+
   const plan = (records: readonly StudioCatalogRecord[]) => ({
-    diagnostics: [],
+    diagnostics: rollbackPaths(records).diagnostics,
     plannedPaths: records.map((record) => sourceWriteLabel(source, record)),
   });
 
   return {
     plan,
     prepare: (records) => {
-      const writeRecords = records.map(catalogWriteRecord);
-      const sourceWriteContext = {
-        config,
-        records: writeRecords,
-        source,
-      };
-      const snapshotDiagnostics: StudioDiagnostic[] = [];
-      const snapshots = (() => {
-        try {
-          const paths = adapter.writeSnapshotPaths?.(sourceWriteContext) ?? [];
-          return snapshotPaths(
-            paths.map((path) => (isAbsolute(path) ? path : resolve(config.configDir, path))),
-          );
-        } catch (error) {
-          snapshotDiagnostics.push(
-            catalogDiagnostic(
-              "source-write-snapshot-failed",
-              error instanceof Error
-                ? `Studio data adapter "${adapter.id}" could not prepare write snapshots for source "${source.id}": ${error.message}`
-                : `Studio data adapter "${adapter.id}" could not prepare write snapshots for source "${source.id}".`,
-              config.configPath,
-              undefined,
-              undefined,
-              "warning",
-            ),
-          );
-          return [];
-        }
-      })();
+      const rollback = rollbackPaths(records);
+      const snapshots = rollback.diagnostics.length === 0 ? snapshotPaths(rollback.paths) : [];
       let writeAttempted = false;
       return {
-        ...plan(records),
-        diagnostics: snapshotDiagnostics,
+        diagnostics: rollback.diagnostics,
+        plannedPaths: records.map((record) => sourceWriteLabel(source, record)),
         rollback: () => {
           if (!writeAttempted) {
             return { diagnostics: [], rolledBack: true };
           }
 
-          if (snapshots.length > 0) {
-            restoreSnapshots(snapshots);
-            return { diagnostics: [], rolledBack: true };
-          }
-
-          return {
-            diagnostics: [
-              catalogDiagnostic(
-                "source-write-rollback-unsupported",
-                `Studio source adapter "${adapter.id}" did not provide filesystem snapshots; source writes could not be rolled back automatically.`,
-                config.configPath,
-                undefined,
-                undefined,
-                "warning",
-              ),
-            ],
-            rolledBack: false,
-          };
+          restoreSnapshots(snapshots);
+          return { diagnostics: [], rolledBack: true };
         },
         write: async () => {
           writeAttempted = true;
           try {
             const snapshot = await adapter.write({
-              ...sourceWriteContext,
+              ...sourceWriteContext(records),
             });
 
             return {
@@ -322,7 +329,10 @@ const resolveStudioCatalogWriter = (
       (
         entry,
       ): entry is {
-        adapter: StudioDataAdapter & { write: NonNullable<StudioDataAdapter["write"]> };
+        adapter: StudioDataAdapter & {
+          write: NonNullable<StudioDataAdapter["write"]>;
+          writeSnapshotPaths: NonNullable<StudioDataAdapter["writeSnapshotPaths"]>;
+        };
         source: StudioSourceConfig;
       } => sourceCanWrite(entry.adapter),
     );

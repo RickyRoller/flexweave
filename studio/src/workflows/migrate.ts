@@ -103,6 +103,7 @@ const runHostAppMigration = (
   }
 
   const files = writeHostAppScaffold(config, root, {
+    requireDefaultProjectAdapter: true,
     updateMetadata: true,
   });
   const followUps = manualFollowUps(files);

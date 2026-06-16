@@ -3,11 +3,13 @@ import { expect, test } from "bun:test";
 import {
   collectStudioAppContributions,
   composeStudioAppContributions,
+  createDefaultStudioProjectAdapter,
   createStudioApp,
   createStudioOverviewPanel,
   defineStudioAppAdapter,
 } from "../src";
 import { syntheticSourceExtension } from "../../tests/fixtures/extension-sources/synthetic-extension";
+import { generatedTargetFixtureConfigPath } from "../../tests/support/studio-fixtures";
 
 const adapter = defineStudioAppAdapter({
   authoring: {
@@ -156,6 +158,21 @@ test("app contribution composition reports duplicate app surface ids", () => {
     code: "duplicate-host-app-contribution",
     field: "authoring.editors.1",
   });
+});
+
+test("default project adapter composes configured targets and extension surfaces", async () => {
+  const result = await createDefaultStudioProjectAdapter({
+    configPath: generatedTargetFixtureConfigPath,
+  });
+
+  expect(result.ok).toBe(true);
+  expect(result.diagnostics).toEqual([]);
+  expect(result.adapter.codegenTargets.map((target) => target.target)).toEqual(
+    expect.arrayContaining(["abilities", "synthetic-rust", "synthetic-summary"]),
+  );
+  expect(result.adapter.generatedOutputPanels?.map((panel) => panel.id)).toEqual([
+    "synthetic-summary-output",
+  ]);
 });
 
 test("server function bindings stay project-provided", async () => {

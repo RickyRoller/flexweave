@@ -6,6 +6,7 @@ export {
   validateStudioCatalog,
 } from "./workflows/catalog";
 export { codegenStudioProject } from "./workflows/codegen";
+export { listStudioGeneratedTargetMetadata } from "./workflows/generated-target-registry";
 export { scaffoldStudioHostApp, verifyStudioHostApp } from "./workflows/host-app";
 export { migrateStudioProject } from "./workflows/migrate";
 export { planStudioMechanic, scaffoldStudioMechanic } from "./workflows/mechanic";
