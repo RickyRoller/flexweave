@@ -32,8 +32,8 @@
     "verify:studio-host-app": "bun scripts/verify-studio-host-app.ts"
   },
   "devDependencies": {
-    "oxfmt": "^0.46.0",
-    "oxlint": "^1.60.0",
+    "oxfmt": "^0.55.0",
+    "oxlint": "^1.70.0",
     "typescript": "^6.0.3",
     "ultracite": "7.6.1"
   },

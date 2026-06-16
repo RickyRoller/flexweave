@@ -18,5 +18,3 @@ changing.
 
 Run `bun fix` after substantive TypeScript, JSON, or markdown edits. Run
 `bun run verify` before handing off broad skeleton changes.
-
-Do not add any directory named `examples` in this phase.
