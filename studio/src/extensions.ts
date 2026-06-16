@@ -33,6 +33,12 @@ export interface StudioSourceSnapshot {
   sourceId?: string;
 }
 
+export interface StudioSourceDiagnosticAttribution {
+  adapterId?: string;
+  diagnostics: readonly StudioDiagnostic[];
+  sourceId?: string;
+}
+
 export interface StudioMappedContentRecord {
   expectedKind?: string;
   location?: StudioSourceLocation;
@@ -57,6 +63,12 @@ export interface StudioContentMapper {
   map: (
     context: StudioContentMapperContext,
   ) => Promise<StudioContentMapperResult> | StudioContentMapperResult;
+}
+
+export interface StudioMapperDiagnosticAttribution {
+  diagnostics: readonly StudioDiagnostic[];
+  extensionId?: string;
+  mapperId: string;
 }
 
 export interface StudioSourceConfig {
@@ -246,6 +258,7 @@ export interface StudioExtension {
 export interface StudioSourceLoadResult {
   diagnostics: StudioDiagnostic[];
   ok: boolean;
+  sourceDiagnostics: StudioSourceDiagnosticAttribution[];
   snapshots: StudioSourceSnapshot[];
 }
 
@@ -315,52 +328,72 @@ export const loadStudioSourceSnapshots = async (
   config: ResolvedStudioProjectConfig,
 ): Promise<StudioSourceLoadResult> => {
   const diagnostics: StudioDiagnostic[] = [];
+  const sourceDiagnostics: StudioSourceDiagnosticAttribution[] = [];
   const snapshots: StudioSourceSnapshot[] = [];
+
+  const addSourceDiagnostics = (
+    owner: { adapterId?: string; sourceId?: string },
+    ownedDiagnostics: readonly StudioDiagnostic[],
+  ) => {
+    if (ownedDiagnostics.length === 0) {
+      return;
+    }
+
+    sourceDiagnostics.push({
+      adapterId: owner.adapterId,
+      diagnostics: [...ownedDiagnostics],
+      sourceId: owner.sourceId,
+    });
+  };
 
   for (const source of config.data.sources) {
     const adapter = resolveStudioDataAdapter(config.data.adapterRegistry, source.adapterId);
     if (!adapter) {
-      diagnostics.push(
-        extensionError(
-          "missing-data-adapter",
-          `Studio source "${source.id}" references missing data adapter "${source.adapterId}".`,
-          config.configPath,
-          "Register the adapter in data.adapters or through an active Studio extension.",
-        ),
+      const diagnostic = extensionError(
+        "missing-data-adapter",
+        `Studio source "${source.id}" references missing data adapter "${source.adapterId}".`,
+        config.configPath,
+        "Register the adapter in data.adapters or through an active Studio extension.",
       );
+      diagnostics.push(diagnostic);
+      addSourceDiagnostics({ adapterId: source.adapterId, sourceId: source.id }, [diagnostic]);
       continue;
     }
 
     if (!adapter.capabilities.includes("read")) {
-      diagnostics.push(
-        extensionError(
-          "adapter-read-unsupported",
-          `Studio data adapter "${adapter.id}" cannot read source "${source.id}".`,
-          config.configPath,
-          "Use an adapter with the read capability for source loading.",
-        ),
+      const diagnostic = extensionError(
+        "adapter-read-unsupported",
+        `Studio data adapter "${adapter.id}" cannot read source "${source.id}".`,
+        config.configPath,
+        "Use an adapter with the read capability for source loading.",
       );
+      diagnostics.push(diagnostic);
+      addSourceDiagnostics({ adapterId: adapter.id, sourceId: source.id }, [diagnostic]);
       continue;
     }
 
     try {
       const snapshot = await adapter.load({ config, source });
+      const adapterId = snapshot.adapterId ?? adapter.id;
+      const sourceId = snapshot.sourceId ?? source.id;
+      const snapshotDiagnostics = [...(snapshot.diagnostics ?? [])];
       snapshots.push({
         ...snapshot,
-        adapterId: snapshot.adapterId ?? adapter.id,
-        sourceId: snapshot.sourceId ?? source.id,
+        adapterId,
+        sourceId,
       });
-      diagnostics.push(...(snapshot.diagnostics ?? []));
+      diagnostics.push(...snapshotDiagnostics);
+      addSourceDiagnostics({ adapterId, sourceId }, snapshotDiagnostics);
     } catch (error) {
-      diagnostics.push(
-        extensionError(
-          "data-adapter-load-failed",
-          error instanceof Error
-            ? `Studio data adapter "${adapter.id}" failed to load source "${source.id}": ${error.message}`
-            : `Studio data adapter "${adapter.id}" failed to load source "${source.id}".`,
-          config.configPath,
-        ),
+      const diagnostic = extensionError(
+        "data-adapter-load-failed",
+        error instanceof Error
+          ? `Studio data adapter "${adapter.id}" failed to load source "${source.id}": ${error.message}`
+          : `Studio data adapter "${adapter.id}" failed to load source "${source.id}".`,
+        config.configPath,
       );
+      diagnostics.push(diagnostic);
+      addSourceDiagnostics({ adapterId: adapter.id, sourceId: source.id }, [diagnostic]);
     }
   }
 
@@ -387,5 +420,6 @@ export const loadStudioSourceSnapshots = async (
     diagnostics,
     ok: diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
     snapshots,
+    sourceDiagnostics,
   };
 };

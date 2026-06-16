@@ -1,5 +1,9 @@
 import type { RuntimeHookSummary, StudioCodegenTargetSummary } from "../codegen/types";
 import type { ResolvedStudioProjectConfig, StudioDiagnostic } from "../config/schema";
+import type {
+  StudioMapperDiagnosticAttribution,
+  StudioSourceDiagnosticAttribution,
+} from "../extensions";
 import type { StudioCatalogRecord, StudioRecordKind } from "../internal/catalog";
 
 export interface StudioWorkflowOptions {
@@ -15,7 +19,9 @@ export interface StudioWorkflowResult {
 
 export interface ValidateStudioCatalogResult extends StudioWorkflowResult {
   configPath?: string;
+  mapperDiagnostics: StudioMapperDiagnosticAttribution[];
   recordCount: number;
+  sourceDiagnostics: StudioSourceDiagnosticAttribution[];
   sourceRecordCount: number;
   sources: StudioSourceSummary[];
 }

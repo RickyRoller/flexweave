@@ -52,6 +52,27 @@ const diagnosticsMatching = (
     ),
   );
 
+const sourceCheckDiagnostics = (
+  validation: ValidateStudioCatalogResult,
+  source: ResolvedStudioProjectConfig["data"]["sources"][number],
+) =>
+  validation.sourceDiagnostics
+    .filter(
+      (group) =>
+        group.sourceId === source.id &&
+        (group.adapterId === undefined || group.adapterId === source.adapterId),
+    )
+    .flatMap((group) => group.diagnostics);
+
+const mapperCheckDiagnostics = (
+  validation: ValidateStudioCatalogResult,
+  extensionId: string,
+  mapperId: string,
+) =>
+  validation.mapperDiagnostics
+    .filter((group) => group.extensionId === extensionId && group.mapperId === mapperId)
+    .flatMap((group) => group.diagnostics);
+
 const buildVerifyChecks = (
   config: ResolvedStudioProjectConfig,
   validation: ValidateStudioCatalogResult,
@@ -77,12 +98,7 @@ const buildVerifyChecks = (
       }),
     ),
     ...config.data.sources.map((source) => {
-      const diagnostics = diagnosticsMatching(validation.diagnostics, [
-        `source "${source.id}"`,
-        `adapter "${source.adapterId}"`,
-        source.id,
-        source.adapterId,
-      ]);
+      const diagnostics = sourceCheckDiagnostics(validation, source);
       return verifyCheck({
         adapterId: source.adapterId,
         diagnostics,
@@ -94,10 +110,7 @@ const buildVerifyChecks = (
     }),
     ...config.extensions.flatMap((extension) =>
       (extension.contentMappers ?? []).map((mapper) => {
-        const diagnostics = diagnosticsMatching(validation.diagnostics, [
-          `content mapper "${mapper.id}"`,
-          mapper.id,
-        ]);
+        const diagnostics = mapperCheckDiagnostics(validation, extension.id, mapper.id);
         return verifyCheck({
           diagnostics,
           extensionId: extension.id,
@@ -212,8 +225,10 @@ export const verifyStudioProject = async (
     ];
     const emptyValidation: ValidateStudioCatalogResult = {
       diagnostics: resolved.diagnostics,
+      mapperDiagnostics: [],
       ok: false,
       recordCount: 0,
+      sourceDiagnostics: [],
       sourceRecordCount: 0,
       sources: [],
     };

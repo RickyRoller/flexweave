@@ -1,4 +1,6 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 
@@ -14,6 +16,7 @@ import {
   copyMinimalFixture,
   extensionFixtureRoot,
   fixtureConfigPath,
+  linkWorkspacePackage,
 } from "./support/studio-fixtures";
 
 test("extension-owned migrations are explicit, idempotent, and reject unsupported versions", async () => {
@@ -145,6 +148,98 @@ test("verify reports extension-aware checks for fast, full, stale, adapter, and 
       status: "failed",
     }),
   );
+});
+
+test("verify attributes source and mapper diagnostics without substring ownership", async () => {
+  const sourceOwned = await verifyStudioProject({
+    configPath: join(extensionFixtureRoot, "broken-file.config.ts"),
+  });
+  const sourceCheck = sourceOwned.checks.find((check) => check.name === "source:file-backed");
+  expect(sourceCheck).toMatchObject({
+    adapterId: "synthetic-file",
+    sourceId: "file-backed",
+    status: "failed",
+  });
+  expect(sourceCheck?.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "synthetic-source-invalid",
+      path: "sources/broken-file-record.json",
+    }),
+  );
+  expect(
+    sourceCheck?.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.message.includes("file-backed") ||
+        diagnostic.message.includes("synthetic-file") ||
+        diagnostic.path?.includes("file-backed") ||
+        diagnostic.path?.includes("synthetic-file") ||
+        diagnostic.field?.includes("file-backed") ||
+        diagnostic.field?.includes("synthetic-file"),
+    ),
+  ).toBe(false);
+
+  const mapperRoot = join(tmpdir(), `studio-mapper-attribution-${randomUUID()}`);
+  mkdirSync(join(mapperRoot, "catalog"), { recursive: true });
+  linkWorkspacePackage(mapperRoot);
+  const mapperConfigPath = join(mapperRoot, "studio.config.ts");
+  writeFileSync(
+    mapperConfigPath,
+    [
+      'import { defineStudioConfig } from "@flexweave/studio/config";',
+      'import { defineStudioContentMapper, defineStudioExtension } from "@flexweave/studio/extensions";',
+      "",
+      "const structuredAttributionMapper = defineStudioContentMapper({",
+      '  id: "structured-attribution-mapper",',
+      "  map: () => ({",
+      "    diagnostics: [",
+      "      {",
+      '        code: "detached-mapping-diagnostic",',
+      '        message: "Mapped content is not usable.",',
+      '        path: "sourceless-output.json",',
+      '        severity: "error",',
+      "      },",
+      "    ],",
+      "    records: [],",
+      "  }),",
+      "});",
+      "",
+      "export default defineStudioConfig({",
+      '  catalogRoot: "catalog",',
+      "  extensions: [",
+      "    defineStudioExtension({",
+      "      contentMappers: [structuredAttributionMapper],",
+      '      id: "structured-attribution-extension",',
+      "    }),",
+      "  ],",
+      '  mode: "validate-only",',
+      "});",
+      "",
+    ].join("\n"),
+  );
+
+  const mapperOwned = await verifyStudioProject({ configPath: mapperConfigPath });
+  const mapperCheck = mapperOwned.checks.find(
+    (check) => check.name === "mapper:structured-attribution-mapper",
+  );
+  expect(mapperCheck).toMatchObject({
+    extensionId: "structured-attribution-extension",
+    status: "failed",
+  });
+  expect(mapperCheck?.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "detached-mapping-diagnostic",
+      message: "Mapped content is not usable.",
+      path: "sourceless-output.json",
+    }),
+  );
+  expect(
+    mapperCheck?.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.message.includes("structured-attribution-mapper") ||
+        diagnostic.path?.includes("structured-attribution-mapper") ||
+        diagnostic.field?.includes("structured-attribution-mapper"),
+    ),
+  ).toBe(false);
 });
 
 test("verify and migrate expose stable package workflows", async () => {

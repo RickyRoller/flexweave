@@ -235,3 +235,36 @@ test("codegen writes only configured outputs, preserves hooks, and reports orpha
     result.hooks.every((hook) => hookDirs.some((hookDir) => pathContains(hookDir, hook.path))),
   ).toBe(true);
 });
+
+test("codegen rolls back generated files and runtime hook stubs when hook writes fail", async () => {
+  const root = copyMinimalFixture();
+  const configPath = join(root, "studio.config.ts");
+  const generatedPath = join(root, "generated/executions/generated.rs");
+  const originalGenerated = readFileSync(generatedPath, "utf-8");
+  const hookPath = join(root, "runtime-hooks/rollback_runtime_hook.rs");
+  const testStubsRoot = join(root, "generated-hook-tests");
+  const testHookPath = join(testStubsRoot, "rollback_runtime_hook.rs");
+
+  writeFileSync(
+    join(root, "catalog/executions/rollback_execution.json"),
+    `${JSON.stringify({
+      hook: "rollback_runtime_hook",
+      id: "rollback_execution",
+      kind: "execution",
+      label: "Rollback execution",
+    })}\n`,
+  );
+  rmSync(testStubsRoot, { force: true, recursive: true });
+  writeFileSync(testStubsRoot, "not a directory\n");
+
+  const result = await codegenStudioProject({ configPath, targets: ["executions"] });
+
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({ code: "codegen-write-failed" }),
+  );
+  expect(readFileSync(generatedPath, "utf-8")).toBe(originalGenerated);
+  expect(existsSync(hookPath)).toBe(false);
+  expect(existsSync(testHookPath)).toBe(false);
+  expect(readFileSync(testStubsRoot, "utf-8")).toBe("not a directory\n");
+});

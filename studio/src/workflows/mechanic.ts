@@ -10,6 +10,9 @@ import type {
   ScaffoldStudioMechanicResult,
 } from "./types";
 
+const isSourceWriteConfigurationDiagnostic = (code: string) =>
+  code === "source-write-ambiguous" || code === "source-write-unsupported";
+
 const mechanicRecords = (
   id: string,
   label: string,
@@ -108,7 +111,13 @@ export const scaffoldStudioMechanic = async (
 
   const planned = await planStudioMechanic({ ...options, config: resolved.config });
   if (!planned.ok) {
-    return { ...planned, rolledBack: false, writtenFiles: [] };
+    return {
+      ...planned,
+      rolledBack: planned.diagnostics.some((diagnostic) =>
+        isSourceWriteConfigurationDiagnostic(diagnostic.code),
+      ),
+      writtenFiles: [],
+    };
   }
 
   const writeSession = prepareStudioCatalogWrite(resolved.config, planned.records, {
@@ -161,9 +170,21 @@ export const scaffoldStudioMechanic = async (
       config: resolved.config,
       targets: ["executions"],
     });
+    if (!codegen.ok) {
+      const rollback = writeSession.rollback();
+      return {
+        diagnostics: [...writeDiagnostics, ...codegen.diagnostics, ...rollback.diagnostics],
+        ok: false,
+        plannedFiles: planned.plannedFiles,
+        records: planned.records,
+        rolledBack: rollback.rolledBack,
+        writtenFiles,
+      };
+    }
+
     return {
       diagnostics: [...writeDiagnostics, ...codegen.diagnostics],
-      ok: codegen.ok,
+      ok: true,
       plannedFiles: planned.plannedFiles,
       records: planned.records,
       rolledBack: false,

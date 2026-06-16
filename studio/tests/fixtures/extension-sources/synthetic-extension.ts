@@ -105,7 +105,7 @@ export const syntheticFileAdapter = defineStudioDataAdapter({
       records: [
         {
           id: value.id,
-          kind: "synthetic.file",
+          kind: optionString(source.options, "recordKind") ?? "synthetic.file",
           location: {
             jsonPointer: "/",
             path,

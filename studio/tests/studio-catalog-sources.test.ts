@@ -7,6 +7,7 @@ import { studioDataAdapterCanWrite } from "@flexweave/studio/extensions";
 import {
   describeStudioCatalog,
   listStudioCatalogRecords,
+  planStudioMechanic,
   scaffoldStudioMechanic,
   showStudioCatalogRecord,
   validateStudioCatalog,
@@ -137,6 +138,41 @@ test("table-backed source rows map into normalized built-in content", async () =
   ]);
 });
 
+test("extension source records with built-in raw kinds are not mapped by the built-in JSON mapper", async () => {
+  const configPath = join(extensionFixtureRoot, "raw-kind-source.config.ts");
+  const validation = await validateStudioCatalog({ configPath });
+  expect(validation.ok).toBe(true);
+  expect(validation.recordCount).toBe(0);
+  expect(validation.sourceRecordCount).toBe(1);
+  expect(validation.sources).toEqual([
+    {
+      adapterId: "synthetic-file",
+      recordCount: 1,
+      sourceId: "raw-kind-file",
+    },
+  ]);
+
+  const listed = await listStudioCatalogRecords("tags", { configPath });
+  expect(listed.ok).toBe(true);
+  expect(listed.records).toEqual([]);
+
+  const mappedConfigPath = join(extensionFixtureRoot, "raw-kind-mapped-source.config.ts");
+  const mappedValidation = await validateStudioCatalog({ configPath: mappedConfigPath });
+  expect(mappedValidation.ok).toBe(true);
+  expect(mappedValidation.recordCount).toBe(1);
+  expect(mappedValidation.sourceRecordCount).toBe(1);
+
+  const mappedListed = await listStudioCatalogRecords("tags", { configPath: mappedConfigPath });
+  expect(mappedListed.ok).toBe(true);
+  expect(mappedListed.records).toEqual([
+    {
+      id: "extension_raw_tag",
+      label: "Extension raw tag",
+      path: "sources/raw-kind-file-record.json",
+    },
+  ]);
+});
+
 test("adapter-backed validation diagnostics keep source provenance", async () => {
   const root = copyMinimalFixture();
   const configPath = join(root, "studio.config.ts");
@@ -253,6 +289,46 @@ test("scaffold rejects source configurations without a writable content adapter"
   );
   expect(
     existsSync(join(extensionFixtureRoot, "catalog/abilities/source_backed_scaffold.json")),
+  ).toBe(false);
+});
+
+test("planning rejects source configurations without a writable content adapter", async () => {
+  const configPath = join(extensionFixtureRoot, "read-only-content.config.ts");
+  const result = await planStudioMechanic({
+    archetype: "mechanic",
+    configPath,
+    id: "source_backed_plan",
+    name: "Source backed plan",
+  });
+
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "source-write-unsupported",
+    }),
+  );
+  expect(existsSync(join(extensionFixtureRoot, "catalog/abilities/source_backed_plan.json"))).toBe(
+    false,
+  );
+});
+
+test("planning rejects ambiguous writable source configurations", async () => {
+  const configPath = join(extensionFixtureRoot, "ambiguous-writable-content.config.ts");
+  const result = await planStudioMechanic({
+    archetype: "mechanic",
+    configPath,
+    id: "ambiguous_source_plan",
+    name: "Ambiguous source plan",
+  });
+
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "source-write-ambiguous",
+    }),
+  );
+  expect(
+    existsSync(join(extensionFixtureRoot, "catalog/abilities/ambiguous_source_plan.json")),
   ).toBe(false);
 });
 

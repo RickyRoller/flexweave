@@ -49,8 +49,10 @@ export const validateStudioCatalog = async (
   if (!resolved.ok) {
     return {
       diagnostics: resolved.diagnostics,
+      mapperDiagnostics: [],
       ok: false,
       recordCount: 0,
+      sourceDiagnostics: [],
       sourceRecordCount: 0,
       sources: [],
     };
@@ -61,8 +63,10 @@ export const validateStudioCatalog = async (
   return {
     configPath: resolved.config.configPath,
     diagnostics: catalog.diagnostics,
+    mapperDiagnostics: [...catalog.mapperDiagnostics],
     ok: catalog.diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
     recordCount: catalog.records.length,
+    sourceDiagnostics: [...catalog.sourceDiagnostics],
     sourceRecordCount: catalog.sourceSnapshots.reduce(
       (total, snapshot) => total + snapshot.records.length,
       0,

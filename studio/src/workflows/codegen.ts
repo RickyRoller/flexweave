@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { isAbsolute, join, relative } from "node:path";
 
 import type {
@@ -38,6 +38,12 @@ const rustIdentifier = (value: string) =>
 interface PlannedGeneratedFile {
   path: string;
   target: StudioCodegenTarget;
+  value: string;
+}
+
+interface PlannedRuntimeHookFile {
+  hook: string;
+  path: string;
   value: string;
 }
 
@@ -237,6 +243,40 @@ const runtimeHookStatus = (exists: boolean, write: boolean) => {
   return write ? "created" : "missing";
 };
 
+const expectedRuntimeHooks = (catalog: Awaited<ReturnType<typeof loadStudioCatalog>>) =>
+  new Set(
+    catalog.byKind.executions
+      .map((record) => record.hook)
+      .filter((hook): hook is string => typeof hook === "string" && hook.length > 0),
+  );
+
+const plannedRuntimeHookFiles = (
+  config: ResolvedStudioProjectConfig,
+  catalog: Awaited<ReturnType<typeof loadStudioCatalog>>,
+): PlannedRuntimeHookFile[] => {
+  const hookDir = config.paths.hooks.dir;
+  if (!hookDir) {
+    return [];
+  }
+
+  const files: PlannedRuntimeHookFile[] = [];
+  for (const hook of [...expectedRuntimeHooks(catalog)].toSorted()) {
+    const path = join(hookDir, hookFileName(hook));
+    if (!existsSync(path)) {
+      files.push({ hook, path, value: hookStub(hook) });
+    }
+
+    if (config.paths.hooks.testStubsDir) {
+      const testPath = join(config.paths.hooks.testStubsDir, hookFileName(hook));
+      if (!existsSync(testPath)) {
+        files.push({ hook, path: testPath, value: hookTestStub(hook) });
+      }
+    }
+  }
+
+  return files;
+};
+
 const summarizeHooks = (
   config: ResolvedStudioProjectConfig,
   catalog: Awaited<ReturnType<typeof loadStudioCatalog>>,
@@ -247,26 +287,12 @@ const summarizeHooks = (
     return [];
   }
 
-  if (options.write) {
-    mkdirSync(hookDir, { recursive: true });
-  }
-  if (options.write && config.paths.hooks.testStubsDir) {
-    mkdirSync(config.paths.hooks.testStubsDir, { recursive: true });
-  }
-
-  const expectedHooks = new Set(
-    catalog.byKind.executions
-      .map((record) => record.hook)
-      .filter((hook): hook is string => typeof hook === "string" && hook.length > 0),
-  );
+  const expectedHooks = expectedRuntimeHooks(catalog);
   const summaries: RuntimeHookSummary[] = [];
 
   for (const hook of [...expectedHooks].toSorted()) {
     const path = join(hookDir, hookFileName(hook));
     const exists = existsSync(path);
-    if (!exists && options.write) {
-      writeTextFile(path, hookStub(hook));
-    }
     summaries.push({
       hook,
       path,
@@ -278,7 +304,6 @@ const summarizeHooks = (
       if (existsSync(testPath)) {
         summaries.push({ hook, path: testPath, status: "existing" });
       } else if (options.write) {
-        writeTextFile(testPath, hookTestStub(hook));
         summaries.push({ hook, path: testPath, status: "created" });
       } else {
         summaries.push({ hook, path: testPath, status: "missing" });
@@ -370,7 +395,11 @@ export const codegenStudioProject = async (
   let finalDiffs = diffs;
 
   if (options.check !== true) {
-    const snapshots = snapshotPaths(expected.map((file) => file.path));
+    const hookFiles = plannedRuntimeHookFiles(resolved.config, catalog);
+    const snapshots = snapshotPaths([
+      ...expected.map((file) => file.path),
+      ...hookFiles.map((file) => file.path),
+    ]);
     try {
       for (const file of expected) {
         const before = readTextIfExists(file.path);
@@ -390,6 +419,10 @@ export const codegenStudioProject = async (
           );
         }
       }
+
+      for (const file of hookFiles) {
+        writeTextFile(file.path, file.value);
+      }
     } catch (error) {
       restoreSnapshots(snapshots);
       return {
@@ -399,11 +432,11 @@ export const codegenStudioProject = async (
           workflowError(
             "codegen-write-failed",
             error instanceof Error
-              ? `Failed to write generated mechanics definitions: ${error.message}`
-              : "Failed to write generated mechanics definitions.",
+              ? `Failed to write generated mechanics definitions or runtime hook stubs: ${error.message}`
+              : "Failed to write generated mechanics definitions or runtime hook stubs.",
           ),
         ],
-        hooks,
+        hooks: summarizeHooks(resolved.config, catalog, { write: false }),
         ok: false,
         targets: [],
       };
