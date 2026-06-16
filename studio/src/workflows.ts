@@ -276,6 +276,8 @@ const hostAppConfigPath = (config: ResolvedStudioProjectConfig, fromDir: string)
 
 const hostAppMetadataPath = (root: string) => join(root, ".flexweave-studio-app.json");
 
+const hostAppPackagePath = (root: string) => join(root, "package.json");
+
 const hostAppManagedFiles = [
   ".flexweave-studio-app.json",
   "package.json",
@@ -349,6 +351,34 @@ const hostAppMetadataForScaffold = (
     studioPackageName: existing?.studioPackageName ?? "@flexweave/studio",
     version: STUDIO_HOST_APP_SCAFFOLD_VERSION,
   };
+};
+
+const hostAppPackageDependencyScopes = [
+  "dependencies",
+  "devDependencies",
+  "peerDependencies",
+  "optionalDependencies",
+] as const;
+
+const readHostAppPackageDependencies = (root: string): Record<string, string> | undefined => {
+  const value = readTextIfExists(hostAppPackagePath(root));
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const dependencies: Record<string, string> = {};
+    for (const scope of hostAppPackageDependencyScopes) {
+      const scoped = stringRecordField(parsed[scope]);
+      if (scoped) {
+        Object.assign(dependencies, scoped);
+      }
+    }
+    return dependencies;
+  } catch {
+    return undefined;
+  }
 };
 
 const isHostAppProjectOwnedFile = (relativePath: string, metadata?: HostAppScaffoldMetadata) =>
@@ -1892,6 +1922,66 @@ const runHostAppMigration = (
   });
 };
 
+const runHostAppPackageRefCheck = (root: string): StudioMigrationCheckResult => {
+  if (!existsSync(hostAppMetadataPath(root))) {
+    return migrationCheck({
+      name: "host-app-package-refs",
+      skipped: ["No local host app scaffold metadata found."],
+    });
+  }
+
+  const metadata = hostAppMetadataForScaffold(readHostAppMetadata(root));
+  const dependencies = readHostAppPackageDependencies(root);
+  if (!dependencies) {
+    const followUp = `Local host app package manifest is missing or malformed at ${hostAppPackagePath(root)}.`;
+    return migrationCheck({
+      diagnostics: [
+        workflowError(
+          "unsupported-host-app-package-ref",
+          followUp,
+          hostAppPackagePath(root),
+          "Restore package.json or regenerate the local host app scaffold before rerunning migrate.",
+        ),
+      ],
+      manualFollowUps: [followUp],
+      name: "host-app-package-refs",
+    });
+  }
+
+  const missingRefs = [
+    ...new Set(
+      Object.values(metadata.packageRefs).filter(
+        (packageName) => dependencies[packageName] === undefined,
+      ),
+    ),
+  ];
+
+  if (missingRefs.length === 0) {
+    return migrationCheck({
+      name: "host-app-package-refs",
+      skipped: ["Local host app package refs are supported."],
+    });
+  }
+
+  const followUps = missingRefs.map(
+    (packageName) =>
+      `Local host app package metadata references "${packageName}", but package.json does not declare it as a dependency.`,
+  );
+
+  return migrationCheck({
+    diagnostics: followUps.map((followUp) =>
+      workflowError(
+        "unsupported-host-app-package-ref",
+        followUp,
+        hostAppPackagePath(root),
+        "Add the package dependency or update .flexweave-studio-app.json packageRefs before rerunning migrate.",
+      ),
+    ),
+    manualFollowUps: followUps,
+    name: "host-app-package-refs",
+  });
+};
+
 const runExtensionMigrations = async (
   config: ResolvedStudioProjectConfig,
   appRoot: string,
@@ -2092,6 +2182,7 @@ export const migrateStudioProject = async (
   const root = hostAppRoot(resolved.config, options.appRoot);
   const checks = [
     runHostAppMigration(resolved.config, root),
+    runHostAppPackageRefCheck(root),
     ...(await runExtensionMigrations(resolved.config, root)),
   ];
   const diagnostics = checks.flatMap((check) => check.diagnostics);

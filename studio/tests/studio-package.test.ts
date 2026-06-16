@@ -1032,6 +1032,50 @@ test("migrate rejects unsupported host app scaffold versions", async () => {
   expect(migrated.manualFollowUps[0]).toContain("Unsupported local host app scaffold version 99");
 });
 
+test("migrate rejects unsupported host app package refs", async () => {
+  const root = copyFixture();
+  const configPath = join(root, "studio.config.ts");
+  const appRoot = join(root, "studio-host");
+
+  const scaffolded = await scaffoldStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(scaffolded.ok).toBe(true);
+
+  const metadataPath = join(appRoot, ".flexweave-studio-app.json");
+  const metadata = JSON.parse(readFileSync(metadataPath, "utf-8")) as {
+    packageRefs: Record<string, string>;
+  };
+  writeFileSync(
+    metadataPath,
+    `${JSON.stringify(
+      {
+        ...metadata,
+        packageRefs: {
+          ...metadata.packageRefs,
+          studioApp: "@flexweave/studio-app-next",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const migrated = await migrateStudioProject({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(migrated.ok).toBe(false);
+  expect(migrated.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "unsupported-host-app-package-ref",
+      path: join(appRoot, "package.json"),
+    }),
+  );
+  expect(migrated.manualFollowUps[0]).toContain("@flexweave/studio-app-next");
+});
+
 test("verify reports extension-aware checks for fast, full, stale, adapter, and command failures", async () => {
   const fixtureTreeRoot = copyFixtureTree();
   const generatedRoot = join(fixtureTreeRoot, "minimal");
