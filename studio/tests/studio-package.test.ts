@@ -803,6 +803,74 @@ test("host app scaffold is idempotent and preserves consumer-owned edits", async
   expect(preserved.manualFollowUps[0]).toContain("src/main.ts");
 });
 
+test("host app scaffold honors metadata-declared project-owned files", async () => {
+  const root = copyFixture();
+  const configPath = join(root, "studio.config.ts");
+  const appRoot = join(root, "studio-host");
+
+  const scaffolded = await scaffoldStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(scaffolded.ok).toBe(true);
+
+  const metadataPath = join(appRoot, ".flexweave-studio-app.json");
+  const metadata = JSON.parse(readFileSync(metadataPath, "utf-8")) as {
+    files: string[];
+    managedFiles: string[];
+    packageName: string;
+    packageRefs: Record<string, string>;
+    projectOwnedFiles: string[];
+    scaffold: string;
+    studioPackageName: string;
+    version: number;
+  };
+  writeFileSync(
+    metadataPath,
+    `${JSON.stringify(
+      {
+        files: metadata.files,
+        managedFiles: metadata.managedFiles.filter((file) => file !== "src/main.ts"),
+        packageName: metadata.packageName,
+        packageRefs: metadata.packageRefs,
+        projectOwnedFiles: [...metadata.projectOwnedFiles, "src/main.ts"],
+        scaffold: metadata.scaffold,
+        studioPackageName: metadata.studioPackageName,
+        version: metadata.version,
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const entryPath = join(appRoot, "src/main.ts");
+  writeFileSync(
+    entryPath,
+    `${readFileSync(entryPath, "utf-8")}\nexport const atlasOwnedEntryCustomization = true;\n`,
+  );
+
+  const preserved = await scaffoldStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(preserved.ok).toBe(true);
+  expect(preserved.changedFiles).toEqual([]);
+  expect(preserved.manualFollowUps).toEqual([]);
+  expect(preserved.files).toContainEqual(
+    expect.objectContaining({
+      path: entryPath,
+      status: "project-owned",
+    }),
+  );
+
+  linkHostAppPackages(appRoot);
+  const verified = await verifyStudioHostApp({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(verified.ok).toBe(true);
+});
+
 test("host app scaffold composes extension contributions and verifies extension fixture", async () => {
   const root = copyExtensionFixture();
   const configPath = join(root, "studio.config.ts");

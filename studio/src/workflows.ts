@@ -285,10 +285,80 @@ const hostAppManagedFiles = [
 
 const hostAppProjectOwnedFiles = ["src/project-adapter.ts"];
 
-const isHostAppProjectOwnedFile = (relativePath: string) =>
-  hostAppProjectOwnedFiles.includes(relativePath);
+interface HostAppScaffoldMetadata {
+  files?: string[];
+  managedFiles?: string[];
+  packageName?: string;
+  packageRefs?: Record<string, string>;
+  projectOwnedFiles?: string[];
+  scaffold?: string;
+  studioPackageName?: string;
+  version?: number;
+}
 
-const hostAppScaffoldFiles = (config: ResolvedStudioProjectConfig, root: string) => {
+const stringArrayField = (value: unknown): string[] | undefined =>
+  Array.isArray(value) && value.every((item) => typeof item === "string") ? [...value] : undefined;
+
+const stringRecordField = (value: unknown): Record<string, string> | undefined =>
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  Object.values(value).every((item) => typeof item === "string")
+    ? { ...(value as Record<string, string>) }
+    : undefined;
+
+const readHostAppMetadata = (root: string): HostAppScaffoldMetadata | undefined => {
+  const value = readTextIfExists(hostAppMetadataPath(root));
+  if (!value) {
+    return undefined;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    return {
+      files: stringArrayField(parsed.files),
+      managedFiles: stringArrayField(parsed.managedFiles),
+      packageName: typeof parsed.packageName === "string" ? parsed.packageName : undefined,
+      packageRefs: stringRecordField(parsed.packageRefs),
+      projectOwnedFiles: stringArrayField(parsed.projectOwnedFiles),
+      scaffold: typeof parsed.scaffold === "string" ? parsed.scaffold : undefined,
+      studioPackageName:
+        typeof parsed.studioPackageName === "string" ? parsed.studioPackageName : undefined,
+      version: typeof parsed.version === "number" ? parsed.version : undefined,
+    };
+  } catch {
+    return undefined;
+  }
+};
+
+const hostAppMetadataForScaffold = (
+  existing?: HostAppScaffoldMetadata,
+): Required<HostAppScaffoldMetadata> => {
+  const managedFiles = existing?.managedFiles ?? hostAppManagedFiles;
+  const projectOwnedFiles = existing?.projectOwnedFiles ?? hostAppProjectOwnedFiles;
+  return {
+    files: existing?.files ?? [...managedFiles, ...projectOwnedFiles],
+    managedFiles,
+    packageName: existing?.packageName ?? "@flexweave/studio-app",
+    packageRefs: existing?.packageRefs ?? {
+      studio: "@flexweave/studio",
+      studioApp: "@flexweave/studio-app",
+    },
+    projectOwnedFiles,
+    scaffold: existing?.scaffold ?? "flexweave-studio-host-app",
+    studioPackageName: existing?.studioPackageName ?? "@flexweave/studio",
+    version: STUDIO_HOST_APP_SCAFFOLD_VERSION,
+  };
+};
+
+const isHostAppProjectOwnedFile = (relativePath: string, metadata?: HostAppScaffoldMetadata) =>
+  (metadata?.projectOwnedFiles ?? hostAppProjectOwnedFiles).includes(relativePath);
+
+const hostAppScaffoldFiles = (
+  config: ResolvedStudioProjectConfig,
+  root: string,
+  existingMetadata?: HostAppScaffoldMetadata,
+) => {
   const configPath = hostAppConfigPath(config, join(root, "src"));
   const codegenTargets = studioCodegenTargets
     .map(
@@ -297,19 +367,7 @@ const hostAppScaffoldFiles = (config: ResolvedStudioProjectConfig, root: string)
     )
     .join("\n");
 
-  const metadata = {
-    files: [...hostAppManagedFiles, ...hostAppProjectOwnedFiles],
-    managedFiles: hostAppManagedFiles,
-    packageName: "@flexweave/studio-app",
-    packageRefs: {
-      studio: "@flexweave/studio",
-      studioApp: "@flexweave/studio-app",
-    },
-    projectOwnedFiles: hostAppProjectOwnedFiles,
-    scaffold: "flexweave-studio-host-app",
-    studioPackageName: "@flexweave/studio",
-    version: STUDIO_HOST_APP_SCAFFOLD_VERSION,
-  };
+  const metadata = hostAppMetadataForScaffold(existingMetadata);
 
   return {
     ".flexweave-studio-app.json": `${JSON.stringify(metadata, null, 2)}\n`,
@@ -459,6 +517,17 @@ const hostAppScaffoldFiles = (config: ResolvedStudioProjectConfig, root: string)
   } satisfies Record<string, string>;
 };
 
+const jsonTextMatches = (current: string, expected: string) => {
+  try {
+    return (
+      `${JSON.stringify(JSON.parse(current), null, 2)}\n` ===
+      `${JSON.stringify(JSON.parse(expected), null, 2)}\n`
+    );
+  } catch {
+    return false;
+  }
+};
+
 const scaffoldStatus = (
   path: string,
   expected: string,
@@ -472,6 +541,10 @@ const scaffoldStatus = (
   }
 
   if (current === expected) {
+    return { path, status: "unchanged" };
+  }
+
+  if (path.endsWith(".flexweave-studio-app.json") && jsonTextMatches(current, expected)) {
     return { path, status: "unchanged" };
   }
 
@@ -501,13 +574,14 @@ const writeHostAppScaffold = (
   options: { updateMetadata: boolean },
 ): StudioHostAppFileResult[] => {
   mkdirSync(root, { recursive: true });
-  const templates = hostAppScaffoldFiles(config, root);
+  const metadata = readHostAppMetadata(root);
+  const templates = hostAppScaffoldFiles(config, root, metadata);
   return Object.entries(templates).map(([relativePath, value]) =>
     scaffoldStatus(
       join(root, relativePath),
       value,
       options.updateMetadata,
-      isHostAppProjectOwnedFile(relativePath),
+      isHostAppProjectOwnedFile(relativePath, metadata),
     ),
   );
 };
@@ -522,19 +596,8 @@ const changedFiles = (files: StudioHostAppFileResult[]) =>
     .filter((file) => file.status === "created" || file.status === "updated")
     .map((file) => file.path);
 
-const readHostAppMetadataVersion = (root: string): number | undefined => {
-  const value = readTextIfExists(hostAppMetadataPath(root));
-  if (!value) {
-    return undefined;
-  }
-
-  try {
-    const parsed = JSON.parse(value) as { version?: unknown };
-    return typeof parsed.version === "number" ? parsed.version : undefined;
-  } catch {
-    return undefined;
-  }
-};
+const readHostAppMetadataVersion = (root: string): number | undefined =>
+  readHostAppMetadata(root)?.version;
 
 const fullConfigRequired = (config: ResolvedStudioProjectConfig): StudioDiagnostic[] =>
   config.mode === "full"
@@ -1448,33 +1511,40 @@ export const scaffoldStudioHostApp = async (
 const verifyHostAppFiles = (
   config: ResolvedStudioProjectConfig,
   root: string,
-): StudioHostAppFileResult[] =>
-  Object.entries(hostAppScaffoldFiles(config, root)).map(([relativePath, expected]) => {
-    const path = join(root, relativePath);
-    const current = readTextIfExists(path);
-    if (current === undefined) {
-      return {
-        path,
-        reason: "Required host app scaffold file is missing.",
-        status: "manual-follow-up",
-      };
-    }
-    if (isHostAppProjectOwnedFile(relativePath)) {
-      return {
-        path,
-        reason: "Project-owned host app file preserved.",
-        status: "project-owned",
-      };
-    }
-    if (current !== expected) {
-      return {
-        path,
-        reason: "Host app scaffold file differs from the current scaffold template.",
-        status: "manual-follow-up",
-      };
-    }
-    return { path, status: "unchanged" };
-  });
+): StudioHostAppFileResult[] => {
+  const metadata = readHostAppMetadata(root);
+  return Object.entries(hostAppScaffoldFiles(config, root, metadata)).map(
+    ([relativePath, expected]) => {
+      const path = join(root, relativePath);
+      const current = readTextIfExists(path);
+      if (current === undefined) {
+        return {
+          path,
+          reason: "Required host app scaffold file is missing.",
+          status: "manual-follow-up",
+        };
+      }
+      if (isHostAppProjectOwnedFile(relativePath, metadata)) {
+        return {
+          path,
+          reason: "Project-owned host app file preserved.",
+          status: "project-owned",
+        };
+      }
+      if (
+        current !== expected &&
+        !(path.endsWith(".flexweave-studio-app.json") && jsonTextMatches(current, expected))
+      ) {
+        return {
+          path,
+          reason: "Host app scaffold file differs from the current scaffold template.",
+          status: "manual-follow-up",
+        };
+      }
+      return { path, status: "unchanged" };
+    },
+  );
+};
 
 const runHostAppCommand = async (
   config: ResolvedStudioProjectConfig,
