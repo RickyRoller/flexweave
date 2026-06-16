@@ -13,7 +13,7 @@ import { isAbsolute, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
 
-import { studioCodegenTargets } from "@flexweave/studio/codegen";
+import { defineStudioGeneratedTarget, studioCodegenTargets } from "@flexweave/studio/codegen";
 import { defineStudioConfig, validateStudioConfig } from "@flexweave/studio/config";
 import { findStudioConfig, loadStudioConfig } from "@flexweave/studio/config/load";
 import {
@@ -29,7 +29,7 @@ import {
   verifyStudioHostApp,
   verifyStudioProject,
 } from "@flexweave/studio/workflows";
-import { studioDataAdapterCanWrite } from "@flexweave/studio/extensions";
+import { defineStudioExtension, studioDataAdapterCanWrite } from "@flexweave/studio/extensions";
 
 const studioRoot = resolve(import.meta.dirname, "..");
 const repoRoot = resolve(studioRoot, "..");
@@ -529,6 +529,75 @@ test("extension generated targets run through the target registry", async () => 
     code: "unknown-codegen-target",
   });
   expect(unknown.diagnostics[0]?.hint).toContain("synthetic-summary");
+});
+
+test("extension targets can replace disabled built-in target ids", async () => {
+  const root = copyFixture();
+  const shadowOutputDir = join(root, "generated/shadow-tags");
+  mkdirSync(shadowOutputDir, { recursive: true });
+  writeFileSync(join(shadowOutputDir, "shadow.txt"), "consumer tags\n");
+
+  const generatedTarget = defineStudioGeneratedTarget({
+    id: "tags",
+    label: "Consumer tags",
+    plan: ({ outputDir }) => ({
+      files: [
+        {
+          path: join(outputDir, "shadow.txt"),
+          value: "consumer tags\n",
+        },
+      ],
+    }),
+  });
+  const validated = validateStudioConfig(
+    defineStudioConfig({
+      catalogRoot: "catalog",
+      codegen: {
+        builtInTargets: [],
+        outputDirs: {
+          tags: "generated/shadow-tags",
+        },
+      },
+      extensions: [
+        defineStudioExtension({
+          generatedTargets: [generatedTarget],
+          id: "consumer-generated-targets",
+        }),
+      ],
+      hooks: {
+        dir: "runtime-hooks",
+      },
+      rust: {
+        flexweaveModule: "flexweave",
+      },
+    }),
+    {
+      configDir: root,
+      configPath: join(root, "studio.config.ts"),
+    },
+  );
+
+  expect(validated.ok).toBe(true);
+  expect(validated.config?.codegen.builtInTargets).toEqual([]);
+
+  const checked = await codegenStudioProject({
+    check: true,
+    config: validated.config,
+  });
+  expect(checked.ok).toBe(true);
+  expect(checked.targets).toEqual([
+    {
+      files: [
+        {
+          path: join(shadowOutputDir, "shadow.txt"),
+          status: "fresh",
+          target: "tags",
+        },
+      ],
+      label: "Consumer tags",
+      target: "tags",
+    },
+  ]);
 });
 
 test("extension Rust binding config feeds extension generated targets", async () => {

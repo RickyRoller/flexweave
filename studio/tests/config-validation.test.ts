@@ -177,6 +177,71 @@ test("config validation preserves validate-only support", () => {
   expect(result.config?.verify.commands).toEqual([]);
 });
 
+test("config validation supports extension-only generated target sets", () => {
+  const generatedTarget = {
+    id: "abilities",
+    label: "Consumer abilities",
+    plan: () => ({ files: [] }),
+  };
+  const result = validateStudioConfig(
+    {
+      ...validFullConfig(),
+      codegen: {
+        allowOverlappingOutputDirs: true,
+        builtInTargets: [],
+        outputDirs: {
+          abilities: "generated",
+          effects: "generated/effects",
+        },
+      },
+      extensions: [
+        {
+          generatedTargets: [
+            generatedTarget,
+            {
+              id: "effects",
+              label: "Consumer effects",
+              plan: () => ({ files: [] }),
+            },
+          ],
+          id: "consumer-generated-targets",
+        },
+      ],
+      hooks: {
+        dir: "generated/hooks",
+      },
+    },
+    configOptions,
+  );
+
+  expect(result.ok).toBe(true);
+  expect(result.config?.codegen).toEqual({
+    allowOverlappingOutputDirs: true,
+    builtInTargets: [],
+  });
+  expect(result.config?.paths.codegen.outputDirs.abilities).toBe("/workspace/project/generated");
+
+  const activeBuiltInShadow = validateStudioConfig(
+    {
+      ...validFullConfig(),
+      extensions: [
+        {
+          generatedTargets: [generatedTarget],
+          id: "consumer-generated-targets",
+        },
+      ],
+    },
+    configOptions,
+  );
+
+  expect(activeBuiltInShadow.ok).toBe(false);
+  expect(activeBuiltInShadow.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "duplicate-generated-target",
+    }),
+  );
+});
+
 test("config validation resolves local host app metadata", () => {
   const result = validateStudioConfig(
     {

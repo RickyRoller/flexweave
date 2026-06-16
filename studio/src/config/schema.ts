@@ -1,7 +1,11 @@
 import { isAbsolute, normalize, relative, resolve } from "node:path";
 
-import { isStudioCodegenTarget, studioCodegenTargets } from "../codegen/types";
-import type { StudioCodegenTarget, StudioGeneratedTargetDefinition } from "../codegen/types";
+import { studioCodegenTargets } from "../codegen/types";
+import type {
+  StudioBuiltInCodegenTarget,
+  StudioCodegenTarget,
+  StudioGeneratedTargetDefinition,
+} from "../codegen/types";
 import type {
   StudioContentMapper,
   StudioDataAdapter,
@@ -46,6 +50,8 @@ export interface StudioProjectConfig {
   };
   catalogRoot: string;
   codegen?: {
+    allowOverlappingOutputDirs?: boolean;
+    builtInTargets?: readonly StudioBuiltInCodegenTarget[];
     outputDirs?: Partial<Record<string, string>>;
   };
   data?: {
@@ -84,6 +90,10 @@ export interface ResolvedStudioProjectConfig {
   configDir: string;
   configPath: string;
   mode: "full" | "validate-only";
+  codegen: {
+    allowOverlappingOutputDirs: boolean;
+    builtInTargets: StudioBuiltInCodegenTarget[];
+  };
   data: {
     adapters: StudioDataAdapter[];
     sources: StudioSourceConfig[];
@@ -1825,23 +1835,99 @@ const validateAmbiguousOwnedPaths = (
 };
 
 interface FullConfigFields {
+  allowOverlappingOutputDirs: boolean;
+  builtInTargets: StudioBuiltInCodegenTarget[];
   hookDir?: string;
   hookTestStubsDir?: string;
   outputDirs: Partial<Record<string, string>>;
   rust?: ResolvedStudioProjectConfig["rust"];
 }
 
+const validateBuiltInCodegenTargets = (
+  value: unknown,
+  diagnostics: StudioDiagnostic[],
+): StudioBuiltInCodegenTarget[] => {
+  if (value === undefined) {
+    return [...studioCodegenTargets];
+  }
+
+  if (!Array.isArray(value)) {
+    diagnostics.push(
+      configError(
+        "invalid-config-field",
+        "codegen.builtInTargets",
+        "Studio project config field codegen.builtInTargets must be an array of built-in generated target ids.",
+        `Expected zero or more of: ${studioCodegenTargets.join(", ")}.`,
+      ),
+    );
+    return [];
+  }
+
+  const targets: StudioBuiltInCodegenTarget[] = [];
+  const seen = new Set<string>();
+  for (const [index, item] of value.entries()) {
+    const field = `codegen.builtInTargets.${index}`;
+    if (typeof item !== "string" || !(studioCodegenTargets as readonly string[]).includes(item)) {
+      diagnostics.push(
+        configError(
+          "invalid-config-field",
+          field,
+          `Studio project config field ${field} must be a built-in generated target id.`,
+          `Expected one of: ${studioCodegenTargets.join(", ")}.`,
+        ),
+      );
+      continue;
+    }
+    if (seen.has(item)) {
+      diagnostics.push(
+        configError(
+          "duplicate-generated-target",
+          field,
+          `Studio built-in generated target "${item}" is listed more than once.`,
+        ),
+      );
+      continue;
+    }
+    seen.add(item);
+    targets.push(item as StudioBuiltInCodegenTarget);
+  }
+
+  return targets;
+};
+
+const readAllowOverlappingOutputDirs = (
+  value: StudioProjectConfig,
+  diagnostics: StudioDiagnostic[],
+) => {
+  const rawValue = value.codegen?.allowOverlappingOutputDirs;
+  if (rawValue === undefined) {
+    return false;
+  }
+  if (typeof rawValue === "boolean") {
+    return rawValue;
+  }
+  diagnostics.push(
+    configError(
+      "invalid-config-field",
+      "codegen.allowOverlappingOutputDirs",
+      "Studio project config field codegen.allowOverlappingOutputDirs must be a boolean when provided.",
+    ),
+  );
+  return false;
+};
+
 const validateCodegenConfig = (
   value: StudioProjectConfig,
   diagnostics: StudioDiagnostic[],
+  builtInTargetIds: readonly StudioBuiltInCodegenTarget[],
   extensionTargetIds: readonly string[],
 ): Partial<Record<string, string>> => {
   const outputDirs: Partial<Record<string, string>> = {};
   const codegenValue = value.codegen;
-  const activeTargetIds = [...studioCodegenTargets, ...extensionTargetIds];
+  const activeTargetIds = [...builtInTargetIds, ...extensionTargetIds];
 
   if (isObject(codegenValue) && isObject(codegenValue.outputDirs)) {
-    for (const target of studioCodegenTargets) {
+    for (const target of builtInTargetIds) {
       const configuredPath = readString(
         codegenValue.outputDirs[target],
         `codegen.outputDirs.${target}`,
@@ -1865,7 +1951,7 @@ const validateCodegenConfig = (
         continue;
       }
 
-      if (!isStudioCodegenTarget(key)) {
+      if (!(builtInTargetIds as readonly string[]).includes(key)) {
         const configuredPath = readString(
           codegenValue.outputDirs[key],
           `codegen.outputDirs.${key}`,
@@ -2001,10 +2087,13 @@ const validateExtensionRustBindings = (
 const validateFullConfigFields = (
   value: StudioProjectConfig,
   diagnostics: StudioDiagnostic[],
+  builtInTargetIds: readonly StudioBuiltInCodegenTarget[],
   extensionTargetIds: readonly string[],
 ): FullConfigFields => ({
+  allowOverlappingOutputDirs: readAllowOverlappingOutputDirs(value, diagnostics),
+  builtInTargets: [...builtInTargetIds],
   ...validateHookConfig(value, diagnostics),
-  outputDirs: validateCodegenConfig(value, diagnostics, extensionTargetIds),
+  outputDirs: validateCodegenConfig(value, diagnostics, builtInTargetIds, extensionTargetIds),
   rust: validateRustConfig(value, diagnostics),
 });
 
@@ -2044,14 +2133,16 @@ export const validateStudioConfig = (
   const extensionTargetIds = extensions.flatMap((extension) =>
     (extension.generatedTargets ?? []).map((target) => target.id),
   );
-  const seenTargetIds = new Set<string>(studioCodegenTargets);
+  const builtInTargetIds =
+    mode === "full" ? validateBuiltInCodegenTargets(raw.codegen?.builtInTargets, diagnostics) : [];
+  const seenTargetIds = new Set<string>(builtInTargetIds);
   for (const targetId of extensionTargetIds) {
     if (seenTargetIds.has(targetId)) {
       diagnostics.push(
         configError(
           "duplicate-generated-target",
           "extensions.generatedTargets",
-          `Studio generated target "${targetId}" is registered more than once or shadows a built-in target.`,
+          `Studio generated target "${targetId}" is registered more than once or shadows an active built-in target.`,
         ),
       );
       continue;
@@ -2060,8 +2151,8 @@ export const validateStudioConfig = (
   }
   const fullFields: FullConfigFields =
     mode === "full"
-      ? validateFullConfigFields(raw, diagnostics, extensionTargetIds)
-      : { outputDirs: {} };
+      ? validateFullConfigFields(raw, diagnostics, builtInTargetIds, extensionTargetIds)
+      : { allowOverlappingOutputDirs: false, builtInTargets: [], outputDirs: {} };
   diagnostics.push(...validateExtensionRustBindings(extensions, fullFields.rust));
 
   const verifyCommands = validateVerifyConfig(raw.verify, diagnostics);
@@ -2070,7 +2161,7 @@ export const validateStudioConfig = (
   const data = validateDataConfig(raw, diagnostics, extensionAdapters);
 
   const resolvedOutputDirs = Object.fromEntries(
-    [...studioCodegenTargets, ...extensionTargetIds].map((target) => [
+    [...fullFields.builtInTargets, ...extensionTargetIds].map((target) => [
       target,
       fullFields.outputDirs[target]
         ? resolveConfigPath(options.configDir, fullFields.outputDirs[target])
@@ -2090,7 +2181,7 @@ export const validateStudioConfig = (
   if (mode === "full") {
     const ownedPaths = {
       ...Object.fromEntries(
-        studioCodegenTargets.map((target) => [
+        fullFields.builtInTargets.map((target) => [
           `codegen.outputDirs.${target}`,
           resolvedOutputDirs[target],
         ]),
@@ -2105,7 +2196,9 @@ export const validateStudioConfig = (
       "hooks.testStubsDir": resolvedHookTestStubsDir,
     };
     validateDuplicateOwnedPaths(ownedPaths, diagnostics);
-    validateAmbiguousOwnedPaths(ownedPaths, diagnostics);
+    if (!fullFields.allowOverlappingOutputDirs) {
+      validateAmbiguousOwnedPaths(ownedPaths, diagnostics);
+    }
   }
 
   if (!catalogRoot || diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
@@ -2117,6 +2210,10 @@ export const validateStudioConfig = (
       app: {
         buildCommand: appConfig.buildCommand,
         checkCommand: appConfig.checkCommand,
+      },
+      codegen: {
+        allowOverlappingOutputDirs: fullFields.allowOverlappingOutputDirs,
+        builtInTargets: fullFields.builtInTargets,
       },
       configDir: options.configDir,
       configPath: options.configPath,

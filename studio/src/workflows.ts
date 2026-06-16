@@ -775,8 +775,10 @@ type RegisteredGeneratedTarget = StudioGeneratedTargetDefinition<StudioCatalogCo
 const generatedTargetLabel = (target: StudioCodegenTarget) =>
   target === "reference" ? "Generated catalog reference" : `Generated ${target} definitions`;
 
-const builtInGeneratedTargets = (): RegisteredGeneratedTarget[] =>
-  studioCodegenTargets.map((target) =>
+const builtInGeneratedTargets = (
+  projectConfig: ResolvedStudioProjectConfig,
+): RegisteredGeneratedTarget[] =>
+  projectConfig.codegen.builtInTargets.map((target) =>
     defineStudioGeneratedTarget({
       cleanup: "managed-files",
       id: target,
@@ -802,7 +804,7 @@ const builtInGeneratedTargets = (): RegisteredGeneratedTarget[] =>
 const activeGeneratedTargets = (
   config: ResolvedStudioProjectConfig,
 ): RegisteredGeneratedTarget[] => [
-  ...builtInGeneratedTargets(),
+  ...builtInGeneratedTargets(config),
   ...(config.extensions.flatMap(
     (extension) => extension.generatedTargets ?? [],
   ) as RegisteredGeneratedTarget[]),
