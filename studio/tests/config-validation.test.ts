@@ -371,6 +371,119 @@ test("config validation reports duplicate host app contribution surfaces", () =>
   );
 });
 
+test("config validation reports incoherent host app contribution references", () => {
+  const result = validateStudioConfig(
+    {
+      ...validFullConfig(),
+      data: {
+        sources: [
+          {
+            adapterId: "known-adapter",
+            id: "known-source",
+          },
+        ],
+      },
+      extensions: [
+        {
+          appContributions: [
+            {
+              authoring: {
+                areas: [
+                  {
+                    editorId: "missing-editor",
+                    id: "known-area",
+                    label: "Known area",
+                  },
+                ],
+                editors: [
+                  {
+                    areaId: "missing-area",
+                    commandName: "list",
+                    id: "known-editor",
+                    label: "Known editor",
+                  },
+                ],
+              },
+              codegenTargets: [
+                {
+                  label: "Missing generated target",
+                  target: "missing-target",
+                },
+              ],
+              generatedOutputPanels: [
+                {
+                  id: "missing-output",
+                  label: "Missing output",
+                  target: "missing-target",
+                },
+              ],
+              id: "broken-host-app",
+              sourceViews: [
+                {
+                  adapterId: "missing-adapter",
+                  id: "missing-adapter-view",
+                  label: "Missing adapter",
+                },
+                {
+                  id: "missing-source-view",
+                  label: "Missing source",
+                  sourceId: "missing-source",
+                },
+              ],
+            },
+          ],
+          dataAdapters: [
+            {
+              capabilities: ["read"],
+              id: "known-adapter",
+              load: () => ({ records: [] }),
+            },
+          ],
+          generatedTargets: [
+            {
+              id: "known-target",
+              label: "Known generated target",
+              plan: () => ({ files: [] }),
+            },
+          ],
+          id: "contextual-extension",
+        },
+      ],
+    },
+    configOptions,
+  );
+
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({
+        code: "missing-host-app-reference",
+        field: "extensions.0.appContributions.0.authoring.areas.0.editorId",
+      }),
+      expect.objectContaining({
+        code: "missing-host-app-reference",
+        field: "extensions.0.appContributions.0.authoring.editors.0.areaId",
+      }),
+      expect.objectContaining({
+        code: "missing-host-app-reference",
+        field: "extensions.0.appContributions.0.codegenTargets.0.target",
+      }),
+      expect.objectContaining({
+        code: "missing-host-app-reference",
+        field: "extensions.0.appContributions.0.generatedOutputPanels.0.target",
+      }),
+      expect.objectContaining({
+        code: "missing-host-app-reference",
+        field: "extensions.0.appContributions.0.sourceViews.0.adapterId",
+      }),
+      expect.objectContaining({
+        code: "missing-host-app-reference",
+        field: "extensions.0.appContributions.0.sourceViews.1.sourceId",
+      }),
+    ]),
+  );
+});
+
 test("config validation resolves local host app metadata", () => {
   const result = validateStudioConfig(
     {

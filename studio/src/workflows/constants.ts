@@ -1,4 +1,4 @@
-export const STUDIO_HOST_APP_SCAFFOLD_VERSION = 2;
+export const STUDIO_HOST_APP_SCAFFOLD_VERSION = 3;
 
 export const studioWorkflowNames = [
   "validate",

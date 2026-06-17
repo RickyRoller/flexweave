@@ -74,6 +74,19 @@ export interface StudioHostAppContributionModelValues {
   workflowActions: StudioHostAppWorkflowActionDefinition[];
 }
 
+export interface StudioHostAppContributionSourceReference {
+  adapterId: string;
+  sourceId: string;
+}
+
+export interface StudioHostAppContributionModelValidationContext {
+  dataAdapterIds?: readonly string[];
+  generatedTargetIds?: readonly string[];
+  serverFunctionNames?: readonly string[];
+  sourceReferences?: readonly StudioHostAppContributionSourceReference[];
+  workflowCommandNames?: readonly StudioHostAppWorkflowCommandName[];
+}
+
 const joinField = (...parts: (string | undefined)[]) =>
   parts.filter((part): part is string => part !== undefined && part.length > 0).join(".");
 
@@ -197,6 +210,35 @@ const duplicateHostAppContributionDiagnostic = (field: string, key: string): Stu
     "Use stable, unique ids for host app contributions and contributed app surfaces.",
   );
 
+const missingHostAppReferenceDiagnostic = (
+  field: string,
+  message: string,
+  hint?: string,
+): StudioDiagnostic => configError("missing-host-app-reference", field, message, hint);
+
+const unsupportedHostAppCommandDiagnostic = (
+  field: string,
+  commandName: string,
+  validCommands: readonly string[],
+): StudioDiagnostic =>
+  configError(
+    "unsupported-host-app-command",
+    field,
+    `Studio host app commandName "${commandName}" is not supported.`,
+    `Expected one of: ${validCommands.join(", ")}.`,
+  );
+
+const missingHostAppServerFunctionDiagnostic = (
+  field: string,
+  commandName: string,
+): StudioDiagnostic =>
+  configError(
+    "missing-host-app-server-function",
+    field,
+    `Studio host app commandName "${commandName}" has no matching app server function binding.`,
+    `Add serverFunctions.${commandName} to the app adapter or remove the command reference.`,
+  );
+
 const validateUniqueModelEntries = <Value>(
   entries: readonly StudioHostAppContributionModelEntry<Value>[],
   keyForValue: (value: Value) => string,
@@ -212,8 +254,191 @@ const validateUniqueModelEntries = <Value>(
   }
 };
 
+const sourceReferenceKey = (adapterId: string, sourceId: string) => `${adapterId}\0${sourceId}`;
+
+interface HostAppCommandValidationContext {
+  serverFunctionNames?: ReadonlySet<string>;
+  workflowCommandNames: readonly StudioHostAppWorkflowCommandName[];
+  workflowCommandNameSet: ReadonlySet<string>;
+}
+
+const validateCommandNameReference = (
+  commandName: StudioHostAppWorkflowCommandName | undefined,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+  context: HostAppCommandValidationContext,
+) => {
+  if (commandName === undefined) {
+    return;
+  }
+
+  if (!context.workflowCommandNameSet.has(commandName)) {
+    diagnostics.push(
+      unsupportedHostAppCommandDiagnostic(field, commandName, context.workflowCommandNames),
+    );
+    return;
+  }
+
+  if (
+    context.serverFunctionNames !== undefined &&
+    !context.serverFunctionNames.has(commandName)
+  ) {
+    diagnostics.push(missingHostAppServerFunctionDiagnostic(field, commandName));
+  }
+};
+
+const validateHostAppContributionReferences = (
+  model: StudioHostAppContributionModel,
+  diagnostics: StudioDiagnostic[],
+  context: StudioHostAppContributionModelValidationContext,
+) => {
+  const areaIds = new Set(model.authoring.areas.map((entry) => entry.value.id));
+  const editorIds = new Set(model.authoring.editors.map((entry) => entry.value.id));
+  const generatedTargetIds = context.generatedTargetIds
+    ? new Set<string>(context.generatedTargetIds)
+    : undefined;
+  const panelTargetIds =
+    generatedTargetIds ??
+    (model.codegenTargets.length > 0
+      ? new Set(model.codegenTargets.map((entry) => entry.value.target))
+      : undefined);
+  const dataAdapterIds = context.dataAdapterIds
+    ? new Set<string>(context.dataAdapterIds)
+    : undefined;
+  const sourceIds = context.sourceReferences
+    ? new Set(context.sourceReferences.map((source) => source.sourceId))
+    : undefined;
+  const sourceReferenceKeys = context.sourceReferences
+    ? new Set(
+        context.sourceReferences.map((source) =>
+          sourceReferenceKey(source.adapterId, source.sourceId),
+        ),
+      )
+    : undefined;
+  const workflowCommandNames = context.workflowCommandNames ?? validHostAppWorkflowCommands;
+  const commandContext = {
+    serverFunctionNames: context.serverFunctionNames
+      ? new Set<string>(context.serverFunctionNames)
+      : undefined,
+    workflowCommandNames,
+    workflowCommandNameSet: new Set<string>(workflowCommandNames),
+  };
+
+  for (const entry of model.authoring.areas) {
+    const { editorId, id } = entry.value;
+    if (editorId !== undefined && !editorIds.has(editorId)) {
+      diagnostics.push(
+        missingHostAppReferenceDiagnostic(
+          `${entry.field}.editorId`,
+          `Studio host app authoring area "${id}" references missing authoring editor "${editorId}".`,
+          "Declare the editor in the same host app contribution model or remove the editorId.",
+        ),
+      );
+    }
+  }
+
+  for (const entry of model.authoring.editors) {
+    const { areaId, commandName, id } = entry.value;
+    if (!areaIds.has(areaId)) {
+      diagnostics.push(
+        missingHostAppReferenceDiagnostic(
+          `${entry.field}.areaId`,
+          `Studio host app authoring editor "${id}" references missing authoring area "${areaId}".`,
+          "Declare the area in the same host app contribution model before binding editors to it.",
+        ),
+      );
+    }
+    validateCommandNameReference(
+      commandName,
+      `${entry.field}.commandName`,
+      diagnostics,
+      commandContext,
+    );
+  }
+
+  if (generatedTargetIds) {
+    for (const entry of model.codegenTargets) {
+      const { target } = entry.value;
+      if (!generatedTargetIds.has(target)) {
+        diagnostics.push(
+          missingHostAppReferenceDiagnostic(
+            `${entry.field}.target`,
+            `Studio host app codegen target metadata references missing generated target "${target}".`,
+            "Register the generated target through built-in codegen targets or an active Studio extension.",
+          ),
+        );
+      }
+    }
+  }
+
+  for (const entry of model.generatedOutputPanels) {
+    const { id, target } = entry.value;
+    if (target !== undefined && panelTargetIds !== undefined && !panelTargetIds.has(target)) {
+      diagnostics.push(
+        missingHostAppReferenceDiagnostic(
+          `${entry.field}.target`,
+          `Studio host app generated output panel "${id}" references missing generated target "${target}".`,
+          "Point the panel at an active generated target or remove the target binding.",
+        ),
+      );
+    }
+  }
+
+  for (const entry of model.diagnosticsPanels) {
+    validateCommandNameReference(
+      entry.value.commandName,
+      `${entry.field}.commandName`,
+      diagnostics,
+      commandContext,
+    );
+  }
+
+  for (const entry of model.sourceViews) {
+    const { adapterId, id, sourceId } = entry.value;
+    const adapterKnown =
+      adapterId === undefined || dataAdapterIds === undefined || dataAdapterIds.has(adapterId);
+
+    if (adapterId !== undefined && dataAdapterIds !== undefined && !dataAdapterIds.has(adapterId)) {
+      diagnostics.push(
+        missingHostAppReferenceDiagnostic(
+          `${entry.field}.adapterId`,
+          `Studio host app source view "${id}" references missing data adapter "${adapterId}".`,
+          "Register the data adapter in project data.adapters or through an active Studio extension.",
+        ),
+      );
+    }
+
+    if (sourceId !== undefined && sourceIds !== undefined) {
+      const sourceKnown = adapterId
+        ? adapterKnown && sourceReferenceKeys?.has(sourceReferenceKey(adapterId, sourceId))
+        : sourceIds.has(sourceId);
+      if (!sourceKnown) {
+        diagnostics.push(
+          missingHostAppReferenceDiagnostic(
+            `${entry.field}.sourceId`,
+            `Studio host app source view "${id}" references missing data source "${sourceId}".`,
+            adapterId
+              ? "Declare a data source with the referenced sourceId and adapterId pair."
+              : "Declare the source in data.sources or remove the sourceId binding.",
+          ),
+        );
+      }
+    }
+  }
+
+  for (const entry of model.workflowActions) {
+    validateCommandNameReference(
+      entry.value.commandName,
+      `${entry.field}.commandName`,
+      diagnostics,
+      commandContext,
+    );
+  }
+};
+
 export const validateHostAppContributionModel = (
   model: StudioHostAppContributionModel,
+  context: StudioHostAppContributionModelValidationContext = {},
 ): StudioDiagnostic[] => {
   const diagnostics: StudioDiagnostic[] = [];
   validateUniqueModelEntries(model.navigation, (section) => section.id, diagnostics);
@@ -224,6 +449,7 @@ export const validateHostAppContributionModel = (
   validateUniqueModelEntries(model.generatedOutputPanels, (panel) => panel.id, diagnostics);
   validateUniqueModelEntries(model.sourceViews, (view) => view.id, diagnostics);
   validateUniqueModelEntries(model.workflowActions, (action) => action.id, diagnostics);
+  validateHostAppContributionReferences(model, diagnostics, context);
   return diagnostics;
 };
 

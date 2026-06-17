@@ -10,7 +10,6 @@ import { validateGeneratedTargets } from "./generated-target-validation";
 import {
   mergeHostAppContributionModels,
   normalizeHostAppContributions,
-  validateHostAppContributionModel,
   validateHostAppContributions,
 } from "./host-app-contribution-validation";
 import type { StudioHostAppContributionModel } from "./host-app-contribution-validation";
@@ -372,12 +371,20 @@ const validateStudioExtension = (
   };
 };
 
+export interface StudioExtensionValidationResult {
+  extensions: StudioExtension[];
+  hostAppContributionModel: StudioHostAppContributionModel;
+}
+
 export const validateStudioExtensions = (
   value: unknown,
   diagnostics: StudioDiagnostic[],
-): StudioExtension[] => {
+): StudioExtensionValidationResult => {
   if (value === undefined) {
-    return [];
+    return {
+      extensions: [],
+      hostAppContributionModel: mergeHostAppContributionModels([]),
+    };
   }
 
   if (!Array.isArray(value)) {
@@ -388,7 +395,10 @@ export const validateStudioExtensions = (
         "Studio project config field extensions must be an array of Studio extensions.",
       ),
     );
-    return [];
+    return {
+      extensions: [],
+      hostAppContributionModel: mergeHostAppContributionModels([]),
+    };
   }
 
   const extensions: StudioExtension[] = [];
@@ -416,9 +426,9 @@ export const validateStudioExtensions = (
       normalizeHostAppContributions(extension.appContributions ?? [], `${field}.appContributions`),
     );
   }
-  diagnostics.push(
-    ...validateHostAppContributionModel(mergeHostAppContributionModels(hostAppContributionModels)),
-  );
 
-  return extensions;
+  return {
+    extensions,
+    hostAppContributionModel: mergeHostAppContributionModels(hostAppContributionModels),
+  };
 };

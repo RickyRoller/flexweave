@@ -1,3 +1,5 @@
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { expect, test } from "bun:test";
 
 import {
@@ -9,7 +11,7 @@ import {
   defineStudioAppAdapter,
 } from "../src";
 import { syntheticSourceExtension } from "../../tests/fixtures/extension-sources/synthetic-extension";
-import { generatedTargetFixtureConfigPath } from "../../tests/support/studio-fixtures";
+import { extensionFixtureConfigPath } from "../../tests/support/studio-fixtures";
 
 const adapter = defineStudioAppAdapter({
   authoring: {
@@ -59,6 +61,7 @@ const adapter = defineStudioAppAdapter({
     },
   ],
   serverFunctions: {
+    list: () => ({ diagnostics: [], ok: true, records: [] }),
     validate: () => ({ diagnostics: [], ok: true, recordCount: 0 }),
   },
   workflowActions: [
@@ -76,6 +79,8 @@ test("app shell derives adapter-neutral routes and panel metadata", () => {
   const panel = createStudioOverviewPanel(adapter);
 
   expect(app.adapterId).toBe("synthetic-project");
+  expect(app.diagnostics).toEqual([]);
+  expect(app.ok).toBe(true);
   expect(app.routes).toEqual([
     {
       href: "/",
@@ -115,9 +120,11 @@ test("app shell composes extension host app contributions", () => {
     "validate-synthetic-sources",
   );
 
-  const app = createStudioApp(composed.adapter);
+  const app = createStudioApp(composed);
   const panel = createStudioOverviewPanel(composed.adapter);
 
+  expect(app.diagnostics).toEqual([]);
+  expect(app.ok).toBe(true);
   expect(app.codegenTargets.map((target) => target.target)).toContain("synthetic-summary");
   expect(app.generatedOutputPanels.map((generatedPanel) => generatedPanel.id)).toEqual([
     "synthetic-summary-output",
@@ -158,20 +165,84 @@ test("app contribution composition reports duplicate app surface ids", () => {
     code: "duplicate-host-app-contribution",
     field: "authoring.editors.1",
   });
+  expect(createStudioApp(composed)).toMatchObject({
+    diagnostics: composed.diagnostics,
+    ok: false,
+  });
 });
 
-test("default project adapter composes configured targets and extension surfaces", async () => {
+test("app contribution composition reports commands without server functions", () => {
+  const composed = composeStudioAppContributions(
+    {
+      ...adapter,
+      serverFunctions: {
+        validate: adapter.serverFunctions.validate,
+      },
+    },
+    [
+      {
+        workflowActions: [
+          {
+            commandName: "codegen",
+            id: "generate",
+            label: "Generate",
+            variant: "secondary",
+          },
+        ],
+        id: "missing-server-function",
+      },
+    ],
+  );
+
+  expect(composed.ok).toBe(false);
+  expect(composed.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "missing-host-app-server-function",
+      field: "workflowActions.1.commandName",
+    }),
+  );
+});
+
+test("default project adapter composes extension surfaces from a valid config", async () => {
   const result = await createDefaultStudioProjectAdapter({
-    configPath: generatedTargetFixtureConfigPath,
+    configPath: extensionFixtureConfigPath,
   });
 
   expect(result.ok).toBe(true);
   expect(result.diagnostics).toEqual([]);
+  if (!result.ok) {
+    throw new Error("expected default project adapter composition to succeed");
+  }
   expect(result.adapter.codegenTargets.map((target) => target.target)).toEqual(
-    expect.arrayContaining(["abilities", "synthetic-rust", "synthetic-summary"]),
+    expect.arrayContaining(["synthetic-summary"]),
   );
   expect(result.adapter.generatedOutputPanels?.map((panel) => panel.id)).toEqual([
     "synthetic-summary-output",
+  ]);
+});
+
+test("default project adapter load failures produce a diagnostic app result", async () => {
+  const result = await createDefaultStudioProjectAdapter({
+    configPath: join(tmpdir(), `missing-studio-${crypto.randomUUID()}`, "studio.config.ts"),
+  });
+
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics.map((diagnostic) => diagnostic.code)).toContain("missing-config");
+  expect("adapter" in result).toBe(false);
+
+  const app = createStudioApp(result);
+
+  expect(app.ok).toBe(false);
+  expect(app.diagnostics).toEqual(result.diagnostics);
+  expect(app.adapterId).toBe("diagnostic-studio-host");
+  expect(app.workflowActions).toEqual([]);
+  expect(app.routes).toEqual([
+    {
+      href: "/",
+      id: "diagnostics",
+      kind: "overview",
+      label: "Studio diagnostics",
+    },
   ]);
 });
 

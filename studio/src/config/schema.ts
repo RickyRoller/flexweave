@@ -15,7 +15,9 @@ export type {
   StudioHostAppContributionModel,
   StudioHostAppContributionModelEntry,
   StudioHostAppContributionModelInput,
+  StudioHostAppContributionModelValidationContext,
   StudioHostAppContributionModelValues,
+  StudioHostAppContributionSourceReference,
 } from "./host-app-contribution-validation";
 export type {
   ResolvedStudioProjectConfig,

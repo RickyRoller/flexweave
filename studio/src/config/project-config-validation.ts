@@ -10,6 +10,7 @@ import {
   validateBuiltInCodegenTargets,
   validateCodegenConfig,
 } from "./generated-target-validation";
+import { validateHostAppContributionModel } from "./host-app-contribution-validation";
 import { validateOwnedPathPolicy } from "./owned-path-policy";
 import { isObject, normalizeStringArray, readString, resolveConfigPath } from "./primitive-readers";
 import {
@@ -242,7 +243,8 @@ export const validateStudioConfig = (
     );
   }
 
-  const extensions = validateStudioExtensions(raw.extensions, diagnostics);
+  const extensionValidation = validateStudioExtensions(raw.extensions, diagnostics);
+  const extensions = extensionValidation.extensions;
   const extensionTargetIds = extensions.flatMap((extension) =>
     (extension.generatedTargets ?? []).map((target) => target.id),
   );
@@ -274,6 +276,16 @@ export const validateStudioConfig = (
   const adapterRegistry = createStudioDataAdapterRegistry(data.adapters, extensions, diagnostics);
   validateStudioSourceAdapterReferences(data.sources, adapterRegistry, diagnostics);
   validateStudioWriteSourceReference(data.writeSourceId, data.sources, diagnostics);
+  diagnostics.push(
+    ...validateHostAppContributionModel(extensionValidation.hostAppContributionModel, {
+      dataAdapterIds: adapterRegistry.adapters.map((adapter) => adapter.id),
+      generatedTargetIds: [...fullFields.builtInTargets, ...extensionTargetIds],
+      sourceReferences: data.sources.map((source) => ({
+        adapterId: source.adapterId,
+        sourceId: source.id,
+      })),
+    }),
+  );
 
   const resolvedOutputDirs: Partial<Record<StudioGeneratedTargetId, string>> = Object.fromEntries(
     [...fullFields.builtInTargets, ...extensionTargetIds].flatMap((target) => {

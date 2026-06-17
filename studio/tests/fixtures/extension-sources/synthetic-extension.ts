@@ -345,7 +345,6 @@ export const syntheticHostAppContribution = defineStudioHostAppContribution({
       description: "Rows loaded from the synthetic table adapter.",
       id: "synthetic-table-source",
       label: "Synthetic table source",
-      sourceId: "table-backed",
     },
   ],
   workflowActions: [

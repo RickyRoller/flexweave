@@ -3,7 +3,11 @@ import {
   hostAppContributionModelValues,
   validateHostAppContributionModel,
 } from "@flexweave/studio/config";
-import type { ResolvedStudioProjectConfig, StudioDiagnostic } from "@flexweave/studio/config";
+import type {
+  ResolvedStudioProjectConfig,
+  StudioDiagnostic,
+  StudioHostAppContributionModelValidationContext,
+} from "@flexweave/studio/config";
 import { loadStudioConfig } from "@flexweave/studio/config/load";
 import type {
   StudioExtension,
@@ -116,10 +120,12 @@ export interface StudioAppRouteDefinition {
 export interface StudioAppShellModel {
   adapterId: string;
   codegenTargets: readonly StudioAppCodegenTargetDefinition[];
+  diagnostics: readonly StudioDiagnostic[];
   diagnosticsPanels: readonly StudioAppDiagnosticsPanelDefinition[];
   generatedOutputPanels: readonly StudioAppGeneratedOutputPanelDefinition[];
   labels: StudioAppLabels;
   navigation: readonly StudioAppNavigationSection[];
+  ok: boolean;
   routes: readonly StudioAppRouteDefinition[];
   sourceViews: readonly StudioAppSourceViewDefinition[];
   workflowActions: readonly StudioAppWorkflowActionDefinition[];
@@ -135,11 +141,28 @@ export interface StudioAppPanelModel {
   workflowActions: readonly StudioAppWorkflowActionDefinition[];
 }
 
-export interface StudioAppCompositionResult {
+export interface StudioAppCompositionSuccessResult {
   adapter: StudioAppAdapter;
   diagnostics: StudioDiagnostic[];
-  ok: boolean;
+  ok: true;
 }
+
+export interface StudioAppCompositionFailureResult {
+  adapter?: StudioAppAdapter;
+  diagnostics: StudioDiagnostic[];
+  ok: false;
+}
+
+export type StudioAppCompositionResult =
+  | StudioAppCompositionFailureResult
+  | StudioAppCompositionSuccessResult;
+
+export type StudioAppContributionValidationContext = Omit<
+  StudioHostAppContributionModelValidationContext,
+  "serverFunctionNames"
+>;
+
+export type StudioAppInput = StudioAppAdapter | StudioAppCompositionResult;
 
 export const defineStudioAppAdapter = <const Adapter extends StudioAppAdapter>(
   adapter: Adapter,
@@ -182,12 +205,32 @@ export const collectStudioAppContributions = (
   extensions: readonly StudioExtension[],
 ): StudioAppContribution[] => extensions.flatMap((extension) => extension.appContributions ?? []);
 
-export const validateStudioAppAdapter = (adapter: StudioAppAdapter): StudioDiagnostic[] =>
-  validateHostAppContributionModel(composeHostAppContributionModel(adapter, []));
+const serverFunctionNames = (adapter: StudioAppAdapter): string[] =>
+  Object.entries(adapter.serverFunctions).flatMap(([name, binding]) =>
+    typeof binding === "function" ? [name] : [],
+  );
+
+const appContributionValidationContext = (
+  adapter: StudioAppAdapter,
+  context: StudioAppContributionValidationContext = {},
+): StudioHostAppContributionModelValidationContext => ({
+  ...context,
+  serverFunctionNames: serverFunctionNames(adapter),
+});
+
+export const validateStudioAppAdapter = (
+  adapter: StudioAppAdapter,
+  context: StudioAppContributionValidationContext = {},
+): StudioDiagnostic[] =>
+  validateHostAppContributionModel(
+    composeHostAppContributionModel(adapter, []),
+    appContributionValidationContext(adapter, context),
+  );
 
 export const composeStudioAppContributions = (
   adapter: StudioAppAdapter,
   contributions: readonly StudioAppContribution[],
+  context: StudioAppContributionValidationContext = {},
 ): StudioAppCompositionResult => {
   const contributionModel = composeHostAppContributionModel(adapter, contributions);
   const composedContributions = hostAppContributionModelValues(contributionModel);
@@ -201,12 +244,23 @@ export const composeStudioAppContributions = (
     sourceViews: composedContributions.sourceViews,
     workflowActions: composedContributions.workflowActions,
   };
-  const diagnostics = validateHostAppContributionModel(contributionModel);
+  const diagnostics = validateHostAppContributionModel(
+    contributionModel,
+    appContributionValidationContext(composed, context),
+  );
+
+  if (diagnostics.length > 0) {
+    return {
+      adapter: composed,
+      diagnostics,
+      ok: false,
+    };
+  }
 
   return {
     adapter: composed,
     diagnostics,
-    ok: diagnostics.length === 0,
+    ok: true,
   };
 };
 
@@ -243,6 +297,13 @@ const extensionContributedCodegenTargetIds = (config: ResolvedStudioProjectConfi
     ),
   );
 
+const activeGeneratedTargetIds = (config: ResolvedStudioProjectConfig) => [
+  ...config.codegen.builtInTargets,
+  ...config.extensions.flatMap((extension) =>
+    (extension.generatedTargets ?? []).map((target) => target.id),
+  ),
+];
+
 const defaultCodegenTargets = (config?: ResolvedStudioProjectConfig) => {
   if (!config) {
     return [];
@@ -270,9 +331,16 @@ export const createDefaultStudioProjectAdapter = async (
   options: CreateDefaultStudioProjectAdapterOptions,
 ): Promise<StudioAppCompositionResult> => {
   const loadedConfig = await loadStudioConfig({ configPath: options.configPath });
-  const extensionContributions = loadedConfig.config
-    ? collectStudioAppContributions(loadedConfig.config.extensions)
-    : [];
+
+  if (!loadedConfig.ok || !loadedConfig.config) {
+    return {
+      diagnostics: loadedConfig.diagnostics,
+      ok: false,
+    };
+  }
+
+  const config = loadedConfig.config;
+  const extensionContributions = collectStudioAppContributions(config.extensions);
   const baseProjectAdapter = defineStudioAppAdapter({
     authoring: {
       areas: [
@@ -298,7 +366,7 @@ export const createDefaultStudioProjectAdapter = async (
         },
       ],
     },
-    codegenTargets: defaultCodegenTargets(loadedConfig.config),
+    codegenTargets: defaultCodegenTargets(config),
     id: options.id ?? "local-studio-host",
     labels: {
       ...defaultStudioAppLabels,
@@ -326,13 +394,29 @@ export const createDefaultStudioProjectAdapter = async (
   const composedProjectAdapter = composeStudioAppContributions(
     baseProjectAdapter,
     extensionContributions,
+    {
+      dataAdapterIds: config.data.adapterRegistry.adapters.map((dataAdapter) => dataAdapter.id),
+      generatedTargetIds: activeGeneratedTargetIds(config),
+      sourceReferences: config.data.sources.map((source) => ({
+        adapterId: source.adapterId,
+        sourceId: source.id,
+      })),
+    },
   );
   const diagnostics = [...loadedConfig.diagnostics, ...composedProjectAdapter.diagnostics];
+
+  if (!composedProjectAdapter.ok) {
+    return {
+      adapter: composedProjectAdapter.adapter,
+      diagnostics,
+      ok: false,
+    };
+  }
 
   return {
     adapter: composedProjectAdapter.adapter,
     diagnostics,
-    ok: loadedConfig.ok && composedProjectAdapter.ok,
+    ok: true,
   };
 };
 
@@ -355,17 +439,71 @@ export const createStudioAppRoutes = (adapter: StudioAppAdapter): StudioAppRoute
   ...(adapter.sourceViews ?? []).map(sourceViewRoute),
 ];
 
-export const createStudioApp = (adapter: StudioAppAdapter): StudioAppShellModel => ({
+const isStudioAppCompositionResult = (input: StudioAppInput): input is StudioAppCompositionResult =>
+  "diagnostics" in input && "ok" in input;
+
+const createDiagnosticStudioApp = (
+  diagnostics: readonly StudioDiagnostic[],
+): StudioAppShellModel => ({
+  adapterId: "diagnostic-studio-host",
+  codegenTargets: [],
+  diagnostics,
+  diagnosticsPanels: [],
+  generatedOutputPanels: [],
+  labels: {
+    ...defaultStudioAppLabels,
+    shellSubtitle: "Configuration diagnostics",
+    workspaceTitle: "Studio diagnostics",
+  },
+  navigation: [
+    {
+      id: "diagnostics",
+      label: "Diagnostics",
+      links: [{ href: "/", id: "diagnostics", label: "Diagnostics" }],
+    },
+  ],
+  ok: false,
+  routes: [
+    {
+      href: "/",
+      id: "diagnostics",
+      kind: "overview",
+      label: "Studio diagnostics",
+    },
+  ],
+  sourceViews: [],
+  workflowActions: [],
+});
+
+const createStudioAppShell = (
+  adapter: StudioAppAdapter,
+  diagnostics: readonly StudioDiagnostic[],
+  ok: boolean,
+): StudioAppShellModel => ({
   adapterId: adapter.id,
   codegenTargets: adapter.codegenTargets,
+  diagnostics,
   diagnosticsPanels: adapter.diagnosticsPanels ?? [],
   generatedOutputPanels: adapter.generatedOutputPanels ?? [],
   labels: adapter.labels,
   navigation: adapter.navigation,
+  ok,
   routes: createStudioAppRoutes(adapter),
   sourceViews: adapter.sourceViews ?? [],
   workflowActions: adapter.workflowActions,
 });
+
+export const createStudioApp = (input: StudioAppInput): StudioAppShellModel => {
+  if (isStudioAppCompositionResult(input)) {
+    if (!input.adapter) {
+      return createDiagnosticStudioApp(input.diagnostics);
+    }
+    return createStudioAppShell(input.adapter, input.diagnostics, input.ok);
+  }
+
+  const diagnostics = validateStudioAppAdapter(input);
+  return createStudioAppShell(input, diagnostics, diagnostics.length === 0);
+};
 
 export const createStudioOverviewPanel = (adapter: StudioAppAdapter): StudioAppPanelModel => ({
   codegenTargets: adapter.codegenTargets,

@@ -9,10 +9,10 @@ import {
   hostAppPackagePath,
   hostAppRoot,
   manualFollowUps,
+  prepareHostAppScaffoldWrite,
   readHostAppMetadata,
   readHostAppMetadataVersion,
   readHostAppPackageDependencies,
-  writeHostAppScaffold,
 } from "./host-app";
 import {
   hasErrorDiagnostic,
@@ -102,10 +102,11 @@ const runHostAppMigration = (
     });
   }
 
-  const files = writeHostAppScaffold(config, root, {
+  const writeSession = prepareHostAppScaffoldWrite(config, root, {
     requireDefaultProjectAdapter: true,
     updateMetadata: true,
   });
+  const files = writeSession.write();
   const followUps = manualFollowUps(files);
 
   return migrationCheck({

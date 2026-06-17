@@ -1,4 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test } from "bun:test";
@@ -11,6 +12,8 @@ import {
 import { defineStudioGeneratedTarget } from "@flexweave/studio/codegen";
 import { defineStudioConfig, validateStudioConfig } from "@flexweave/studio/config";
 import { defineStudioExtension } from "@flexweave/studio/extensions";
+import { prepareHostAppScaffoldWrite } from "../src/workflows/host-app";
+import { resolveWorkflowConfig } from "../src/workflows/shared";
 
 import {
   copyExtensionFixture,
@@ -18,6 +21,116 @@ import {
   extensionFixtureRoot,
   linkHostAppPackages,
 } from "./support/studio-fixtures";
+
+test("host app workflows resolve explicit app roots like config paths", async () => {
+  const root = copyMinimalFixture();
+  const configPath = join(root, "studio.config.ts");
+  const relativeAppRoot = join("custom", "studio-host");
+
+  const relativeScaffolded = await scaffoldStudioHostApp({
+    appRoot: relativeAppRoot,
+    configPath,
+  });
+  expect(relativeScaffolded.ok).toBe(true);
+  expect(relativeScaffolded.appRoot).toBe(join(root, relativeAppRoot));
+
+  const absoluteAppRoot = join(tmpdir(), `studio-host-${crypto.randomUUID()}`);
+  const absoluteScaffolded = await scaffoldStudioHostApp({
+    appRoot: absoluteAppRoot,
+    configPath,
+  });
+  expect(absoluteScaffolded.ok).toBe(true);
+  expect(absoluteScaffolded.appRoot).toBe(absoluteAppRoot);
+  expect(absoluteScaffolded.changedFiles.map((path) => relative(absoluteAppRoot, path))).toContain(
+    ".flexweave-studio-app.json",
+  );
+
+  const migrated = await migrateStudioProject({
+    appRoot: absoluteAppRoot,
+    configPath,
+  });
+  expect(migrated.ok).toBe(true);
+  expect(migrated.skipped).toContain("Local host app scaffold is current.");
+});
+
+test("host app scaffold rolls back planned writes after a mid-write failure", async () => {
+  const root = copyMinimalFixture();
+  const configPath = join(root, "studio.config.ts");
+  const appRoot = join(root, "studio-host");
+  const srcBlockerPath = join(appRoot, "src");
+
+  mkdirSync(appRoot, { recursive: true });
+  writeFileSync(srcBlockerPath, "not a directory\n");
+
+  let error: unknown;
+  try {
+    await scaffoldStudioHostApp({
+      appRoot: "studio-host",
+      configPath,
+    });
+  } catch (caught) {
+    error = caught;
+  }
+
+  expect(error).toBeInstanceOf(Error);
+  expect(readFileSync(srcBlockerPath, "utf-8")).toBe("not a directory\n");
+  expect(existsSync(join(appRoot, ".flexweave-studio-app.json"))).toBe(false);
+  expect(existsSync(join(appRoot, "package.json"))).toBe(false);
+});
+
+test("host app scaffold rollback removes directories created by the write session", async () => {
+  const root = copyMinimalFixture();
+  const configPath = join(root, "studio.config.ts");
+  const appRoot = join(root, "studio-host");
+  const resolved = await resolveWorkflowConfig({ configPath });
+  expect(resolved.ok).toBe(true);
+  if (!resolved.ok) {
+    throw new Error("expected fixture config to resolve");
+  }
+
+  const writeSession = prepareHostAppScaffoldWrite(resolved.config, appRoot, {
+    updateMetadata: false,
+  });
+  mkdirSync(join(appRoot, "src", "project-adapter.ts"), { recursive: true });
+
+  let error: unknown;
+  try {
+    writeSession.write();
+  } catch (caught) {
+    error = caught;
+  }
+
+  expect(error).toBeInstanceOf(Error);
+  expect(existsSync(appRoot)).toBe(false);
+});
+
+test("host app migrate rolls back scaffold updates after a mid-write failure", async () => {
+  const root = copyMinimalFixture();
+  const configPath = join(root, "studio.config.ts");
+  const appRoot = join(root, "studio-host");
+  const metadataPath = join(appRoot, ".flexweave-studio-app.json");
+  const srcBlockerPath = join(appRoot, "src");
+  const legacyMetadata = `${JSON.stringify({ version: 0 }, null, 2)}\n`;
+
+  mkdirSync(appRoot, { recursive: true });
+  writeFileSync(metadataPath, legacyMetadata);
+  writeFileSync(srcBlockerPath, "not a directory\n");
+
+  let error: unknown;
+  try {
+    await migrateStudioProject({
+      appRoot: "studio-host",
+      configPath,
+    });
+  } catch (caught) {
+    error = caught;
+  }
+
+  expect(error).toBeInstanceOf(Error);
+  expect(readFileSync(metadataPath, "utf-8")).toBe(legacyMetadata);
+  expect(readFileSync(srcBlockerPath, "utf-8")).toBe("not a directory\n");
+  expect(existsSync(join(appRoot, "package.json"))).toBe(false);
+});
 
 test("host app scaffold is idempotent and preserves consumer-owned edits", async () => {
   const root = copyMinimalFixture();
@@ -45,7 +158,7 @@ test("host app scaffold is idempotent and preserves consumer-owned edits", async
     projectOwnedFiles?: string[];
     version?: number;
   };
-  expect(metadata.version).toBe(2);
+  expect(metadata.version).toBe(3);
   expect(metadata.managedFiles).toEqual([
     ".flexweave-studio-app.json",
     "package.json",
@@ -57,9 +170,14 @@ test("host app scaffold is idempotent and preserves consumer-owned edits", async
     studio: "@flexweave/studio",
     studioApp: "@flexweave/studio-app",
   });
-  expect(readFileSync(join(appRoot, "src/project-adapter.ts"), "utf-8")).toContain(
-    "createDefaultStudioProjectAdapter",
+  expect(readFileSync(join(appRoot, "src/main.ts"), "utf-8")).toContain(
+    "createStudioApp(projectAdapterResult)",
   );
+  const scaffoldedAdapter = readFileSync(join(appRoot, "src/project-adapter.ts"), "utf-8");
+  expect(scaffoldedAdapter).toContain("createDefaultStudioProjectAdapter");
+  expect(scaffoldedAdapter).toContain("export const projectAdapterResult");
+  expect(scaffoldedAdapter).not.toContain("defaultProjectAdapter.adapter");
+  expect(scaffoldedAdapter).not.toContain("projectAdapterDiagnostics");
 
   const second = await scaffoldStudioHostApp({
     appRoot: "studio-host",
@@ -195,11 +313,15 @@ test("host app scaffold composes extension contributions and verifies extension 
   const moduleUrl = `${pathToFileURL(join(appRoot, "src/main.ts")).href}?${crypto.randomUUID()}`;
   const imported = (await import(moduleUrl)) as {
     app: {
+      diagnostics: unknown[];
       diagnosticsPanels: { id: string }[];
       generatedOutputPanels: { id: string }[];
+      ok: boolean;
       sourceViews: { id: string }[];
     };
   };
+  expect(imported.app.ok).toBe(true);
+  expect(imported.app.diagnostics).toEqual([]);
   expect(imported.app.generatedOutputPanels.map((panel) => panel.id)).toEqual([
     "synthetic-summary-output",
   ]);
@@ -289,7 +411,7 @@ test("host app migrate and verify cover scaffold metadata and typecheck", async 
     configPath,
   });
   expect(migrated.ok).toBe(true);
-  expect(migrated.applied).toEqual(["host app scaffold 0 -> 2"]);
+  expect(migrated.applied).toEqual(["host app scaffold 0 -> 3"]);
   expect(migrated.changedFiles.map((path) => relative(appRoot, path))).toEqual([
     ".flexweave-studio-app.json",
   ]);
@@ -304,6 +426,31 @@ test("host app migrate and verify cover scaffold metadata and typecheck", async 
 
   const adapterPath = join(appRoot, "src/project-adapter.ts");
   const currentAdapter = readFileSync(adapterPath, "utf-8");
+  writeFileSync(
+    adapterPath,
+    [
+      'import { fileURLToPath } from "node:url";',
+      "",
+      'import { createDefaultStudioProjectAdapter } from "@flexweave/studio-app";',
+      "",
+      "const defaultProjectAdapter = await createDefaultStudioProjectAdapter({",
+      '  configPath: fileURLToPath(new URL("../studio.config.ts", import.meta.url)),',
+      "});",
+      "",
+      "export const projectAdapter = defaultProjectAdapter.adapter;",
+      "export const projectAdapterDiagnostics = defaultProjectAdapter.diagnostics;",
+      "",
+    ].join("\n"),
+  );
+  writeFileSync(metadataPath, `${JSON.stringify({ ...metadata, version: 0 }, null, 2)}\n`);
+  const legacyBoundaryMigration = await migrateStudioProject({
+    appRoot: "studio-host",
+    configPath,
+  });
+  expect(legacyBoundaryMigration.ok).toBe(true);
+  expect(legacyBoundaryMigration.manualFollowUps[0]).toContain("src/project-adapter.ts");
+  expect(legacyBoundaryMigration.manualFollowUps[0]).toContain("projectAdapterResult");
+
   writeFileSync(adapterPath, "export const projectAdapter = { legacy: true };\n");
   writeFileSync(metadataPath, `${JSON.stringify({ ...metadata, version: 0 }, null, 2)}\n`);
   const legacyMigration = await migrateStudioProject({
