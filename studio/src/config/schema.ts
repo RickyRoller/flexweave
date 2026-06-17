@@ -3,6 +3,20 @@ import type { StudioProjectConfig } from "./types";
 export { validateStudioConfig } from "./project-config-validation";
 export { STUDIO_CONFIG_FILE_NAME } from "./types";
 export type { StudioDataAdapterRegistry } from "./data-adapter-registry";
+export {
+  composeHostAppContributionModel,
+  hostAppContributionModelValues,
+  mergeHostAppContributionModels,
+  normalizeHostAppContributionModel,
+  normalizeHostAppContributions,
+  validateHostAppContributionModel,
+} from "./host-app-contribution-validation";
+export type {
+  StudioHostAppContributionModel,
+  StudioHostAppContributionModelEntry,
+  StudioHostAppContributionModelInput,
+  StudioHostAppContributionModelValues,
+} from "./host-app-contribution-validation";
 export type {
   ResolvedStudioProjectConfig,
   StudioConfigValidationResult,

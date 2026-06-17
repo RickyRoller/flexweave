@@ -1,6 +1,7 @@
 import type { ResolvedStudioProjectConfig, StudioDiagnostic } from "../config/schema";
-import { validateStudioCatalog } from "./catalog";
-import { codegenStudioProject } from "./codegen";
+import { loadStudioCatalog } from "../internal/catalog";
+import { validateLoadedStudioCatalog } from "./catalog";
+import { codegenLoadedStudioProject } from "./codegen";
 import { verifyStudioHostApp } from "./host-app";
 import { hasErrorDiagnostic, resolveWorkflowConfig, workflowError } from "./shared";
 import type {
@@ -257,8 +258,9 @@ export const verifyStudioProject = async (
     };
   }
 
-  const validation = await validateStudioCatalog({ config: resolved.config });
-  const codegen = await codegenStudioProject({ check: true, config: resolved.config });
+  const catalog = await loadStudioCatalog(resolved.config);
+  const validation = validateLoadedStudioCatalog(resolved.config, catalog);
+  const codegen = await codegenLoadedStudioProject(resolved.config, catalog, { check: true });
   const hostApp = await verifyStudioHostApp({
     appRoot: options.appRoot,
     config: resolved.config,

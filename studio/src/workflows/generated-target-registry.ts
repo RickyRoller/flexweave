@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import { defineStudioGeneratedTarget } from "../codegen/types";
-import type { StudioCodegenTarget, StudioGeneratedTargetDefinition } from "../codegen/types";
+import type { StudioBuiltInCodegenTarget, StudioGeneratedTargetDefinition } from "../codegen/types";
 import type { ResolvedStudioProjectConfig } from "../config/schema";
 import type { StudioHostAppCodegenTargetDefinition } from "../extensions";
 import type { loadStudioCatalog } from "../internal/catalog";
@@ -9,9 +9,20 @@ import { studioRecordKinds } from "../internal/catalog";
 import { displayPath } from "../internal/files";
 
 export type StudioCatalogContent = Awaited<ReturnType<typeof loadStudioCatalog>>;
-export type RegisteredGeneratedTarget = StudioGeneratedTargetDefinition<StudioCatalogContent>;
+export type RegisteredGeneratedTarget = StudioGeneratedTargetDefinition<
+  StudioCatalogContent,
+  ResolvedStudioProjectConfig
+>;
+type BuiltInGeneratedTarget = StudioGeneratedTargetDefinition<
+  StudioCatalogContent,
+  ResolvedStudioProjectConfig,
+  StudioBuiltInCodegenTarget
+>;
 
-const generatedHeader = (target: StudioCodegenTarget, config: ResolvedStudioProjectConfig) => {
+const generatedHeader = (
+  target: StudioBuiltInCodegenTarget,
+  config: ResolvedStudioProjectConfig,
+) => {
   const template = config.rust?.generatedHeader;
   if (template) {
     return `${template.replaceAll("{target}", target)}\n\n`;
@@ -21,7 +32,7 @@ const generatedHeader = (target: StudioCodegenTarget, config: ResolvedStudioProj
 };
 
 const renderRustDefinitions = (
-  target: Exclude<StudioCodegenTarget, "reference">,
+  target: Exclude<StudioBuiltInCodegenTarget, "reference">,
   records: { id: string; label: string }[],
   config: ResolvedStudioProjectConfig,
 ) => {
@@ -61,7 +72,7 @@ const renderReference = (config: ResolvedStudioProjectConfig, catalog: StudioCat
   ].join("\n");
 };
 
-const generatedTargetLabel = (target: StudioCodegenTarget) =>
+const generatedTargetLabel = (target: StudioBuiltInCodegenTarget) =>
   target === "reference" ? "Generated catalog reference" : `Generated ${target} definitions`;
 
 const builtInGeneratedTargets = (
@@ -73,30 +84,26 @@ const builtInGeneratedTargets = (
       id: target,
       label: generatedTargetLabel(target),
       plan: ({ config, content, outputDir }) => {
-        const resolvedConfig = config as ResolvedStudioProjectConfig;
-        const catalog = content as StudioCatalogContent;
         const path =
           target === "reference"
             ? join(outputDir, "studio-reference.md")
             : join(outputDir, "generated.rs");
         const value =
           target === "reference"
-            ? renderReference(resolvedConfig, catalog)
-            : renderRustDefinitions(target, catalog.byKind[target], resolvedConfig);
+            ? renderReference(config, content)
+            : renderRustDefinitions(target, content.byKind[target], config);
         return {
           files: [{ path, value }],
         };
       },
-    }),
+    } satisfies BuiltInGeneratedTarget),
   );
 
 export const activeGeneratedTargets = (
   config: ResolvedStudioProjectConfig,
 ): RegisteredGeneratedTarget[] => [
   ...builtInGeneratedTargets(config),
-  ...(config.extensions.flatMap(
-    (extension) => extension.generatedTargets ?? [],
-  ) as RegisteredGeneratedTarget[]),
+  ...config.extensions.flatMap((extension) => extension.generatedTargets ?? []),
 ];
 
 export const defaultSelectedGeneratedTargets = (

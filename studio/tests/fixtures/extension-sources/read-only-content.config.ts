@@ -14,6 +14,7 @@ export default defineStudioConfig({
         },
       },
     ],
+    writeSourceId: "file-backed",
   },
   extensions: [syntheticSourceExtension],
   mode: "validate-only",

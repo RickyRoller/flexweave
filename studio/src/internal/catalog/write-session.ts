@@ -286,22 +286,24 @@ const sourceBackedCatalogWriter = (
 
 const unsupportedCatalogWriter = (
   config: ResolvedStudioProjectConfig,
-  diagnosticCode: "source-write-ambiguous" | "source-write-unsupported",
+  diagnosticCode: "source-write-unsupported",
   message: string,
+  source?: StudioSourceConfig,
 ): StudioCatalogWriterAdapter => {
   const writeDiagnostic = () => catalogDiagnostic(diagnosticCode, message, config.configPath);
-  const plan = (records: readonly StudioCatalogRecord[]) => ({
-    diagnostics: [writeDiagnostic()],
-    plannedPaths: records.map((record) =>
-      sourceWriteLabel(
-        config.data.sources[0] ?? {
-          adapterId: "unknown",
-          id: "source",
-        },
-        record,
-      ),
-    ),
-  });
+  const plan = (records: readonly StudioCatalogRecord[]) => {
+    const displaySource =
+      source ??
+      config.data.sources[0] ??
+      ({
+        adapterId: "unknown",
+        id: "source",
+      } satisfies StudioSourceConfig);
+    return {
+      diagnostics: [writeDiagnostic()],
+      plannedPaths: records.map((record) => sourceWriteLabel(displaySource, record)),
+    };
+  };
 
   return {
     plan,
@@ -316,44 +318,31 @@ const unsupportedCatalogWriter = (
 const resolveStudioCatalogWriter = (
   config: ResolvedStudioProjectConfig,
 ): StudioCatalogWriterAdapter => {
-  if (config.data.sources.length === 0) {
+  if (config.data.writeSourceId === undefined) {
     return builtInJsonCatalogWriter(config);
   }
 
-  const writableSources = config.data.sources
-    .map((source) => ({
-      adapter: resolveStudioDataAdapter(config.data.adapterRegistry, source.adapterId),
-      source,
-    }))
-    .filter(
-      (
-        entry,
-      ): entry is {
-        adapter: StudioDataAdapter & {
-          write: NonNullable<StudioDataAdapter["write"]>;
-          writeSnapshotPaths: NonNullable<StudioDataAdapter["writeSnapshotPaths"]>;
-        };
-        source: StudioSourceConfig;
-      } => sourceCanWrite(entry.adapter),
-    );
-
-  if (writableSources.length === 1) {
-    const [{ adapter, source }] = writableSources;
-    return sourceBackedCatalogWriter(config, source, adapter);
-  }
-
-  if (writableSources.length > 1) {
+  const source = config.data.sources.find(
+    (candidate) => candidate.id === config.data.writeSourceId,
+  );
+  if (!source) {
     return unsupportedCatalogWriter(
       config,
-      "source-write-ambiguous",
-      "Studio scaffold writes require exactly one writable content adapter for the active source configuration.",
+      "source-write-unsupported",
+      `Studio scaffold writes target source "${config.data.writeSourceId}", but that source is not declared.`,
     );
+  }
+
+  const adapter = resolveStudioDataAdapter(config.data.adapterRegistry, source.adapterId);
+  if (sourceCanWrite(adapter)) {
+    return sourceBackedCatalogWriter(config, source, adapter);
   }
 
   return unsupportedCatalogWriter(
     config,
     "source-write-unsupported",
-    "Studio scaffold writes require a writable content adapter for the active source configuration.",
+    `Studio scaffold writes target source "${source.id}", but data adapter "${source.adapterId}" does not support transactional writes.`,
+    source,
   );
 };
 

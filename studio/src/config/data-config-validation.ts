@@ -4,7 +4,7 @@ import type {
   StudioSourceConfig,
 } from "../extensions";
 import { configError } from "./diagnostics";
-import { isObject, readString } from "./primitive-readers";
+import { isObject, readOptionalString, readString } from "./primitive-readers";
 import type { StudioDiagnostic, StudioProjectConfig } from "./types";
 
 const validAdapterCapabilities: readonly StudioDataAdapterCapability[] = [
@@ -239,11 +239,12 @@ const validateSourceConfig = (
 export const validateDataConfig = (
   value: StudioProjectConfig,
   diagnostics: StudioDiagnostic[],
-): { adapters: StudioDataAdapter[]; sources: StudioSourceConfig[] } => {
+): { adapters: StudioDataAdapter[]; sources: StudioSourceConfig[]; writeSourceId?: string } => {
   if (value.data === undefined) {
     return {
       adapters: [],
       sources: [],
+      writeSourceId: undefined,
     };
   }
 
@@ -258,10 +259,16 @@ export const validateDataConfig = (
     return {
       adapters: [],
       sources: [],
+      writeSourceId: undefined,
     };
   }
 
   const adapters = validateDataAdapters(value.data.adapters, "data.adapters", diagnostics);
+  const writeSourceId = readOptionalString(
+    value.data.writeSourceId,
+    "data.writeSourceId",
+    diagnostics,
+  );
   const sourcesValue = value.data.sources;
   const sources: StudioSourceConfig[] = [];
   if (sourcesValue !== undefined && !Array.isArray(sourcesValue)) {
@@ -281,5 +288,26 @@ export const validateDataConfig = (
     }
   }
 
-  return { adapters, sources };
+  return { adapters, sources, writeSourceId };
+};
+
+export const validateStudioWriteSourceReference = (
+  writeSourceId: string | undefined,
+  sources: readonly StudioSourceConfig[],
+  diagnostics: StudioDiagnostic[],
+) => {
+  if (writeSourceId === undefined) {
+    return;
+  }
+
+  if (!sources.some((source) => source.id === writeSourceId)) {
+    diagnostics.push(
+      configError(
+        "missing-write-source",
+        "data.writeSourceId",
+        `Studio catalog write source "${writeSourceId}" is not declared in data.sources.`,
+        "Omit data.writeSourceId to use the built-in JSON catalog writer, or set it to a declared source id.",
+      ),
+    );
+  }
 };

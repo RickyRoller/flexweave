@@ -1,9 +1,9 @@
-import type { StudioBuiltInCodegenTarget, StudioCodegenTarget } from "../codegen/types";
+import type { StudioBuiltInCodegenTarget, StudioGeneratedTargetId } from "../codegen/types";
 import {
   createStudioDataAdapterRegistry,
   validateStudioSourceAdapterReferences,
 } from "./data-adapter-registry";
-import { validateDataConfig } from "./data-config-validation";
+import { validateDataConfig, validateStudioWriteSourceReference } from "./data-config-validation";
 import { configError } from "./diagnostics";
 import {
   readAllowOverlappingOutputDirs,
@@ -30,7 +30,7 @@ interface FullConfigFields {
   builtInTargets: StudioBuiltInCodegenTarget[];
   hookDir?: string;
   hookTestStubsDir?: string;
-  outputDirs: Partial<Record<string, string>>;
+  outputDirs: Partial<Record<StudioGeneratedTargetId, string>>;
   rust?: ResolvedStudioProjectConfig["rust"];
 }
 
@@ -201,7 +201,7 @@ const validateFullConfigFields = (
   value: StudioProjectConfig,
   diagnostics: StudioDiagnostic[],
   builtInTargetIds: readonly StudioBuiltInCodegenTarget[],
-  extensionTargetIds: readonly string[],
+  extensionTargetIds: readonly StudioGeneratedTargetId[],
 ): FullConfigFields => ({
   allowOverlappingOutputDirs: readAllowOverlappingOutputDirs(value, diagnostics),
   builtInTargets: [...builtInTargetIds],
@@ -273,13 +273,14 @@ export const validateStudioConfig = (
   const data = validateDataConfig(raw, diagnostics);
   const adapterRegistry = createStudioDataAdapterRegistry(data.adapters, extensions, diagnostics);
   validateStudioSourceAdapterReferences(data.sources, adapterRegistry, diagnostics);
+  validateStudioWriteSourceReference(data.writeSourceId, data.sources, diagnostics);
 
-  const resolvedOutputDirs = Object.fromEntries(
+  const resolvedOutputDirs: Partial<Record<StudioGeneratedTargetId, string>> = Object.fromEntries(
     [...fullFields.builtInTargets, ...extensionTargetIds].flatMap((target) => {
       const configuredPath = fullFields.outputDirs[target];
       return configuredPath ? [[target, resolveConfigPath(options.configDir, configuredPath)]] : [];
     }),
-  ) as Partial<Record<StudioCodegenTarget, string>>;
+  );
   const resolvedHookDir = fullFields.hookDir
     ? resolveConfigPath(options.configDir, fullFields.hookDir)
     : undefined;

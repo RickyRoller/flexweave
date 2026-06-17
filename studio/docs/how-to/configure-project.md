@@ -109,6 +109,11 @@ Relative paths resolve from the directory containing the active config file.
 Absolute paths remain absolute. Generated output directories and runtime hook
 directories must be distinct so Studio has clear ownership boundaries.
 
+By default, scaffold commands write catalog records to JSON files under
+`catalogRoot`. If a source adapter should own scaffold writes, set
+`data.writeSourceId` to that declared source id. Studio will not infer write
+ownership from the number of configured sources.
+
 `app.root` points at the consumer-owned local host app scaffold.
 `app.checkCommand` is used by `flexweave-studio verify`; `app.buildCommand`
 is the fallback when no check command is configured.

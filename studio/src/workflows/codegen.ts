@@ -3,12 +3,13 @@ import { isAbsolute, join, relative } from "node:path";
 
 import type {
   RuntimeHookSummary,
-  StudioCodegenTarget,
   StudioCodegenTargetSummary,
   StudioGeneratedFileDiff,
+  StudioGeneratedTargetId,
 } from "../codegen/types";
 import type { ResolvedStudioProjectConfig, StudioDiagnostic } from "../config/schema";
 import { loadStudioCatalog } from "../internal/catalog";
+import type { StudioCatalog } from "../internal/catalog";
 import {
   displayPath,
   listFilesRecursive,
@@ -40,7 +41,7 @@ const rustIdentifier = (value: string) =>
 
 interface PlannedGeneratedFile {
   path: string;
-  target: StudioCodegenTarget;
+  target: StudioGeneratedTargetId;
   value: string;
 }
 
@@ -48,6 +49,11 @@ interface PlannedRuntimeHookFile {
   hook: string;
   path: string;
   value: string;
+}
+
+interface CodegenStudioProjectOptions {
+  check?: boolean;
+  targets?: readonly string[];
 }
 
 const pathContains = (parent: string, child: string) => {
@@ -250,7 +256,7 @@ const runtimeHookStatus = (exists: boolean, write: boolean) => {
   return write ? "created" : "missing";
 };
 
-const expectedRuntimeHooks = (catalog: Awaited<ReturnType<typeof loadStudioCatalog>>) =>
+const expectedRuntimeHooks = (catalog: StudioCatalog) =>
   new Set(
     catalog.byKind.executions
       .map((record) => record.hook)
@@ -259,7 +265,7 @@ const expectedRuntimeHooks = (catalog: Awaited<ReturnType<typeof loadStudioCatal
 
 const plannedRuntimeHookFiles = (
   config: ResolvedStudioProjectConfig,
-  catalog: Awaited<ReturnType<typeof loadStudioCatalog>>,
+  catalog: StudioCatalog,
 ): PlannedRuntimeHookFile[] => {
   const hookDir = config.paths.hooks.dir;
   if (!hookDir) {
@@ -286,7 +292,7 @@ const plannedRuntimeHookFiles = (
 
 const summarizeHooks = (
   config: ResolvedStudioProjectConfig,
-  catalog: Awaited<ReturnType<typeof loadStudioCatalog>>,
+  catalog: StudioCatalog,
   options: { write: boolean },
 ): RuntimeHookSummary[] => {
   const hookDir = config.paths.hooks.dir;
@@ -339,74 +345,60 @@ const generatedWriteStatus = (before: string | undefined, value: string) => {
   return before === value ? "fresh" : "updated";
 };
 
-export const codegenStudioProject = async (
-  options: StudioWorkflowOptions & {
-    check?: boolean;
-    targets?: readonly string[];
-  } = {},
-): Promise<CodegenStudioResult> => {
-  const resolved = await resolveWorkflowConfig(options);
-  if (!resolved.ok) {
-    return {
-      checked: options.check === true,
-      diagnostics: resolved.diagnostics,
-      hooks: [],
-      ok: false,
-      targets: [],
-    };
-  }
-
-  const fullConfigDiagnostics = fullConfigRequired(resolved.config);
-  const registeredTargets = activeGeneratedTargets(resolved.config);
+const prepareCodegenTargets = (
+  config: ResolvedStudioProjectConfig,
+  options: CodegenStudioProjectOptions,
+): { diagnostics: StudioDiagnostic[]; targets: RegisteredGeneratedTarget[] } => {
+  const fullConfigDiagnostics = fullConfigRequired(config);
+  const registeredTargets = activeGeneratedTargets(config);
   const selected = selectTargets(
     registeredTargets,
-    defaultSelectedGeneratedTargets(resolved.config).map((target) => target.id),
+    defaultSelectedGeneratedTargets(config).map((target) => target.id),
     options.targets,
   );
-  if (fullConfigDiagnostics.length > 0 || selected.diagnostics.length > 0) {
-    return {
-      checked: options.check === true,
-      configPath: resolved.config.configPath,
-      diagnostics: [...fullConfigDiagnostics, ...selected.diagnostics],
-      hooks: [],
-      ok: false,
-      targets: [],
-    };
-  }
+  return {
+    diagnostics: [...fullConfigDiagnostics, ...selected.diagnostics],
+    targets: selected.targets,
+  };
+};
 
-  const catalog = await loadStudioCatalog(resolved.config);
+const failedCodegenResult = (
+  config: ResolvedStudioProjectConfig,
+  options: CodegenStudioProjectOptions,
+  diagnostics: StudioDiagnostic[],
+): CodegenStudioResult => ({
+  checked: options.check === true,
+  configPath: config.configPath,
+  diagnostics,
+  hooks: [],
+  ok: false,
+  targets: [],
+});
+
+const codegenPreparedStudioProject = async (
+  config: ResolvedStudioProjectConfig,
+  catalog: StudioCatalog,
+  selectedTargets: RegisteredGeneratedTarget[],
+  options: CodegenStudioProjectOptions,
+): Promise<CodegenStudioResult> => {
   if (catalog.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-    return {
-      checked: options.check === true,
-      configPath: resolved.config.configPath,
-      diagnostics: catalog.diagnostics,
-      hooks: [],
-      ok: false,
-      targets: [],
-    };
+    return failedCodegenResult(config, options, catalog.diagnostics);
   }
 
-  const planned = await plannedGeneratedFiles(resolved.config, catalog, selected.targets);
+  const planned = await plannedGeneratedFiles(config, catalog, selectedTargets);
   if (planned.diagnostics.some((diagnostic) => diagnostic.severity === "error")) {
-    return {
-      checked: options.check === true,
-      configPath: resolved.config.configPath,
-      diagnostics: planned.diagnostics,
-      hooks: [],
-      ok: false,
-      targets: [],
-    };
+    return failedCodegenResult(config, options, planned.diagnostics);
   }
 
   const expected = planned.files;
-  const diffs = summarizeGeneratedFiles(resolved.config, expected, selected.targets);
-  const hooks = summarizeHooks(resolved.config, catalog, {
+  const diffs = summarizeGeneratedFiles(config, expected, selectedTargets);
+  const hooks = summarizeHooks(config, catalog, {
     write: options.check !== true,
   });
   let finalDiffs = diffs;
 
   if (options.check !== true) {
-    const hookFiles = plannedRuntimeHookFiles(resolved.config, catalog);
+    const hookFiles = plannedRuntimeHookFiles(config, catalog);
     const snapshots = snapshotPaths([
       ...expected.map((file) => file.path),
       ...hookFiles.map((file) => file.path),
@@ -438,7 +430,7 @@ export const codegenStudioProject = async (
       restoreSnapshots(snapshots);
       return {
         checked: false,
-        configPath: resolved.config.configPath,
+        configPath: config.configPath,
         diagnostics: [
           workflowError(
             "codegen-write-failed",
@@ -447,7 +439,7 @@ export const codegenStudioProject = async (
               : "Failed to write generated mechanics definitions or runtime hook stubs.",
           ),
         ],
-        hooks: summarizeHooks(resolved.config, catalog, { write: false }),
+        hooks: summarizeHooks(config, catalog, { write: false }),
         ok: false,
         targets: [],
       };
@@ -461,8 +453,8 @@ export const codegenStudioProject = async (
           .map((diff) =>
             workflowError(
               `generated-${diff.status}`,
-              `Generated mechanics definition is ${diff.status}: ${displayPath(resolved.config.configDir, diff.path)}`,
-              displayPath(resolved.config.configDir, diff.path),
+              `Generated mechanics definition is ${diff.status}: ${displayPath(config.configDir, diff.path)}`,
+              displayPath(config.configDir, diff.path),
             ),
           )
       : [];
@@ -471,12 +463,12 @@ export const codegenStudioProject = async (
     .map((hook) =>
       workflowWarning(
         "orphan-runtime-hook",
-        `Runtime hook file is not referenced by the Studio catalog: ${displayPath(resolved.config.configDir, hook.path)}`,
-        displayPath(resolved.config.configDir, hook.path),
+        `Runtime hook file is not referenced by the Studio catalog: ${displayPath(config.configDir, hook.path)}`,
+        displayPath(config.configDir, hook.path),
       ),
     );
 
-  const targetSummaries = selected.targets.map(
+  const targetSummaries = selectedTargets.map(
     (target): StudioCodegenTargetSummary => ({
       files: finalDiffs.filter((diff) => diff.target === target.id),
       label: target.label,
@@ -487,10 +479,46 @@ export const codegenStudioProject = async (
   const diagnostics = [...planned.diagnostics, ...staleDiagnostics, ...hookDiagnostics];
   return {
     checked: options.check === true,
-    configPath: resolved.config.configPath,
+    configPath: config.configPath,
     diagnostics,
     hooks,
     ok: diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
     targets: targetSummaries,
   };
+};
+
+export const codegenLoadedStudioProject = (
+  config: ResolvedStudioProjectConfig,
+  catalog: StudioCatalog,
+  options: CodegenStudioProjectOptions = {},
+): Promise<CodegenStudioResult> => {
+  const prepared = prepareCodegenTargets(config, options);
+  if (prepared.diagnostics.length > 0) {
+    return Promise.resolve(failedCodegenResult(config, options, prepared.diagnostics));
+  }
+
+  return codegenPreparedStudioProject(config, catalog, prepared.targets, options);
+};
+
+export const codegenStudioProject = async (
+  options: StudioWorkflowOptions & CodegenStudioProjectOptions = {},
+): Promise<CodegenStudioResult> => {
+  const resolved = await resolveWorkflowConfig(options);
+  if (!resolved.ok) {
+    return {
+      checked: options.check === true,
+      diagnostics: resolved.diagnostics,
+      hooks: [],
+      ok: false,
+      targets: [],
+    };
+  }
+
+  const prepared = prepareCodegenTargets(resolved.config, options);
+  if (prepared.diagnostics.length > 0) {
+    return failedCodegenResult(resolved.config, options, prepared.diagnostics);
+  }
+
+  const catalog = await loadStudioCatalog(resolved.config);
+  return codegenPreparedStudioProject(resolved.config, catalog, prepared.targets, options);
 };

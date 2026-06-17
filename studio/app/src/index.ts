@@ -1,3 +1,8 @@
+import {
+  composeHostAppContributionModel,
+  hostAppContributionModelValues,
+  validateHostAppContributionModel,
+} from "@flexweave/studio/config";
 import type { ResolvedStudioProjectConfig, StudioDiagnostic } from "@flexweave/studio/config";
 import { loadStudioConfig } from "@flexweave/studio/config/load";
 import type {
@@ -173,116 +178,30 @@ const sourceViewRoute = (view: StudioAppSourceViewDefinition): StudioAppRouteDef
   label: view.label,
 });
 
-const diagnostic = (
-  code: string,
-  field: string,
-  message: string,
-  hint?: string,
-): StudioDiagnostic => ({
-  code,
-  field,
-  hint,
-  message,
-  severity: "error",
-});
-
-const duplicateDiagnostics = (
-  values: readonly unknown[],
-  field: string,
-  keyForValue: (value: unknown) => string | undefined = (value) =>
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as { id?: unknown }).id === "string"
-      ? (value as { id: string }).id
-      : undefined,
-): StudioDiagnostic[] => {
-  const seen = new Set<string>();
-  const diagnostics: StudioDiagnostic[] = [];
-  for (const [index, value] of values.entries()) {
-    const key = keyForValue(value);
-    if (!key) {
-      continue;
-    }
-    if (seen.has(key)) {
-      diagnostics.push(
-        diagnostic(
-          "duplicate-host-app-contribution",
-          `${field}.${index}`,
-          `Studio app contribution id "${key}" is registered more than once.`,
-          "Use stable, unique ids for host app contributions and contributed app surfaces.",
-        ),
-      );
-    }
-    seen.add(key);
-  }
-  return diagnostics;
-};
-
 export const collectStudioAppContributions = (
   extensions: readonly StudioExtension[],
 ): StudioAppContribution[] => extensions.flatMap((extension) => extension.appContributions ?? []);
 
-export const validateStudioAppAdapter = (adapter: StudioAppAdapter): StudioDiagnostic[] => [
-  ...duplicateDiagnostics(adapter.navigation, "navigation"),
-  ...duplicateDiagnostics(adapter.authoring.areas, "authoring.areas"),
-  ...duplicateDiagnostics(adapter.authoring.editors, "authoring.editors"),
-  ...duplicateDiagnostics(adapter.codegenTargets, "codegenTargets", (value) =>
-    typeof value === "object" &&
-    value !== null &&
-    !Array.isArray(value) &&
-    typeof (value as { target?: unknown }).target === "string"
-      ? (value as { target: string }).target
-      : undefined,
-  ),
-  ...duplicateDiagnostics(adapter.diagnosticsPanels ?? [], "diagnosticsPanels"),
-  ...duplicateDiagnostics(adapter.generatedOutputPanels ?? [], "generatedOutputPanels"),
-  ...duplicateDiagnostics(adapter.sourceViews ?? [], "sourceViews"),
-  ...duplicateDiagnostics(adapter.workflowActions, "workflowActions"),
-];
+export const validateStudioAppAdapter = (adapter: StudioAppAdapter): StudioDiagnostic[] =>
+  validateHostAppContributionModel(composeHostAppContributionModel(adapter, []));
 
 export const composeStudioAppContributions = (
   adapter: StudioAppAdapter,
   contributions: readonly StudioAppContribution[],
 ): StudioAppCompositionResult => {
+  const contributionModel = composeHostAppContributionModel(adapter, contributions);
+  const composedContributions = hostAppContributionModelValues(contributionModel);
   const composed: StudioAppAdapter = {
     ...adapter,
-    authoring: {
-      areas: [
-        ...adapter.authoring.areas,
-        ...contributions.flatMap((contribution) => contribution.authoring?.areas ?? []),
-      ],
-      editors: [
-        ...adapter.authoring.editors,
-        ...contributions.flatMap((contribution) => contribution.authoring?.editors ?? []),
-      ],
-    },
-    codegenTargets: [
-      ...adapter.codegenTargets,
-      ...contributions.flatMap((contribution) => contribution.codegenTargets ?? []),
-    ],
-    diagnosticsPanels: [
-      ...(adapter.diagnosticsPanels ?? []),
-      ...contributions.flatMap((contribution) => contribution.diagnosticsPanels ?? []),
-    ],
-    generatedOutputPanels: [
-      ...(adapter.generatedOutputPanels ?? []),
-      ...contributions.flatMap((contribution) => contribution.generatedOutputPanels ?? []),
-    ],
-    navigation: [
-      ...adapter.navigation,
-      ...contributions.flatMap((contribution) => contribution.navigation ?? []),
-    ],
-    sourceViews: [
-      ...(adapter.sourceViews ?? []),
-      ...contributions.flatMap((contribution) => contribution.sourceViews ?? []),
-    ],
-    workflowActions: [
-      ...adapter.workflowActions,
-      ...contributions.flatMap((contribution) => contribution.workflowActions ?? []),
-    ],
+    authoring: composedContributions.authoring,
+    codegenTargets: composedContributions.codegenTargets,
+    diagnosticsPanels: composedContributions.diagnosticsPanels,
+    generatedOutputPanels: composedContributions.generatedOutputPanels,
+    navigation: composedContributions.navigation,
+    sourceViews: composedContributions.sourceViews,
+    workflowActions: composedContributions.workflowActions,
   };
-  const diagnostics = validateStudioAppAdapter(composed);
+  const diagnostics = validateHostAppContributionModel(contributionModel);
 
   return {
     adapter: composed,

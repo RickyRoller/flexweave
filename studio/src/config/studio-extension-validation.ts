@@ -7,7 +7,13 @@ import type {
 import { validateDataAdapters } from "./data-config-validation";
 import { configError } from "./diagnostics";
 import { validateGeneratedTargets } from "./generated-target-validation";
-import { validateHostAppContributions } from "./host-app-contribution-validation";
+import {
+  mergeHostAppContributionModels,
+  normalizeHostAppContributions,
+  validateHostAppContributionModel,
+  validateHostAppContributions,
+} from "./host-app-contribution-validation";
+import type { StudioHostAppContributionModel } from "./host-app-contribution-validation";
 import {
   isObject,
   readNonNegativeInteger,
@@ -386,9 +392,11 @@ export const validateStudioExtensions = (
   }
 
   const extensions: StudioExtension[] = [];
+  const hostAppContributionModels: StudioHostAppContributionModel[] = [];
   const seen = new Set<string>();
   for (const [index, item] of value.entries()) {
-    const extension = validateStudioExtension(item, `extensions.${index}`, diagnostics);
+    const field = `extensions.${index}`;
+    const extension = validateStudioExtension(item, field, diagnostics);
     if (!extension) {
       continue;
     }
@@ -404,7 +412,13 @@ export const validateStudioExtensions = (
     }
     seen.add(extension.id);
     extensions.push(extension);
+    hostAppContributionModels.push(
+      normalizeHostAppContributions(extension.appContributions ?? [], `${field}.appContributions`),
+    );
   }
+  diagnostics.push(
+    ...validateHostAppContributionModel(mergeHostAppContributionModels(hostAppContributionModels)),
+  );
 
   return extensions;
 };

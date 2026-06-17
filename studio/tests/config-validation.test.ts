@@ -189,6 +189,54 @@ test("config validation rejects writable data adapters without rollback snapshot
   );
 });
 
+test("config validation resolves explicit catalog write sources", () => {
+  const result = validateStudioConfig(
+    {
+      ...validFullConfig(),
+      data: {
+        adapters: [
+          {
+            capabilities: ["read"],
+            id: "readable-source",
+            load: () => ({ records: [] }),
+          },
+        ],
+        sources: [
+          {
+            adapterId: "readable-source",
+            id: "table-source",
+          },
+        ],
+        writeSourceId: "table-source",
+      },
+    },
+    configOptions,
+  );
+
+  expect(result.ok).toBe(true);
+  expect(result.config?.data.writeSourceId).toBe("table-source");
+});
+
+test("config validation rejects unknown catalog write sources", () => {
+  const result = validateStudioConfig(
+    {
+      ...validFullConfig(),
+      data: {
+        writeSourceId: "missing-source",
+      },
+    },
+    configOptions,
+  );
+
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "missing-write-source",
+      field: "data.writeSourceId",
+    }),
+  );
+});
+
 test("config validation preserves validate-only support", () => {
   const result = validateStudioConfig(
     {
@@ -265,6 +313,60 @@ test("config validation supports extension-only generated target sets", () => {
   expect(activeBuiltInShadow.diagnostics).toContainEqual(
     expect.objectContaining({
       code: "duplicate-generated-target",
+    }),
+  );
+});
+
+test("config validation reports duplicate host app contribution surfaces", () => {
+  const result = validateStudioConfig(
+    {
+      catalogRoot: "catalog",
+      extensions: [
+        {
+          appContributions: [
+            {
+              authoring: {
+                editors: [
+                  {
+                    areaId: "records",
+                    id: "records",
+                    label: "Records",
+                  },
+                ],
+              },
+              id: "records-host-app",
+            },
+          ],
+          id: "records-extension",
+        },
+        {
+          appContributions: [
+            {
+              authoring: {
+                editors: [
+                  {
+                    areaId: "records",
+                    id: "records",
+                    label: "Duplicate records",
+                  },
+                ],
+              },
+              id: "duplicate-records-host-app",
+            },
+          ],
+          id: "duplicate-records-extension",
+        },
+      ],
+      mode: "validate-only",
+    },
+    configOptions,
+  );
+
+  expect(result.ok).toBe(false);
+  expect(result.diagnostics).toContainEqual(
+    expect.objectContaining({
+      code: "duplicate-host-app-contribution",
+      field: "extensions.1.appContributions.0.authoring.editors.0",
     }),
   );
 });

@@ -1,4 +1,17 @@
-import type { StudioHostAppContribution } from "../extensions";
+import type {
+  StudioHostAppActionVariant,
+  StudioHostAppAuthoringAreaDefinition,
+  StudioHostAppAuthoringEditorDefinition,
+  StudioHostAppCodegenTargetDefinition,
+  StudioHostAppContribution,
+  StudioHostAppDiagnosticsPanelDefinition,
+  StudioHostAppGeneratedOutputPanelDefinition,
+  StudioHostAppNavigationLink,
+  StudioHostAppNavigationSection,
+  StudioHostAppSourceViewDefinition,
+  StudioHostAppWorkflowActionDefinition,
+  StudioHostAppWorkflowCommandName,
+} from "../extensions";
 import { configError } from "./diagnostics";
 import { isObject, readOptionalString, readString } from "./primitive-readers";
 import type { StudioDiagnostic } from "./types";
@@ -13,55 +26,251 @@ const validHostAppWorkflowCommands = [
   "show",
   "validate",
   "verify",
-] as const;
+] as const satisfies readonly StudioHostAppWorkflowCommandName[];
 
-const validHostAppActionVariants = ["primary", "secondary"] as const;
+const validHostAppActionVariants = [
+  "primary",
+  "secondary",
+] as const satisfies readonly StudioHostAppActionVariant[];
+
+export interface StudioHostAppContributionModelEntry<Value> {
+  field: string;
+  value: Value;
+}
+
+export interface StudioHostAppContributionModel {
+  authoring: {
+    areas: readonly StudioHostAppContributionModelEntry<StudioHostAppAuthoringAreaDefinition>[];
+    editors: readonly StudioHostAppContributionModelEntry<StudioHostAppAuthoringEditorDefinition>[];
+  };
+  codegenTargets: readonly StudioHostAppContributionModelEntry<StudioHostAppCodegenTargetDefinition>[];
+  diagnosticsPanels: readonly StudioHostAppContributionModelEntry<StudioHostAppDiagnosticsPanelDefinition>[];
+  generatedOutputPanels: readonly StudioHostAppContributionModelEntry<StudioHostAppGeneratedOutputPanelDefinition>[];
+  navigation: readonly StudioHostAppContributionModelEntry<StudioHostAppNavigationSection>[];
+  sourceViews: readonly StudioHostAppContributionModelEntry<StudioHostAppSourceViewDefinition>[];
+  workflowActions: readonly StudioHostAppContributionModelEntry<StudioHostAppWorkflowActionDefinition>[];
+}
+
+export interface StudioHostAppContributionModelInput {
+  authoring?: StudioHostAppContribution["authoring"];
+  codegenTargets?: readonly StudioHostAppCodegenTargetDefinition[];
+  diagnosticsPanels?: readonly StudioHostAppDiagnosticsPanelDefinition[];
+  generatedOutputPanels?: readonly StudioHostAppGeneratedOutputPanelDefinition[];
+  navigation?: readonly StudioHostAppNavigationSection[];
+  sourceViews?: readonly StudioHostAppSourceViewDefinition[];
+  workflowActions?: readonly StudioHostAppWorkflowActionDefinition[];
+}
+
+export interface StudioHostAppContributionModelValues {
+  authoring: {
+    areas: StudioHostAppAuthoringAreaDefinition[];
+    editors: StudioHostAppAuthoringEditorDefinition[];
+  };
+  codegenTargets: StudioHostAppCodegenTargetDefinition[];
+  diagnosticsPanels: StudioHostAppDiagnosticsPanelDefinition[];
+  generatedOutputPanels: StudioHostAppGeneratedOutputPanelDefinition[];
+  navigation: StudioHostAppNavigationSection[];
+  sourceViews: StudioHostAppSourceViewDefinition[];
+  workflowActions: StudioHostAppWorkflowActionDefinition[];
+}
+
+const joinField = (...parts: (string | undefined)[]) =>
+  parts.filter((part): part is string => part !== undefined && part.length > 0).join(".");
+
+const entriesFor = <Value>(
+  values: readonly Value[] | undefined,
+  field: string,
+): StudioHostAppContributionModelEntry<Value>[] =>
+  (values ?? []).map((value, index) => ({
+    field: `${field}.${index}`,
+    value,
+  }));
+
+export const normalizeHostAppContributionModel = (
+  contribution: StudioHostAppContributionModelInput,
+  field?: string,
+): StudioHostAppContributionModel => ({
+  authoring: {
+    areas: entriesFor(contribution.authoring?.areas, joinField(field, "authoring.areas")),
+    editors: entriesFor(contribution.authoring?.editors, joinField(field, "authoring.editors")),
+  },
+  codegenTargets: entriesFor(contribution.codegenTargets, joinField(field, "codegenTargets")),
+  diagnosticsPanels: entriesFor(
+    contribution.diagnosticsPanels,
+    joinField(field, "diagnosticsPanels"),
+  ),
+  generatedOutputPanels: entriesFor(
+    contribution.generatedOutputPanels,
+    joinField(field, "generatedOutputPanels"),
+  ),
+  navigation: entriesFor(contribution.navigation, joinField(field, "navigation")),
+  sourceViews: entriesFor(contribution.sourceViews, joinField(field, "sourceViews")),
+  workflowActions: entriesFor(contribution.workflowActions, joinField(field, "workflowActions")),
+});
+
+export const mergeHostAppContributionModels = (
+  models: readonly StudioHostAppContributionModel[],
+): StudioHostAppContributionModel => ({
+  authoring: {
+    areas: models.flatMap((model) => model.authoring.areas),
+    editors: models.flatMap((model) => model.authoring.editors),
+  },
+  codegenTargets: models.flatMap((model) => model.codegenTargets),
+  diagnosticsPanels: models.flatMap((model) => model.diagnosticsPanels),
+  generatedOutputPanels: models.flatMap((model) => model.generatedOutputPanels),
+  navigation: models.flatMap((model) => model.navigation),
+  sourceViews: models.flatMap((model) => model.sourceViews),
+  workflowActions: models.flatMap((model) => model.workflowActions),
+});
+
+export const normalizeHostAppContributions = (
+  contributions: readonly StudioHostAppContribution[],
+  field: string,
+): StudioHostAppContributionModel =>
+  mergeHostAppContributionModels(
+    contributions.map((contribution, index) =>
+      normalizeHostAppContributionModel(contribution, `${field}.${index}`),
+    ),
+  );
+
+export const composeHostAppContributionModel = (
+  base: StudioHostAppContributionModelInput,
+  contributions: readonly StudioHostAppContributionModelInput[],
+): StudioHostAppContributionModel =>
+  normalizeHostAppContributionModel({
+    authoring: {
+      areas: [
+        ...(base.authoring?.areas ?? []),
+        ...contributions.flatMap((contribution) => contribution.authoring?.areas ?? []),
+      ],
+      editors: [
+        ...(base.authoring?.editors ?? []),
+        ...contributions.flatMap((contribution) => contribution.authoring?.editors ?? []),
+      ],
+    },
+    codegenTargets: [
+      ...(base.codegenTargets ?? []),
+      ...contributions.flatMap((contribution) => contribution.codegenTargets ?? []),
+    ],
+    diagnosticsPanels: [
+      ...(base.diagnosticsPanels ?? []),
+      ...contributions.flatMap((contribution) => contribution.diagnosticsPanels ?? []),
+    ],
+    generatedOutputPanels: [
+      ...(base.generatedOutputPanels ?? []),
+      ...contributions.flatMap((contribution) => contribution.generatedOutputPanels ?? []),
+    ],
+    navigation: [
+      ...(base.navigation ?? []),
+      ...contributions.flatMap((contribution) => contribution.navigation ?? []),
+    ],
+    sourceViews: [
+      ...(base.sourceViews ?? []),
+      ...contributions.flatMap((contribution) => contribution.sourceViews ?? []),
+    ],
+    workflowActions: [
+      ...(base.workflowActions ?? []),
+      ...contributions.flatMap((contribution) => contribution.workflowActions ?? []),
+    ],
+  });
+
+export const hostAppContributionModelValues = (
+  model: StudioHostAppContributionModel,
+): StudioHostAppContributionModelValues => ({
+  authoring: {
+    areas: model.authoring.areas.map((entry) => entry.value),
+    editors: model.authoring.editors.map((entry) => entry.value),
+  },
+  codegenTargets: model.codegenTargets.map((entry) => entry.value),
+  diagnosticsPanels: model.diagnosticsPanels.map((entry) => entry.value),
+  generatedOutputPanels: model.generatedOutputPanels.map((entry) => entry.value),
+  navigation: model.navigation.map((entry) => entry.value),
+  sourceViews: model.sourceViews.map((entry) => entry.value),
+  workflowActions: model.workflowActions.map((entry) => entry.value),
+});
+
+const duplicateHostAppContributionDiagnostic = (field: string, key: string): StudioDiagnostic =>
+  configError(
+    "duplicate-host-app-contribution",
+    field,
+    `Studio app contribution id "${key}" is registered more than once.`,
+    "Use stable, unique ids for host app contributions and contributed app surfaces.",
+  );
+
+const validateUniqueModelEntries = <Value>(
+  entries: readonly StudioHostAppContributionModelEntry<Value>[],
+  keyForValue: (value: Value) => string,
+  diagnostics: StudioDiagnostic[],
+) => {
+  const seen = new Set<string>();
+  for (const entry of entries) {
+    const key = keyForValue(entry.value);
+    if (seen.has(key)) {
+      diagnostics.push(duplicateHostAppContributionDiagnostic(entry.field, key));
+    }
+    seen.add(key);
+  }
+};
+
+export const validateHostAppContributionModel = (
+  model: StudioHostAppContributionModel,
+): StudioDiagnostic[] => {
+  const diagnostics: StudioDiagnostic[] = [];
+  validateUniqueModelEntries(model.navigation, (section) => section.id, diagnostics);
+  validateUniqueModelEntries(model.authoring.areas, (area) => area.id, diagnostics);
+  validateUniqueModelEntries(model.authoring.editors, (editor) => editor.id, diagnostics);
+  validateUniqueModelEntries(model.codegenTargets, (target) => target.target, diagnostics);
+  validateUniqueModelEntries(model.diagnosticsPanels, (panel) => panel.id, diagnostics);
+  validateUniqueModelEntries(model.generatedOutputPanels, (panel) => panel.id, diagnostics);
+  validateUniqueModelEntries(model.sourceViews, (view) => view.id, diagnostics);
+  validateUniqueModelEntries(model.workflowActions, (action) => action.id, diagnostics);
+  return diagnostics;
+};
+
+const readStringLiteral = <Value extends string>(
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+  validValues: readonly Value[],
+  label: string,
+): Value | undefined => {
+  const stringValue = readString(value, field, diagnostics);
+  if (!stringValue) {
+    return undefined;
+  }
+  if (!(validValues as readonly string[]).includes(stringValue)) {
+    diagnostics.push(
+      configError(
+        "invalid-host-app-contribution",
+        field,
+        `Studio host app ${label} ${field} is not supported.`,
+        `Expected one of: ${validValues.join(", ")}.`,
+      ),
+    );
+    return undefined;
+  }
+  return stringValue as Value;
+};
 
 const validateHostAppWorkflowCommand = (
   value: unknown,
   field: string,
   diagnostics: StudioDiagnostic[],
-): (typeof validHostAppWorkflowCommands)[number] | undefined => {
-  const command = readString(value, field, diagnostics);
-  if (!command) {
-    return undefined;
-  }
-  if (!(validHostAppWorkflowCommands as readonly string[]).includes(command)) {
-    diagnostics.push(
-      configError(
-        "invalid-host-app-contribution",
-        field,
-        `Studio host app workflow command ${field} is not supported.`,
-        `Expected one of: ${validHostAppWorkflowCommands.join(", ")}.`,
-      ),
-    );
-    return undefined;
-  }
-  return command as (typeof validHostAppWorkflowCommands)[number];
-};
+): StudioHostAppWorkflowCommandName | undefined =>
+  readStringLiteral(value, field, diagnostics, validHostAppWorkflowCommands, "workflow command");
 
 const validateHostAppActionVariant = (
   value: unknown,
   field: string,
   diagnostics: StudioDiagnostic[],
-): (typeof validHostAppActionVariants)[number] | undefined => {
-  const variant = readString(value, field, diagnostics);
-  if (!variant) {
-    return undefined;
-  }
-  if (!(validHostAppActionVariants as readonly string[]).includes(variant)) {
-    diagnostics.push(
-      configError(
-        "invalid-host-app-contribution",
-        field,
-        `Studio host app workflow action variant ${field} is not supported.`,
-        `Expected one of: ${validHostAppActionVariants.join(", ")}.`,
-      ),
-    );
-    return undefined;
-  }
-  return variant as (typeof validHostAppActionVariants)[number];
-};
+): StudioHostAppActionVariant | undefined =>
+  readStringLiteral(
+    value,
+    field,
+    diagnostics,
+    validHostAppActionVariants,
+    "workflow action variant",
+  );
 
 const readHostAppContributionArray = (
   value: unknown,
@@ -86,338 +295,204 @@ const readHostAppContributionArray = (
   return value;
 };
 
-const validateHostAppNavigationLinks = (
+const validateHostAppItems = <Value>(
   value: unknown,
   field: string,
+  itemLabel: string,
   diagnostics: StudioDiagnostic[],
-) =>
+  readItem: (
+    item: Record<string, unknown>,
+    itemField: string,
+    diagnostics: StudioDiagnostic[],
+  ) => Value | undefined,
+): Value[] =>
   readHostAppContributionArray(value, field, diagnostics).flatMap((item, index) => {
+    const itemField = `${field}.${index}`;
     if (!isObject(item)) {
       diagnostics.push(
         configError(
           "invalid-host-app-contribution",
-          `${field}.${index}`,
-          `Studio host app navigation link ${field}.${index} must be an object.`,
+          itemField,
+          `Studio host app ${itemLabel} ${itemField} must be an object.`,
         ),
       );
       return [];
     }
-    const id = readString(item.id, `${field}.${index}.id`, diagnostics);
-    const label = readString(item.label, `${field}.${index}.label`, diagnostics);
-    const href = readString(item.href, `${field}.${index}.href`, diagnostics);
-    if (!id || !label || !href) {
-      return [];
+
+    const parsed = readItem(item, itemField, diagnostics);
+    return parsed ? [parsed] : [];
+  });
+
+const readIdLabel = (
+  item: Record<string, unknown>,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+) => {
+  const id = readString(item.id, `${field}.id`, diagnostics);
+  const label = readString(item.label, `${field}.label`, diagnostics);
+  return id && label ? { id, label } : undefined;
+};
+
+const validateHostAppNavigationLinks = (
+  value: unknown,
+  field: string,
+  diagnostics: StudioDiagnostic[],
+): StudioHostAppNavigationLink[] =>
+  validateHostAppItems(value, field, "navigation link", diagnostics, (item, itemField) => {
+    const base = readIdLabel(item, itemField, diagnostics);
+    const href = readString(item.href, `${itemField}.href`, diagnostics);
+    if (!base || !href) {
+      return;
     }
-    return [
-      {
-        href,
-        icon: readOptionalString(item.icon, `${field}.${index}.icon`, diagnostics),
-        id,
-        label,
-      },
-    ];
+    return {
+      href,
+      icon: readOptionalString(item.icon, `${itemField}.icon`, diagnostics),
+      ...base,
+    };
   });
 
 const validateHostAppNavigation = (
   value: unknown,
   field: string,
   diagnostics: StudioDiagnostic[],
-) =>
-  readHostAppContributionArray(value, field, diagnostics).flatMap((item, index) => {
-    if (!isObject(item)) {
-      diagnostics.push(
-        configError(
-          "invalid-host-app-contribution",
-          `${field}.${index}`,
-          `Studio host app navigation section ${field}.${index} must be an object.`,
-        ),
-      );
-      return [];
-    }
-    const id = readString(item.id, `${field}.${index}.id`, diagnostics);
-    const label = readString(item.label, `${field}.${index}.label`, diagnostics);
-    const links = validateHostAppNavigationLinks(
-      item.links,
-      `${field}.${index}.links`,
-      diagnostics,
-    );
-    if (!id || !label) {
-      return [];
-    }
-    return [{ id, label, links }];
+): StudioHostAppNavigationSection[] =>
+  validateHostAppItems(value, field, "navigation section", diagnostics, (item, itemField) => {
+    const base = readIdLabel(item, itemField, diagnostics);
+    const links = validateHostAppNavigationLinks(item.links, `${itemField}.links`, diagnostics);
+    return base ? { ...base, links } : undefined;
   });
 
 const validateHostAppAuthoringAreas = (
   value: unknown,
   field: string,
   diagnostics: StudioDiagnostic[],
-) =>
-  readHostAppContributionArray(value, field, diagnostics).flatMap((item, index) => {
-    if (!isObject(item)) {
-      diagnostics.push(
-        configError(
-          "invalid-host-app-contribution",
-          `${field}.${index}`,
-          `Studio host app authoring area ${field}.${index} must be an object.`,
-        ),
-      );
-      return [];
+): StudioHostAppAuthoringAreaDefinition[] =>
+  validateHostAppItems(value, field, "authoring area", diagnostics, (item, itemField) => {
+    const base = readIdLabel(item, itemField, diagnostics);
+    if (!base) {
+      return;
     }
-    const id = readString(item.id, `${field}.${index}.id`, diagnostics);
-    const label = readString(item.label, `${field}.${index}.label`, diagnostics);
-    if (!id || !label) {
-      return [];
-    }
-    return [
-      {
-        description: readOptionalString(
-          item.description,
-          `${field}.${index}.description`,
-          diagnostics,
-        ),
-        editorId: readOptionalString(item.editorId, `${field}.${index}.editorId`, diagnostics),
-        icon: readOptionalString(item.icon, `${field}.${index}.icon`, diagnostics),
-        id,
-        label,
-      },
-    ];
+    return {
+      description: readOptionalString(item.description, `${itemField}.description`, diagnostics),
+      editorId: readOptionalString(item.editorId, `${itemField}.editorId`, diagnostics),
+      icon: readOptionalString(item.icon, `${itemField}.icon`, diagnostics),
+      ...base,
+    };
   });
 
 const validateHostAppAuthoringEditors = (
   value: unknown,
   field: string,
   diagnostics: StudioDiagnostic[],
-) =>
-  readHostAppContributionArray(value, field, diagnostics).flatMap((item, index) => {
-    if (!isObject(item)) {
-      diagnostics.push(
-        configError(
-          "invalid-host-app-contribution",
-          `${field}.${index}`,
-          `Studio host app authoring editor ${field}.${index} must be an object.`,
-        ),
-      );
-      return [];
-    }
-    const id = readString(item.id, `${field}.${index}.id`, diagnostics);
-    const label = readString(item.label, `${field}.${index}.label`, diagnostics);
-    const areaId = readString(item.areaId, `${field}.${index}.areaId`, diagnostics);
+): StudioHostAppAuthoringEditorDefinition[] =>
+  validateHostAppItems(value, field, "authoring editor", diagnostics, (item, itemField) => {
+    const base = readIdLabel(item, itemField, diagnostics);
+    const areaId = readString(item.areaId, `${itemField}.areaId`, diagnostics);
     const commandName =
       item.commandName === undefined
         ? undefined
-        : validateHostAppWorkflowCommand(
-            item.commandName,
-            `${field}.${index}.commandName`,
-            diagnostics,
-          );
-    if (!id || !label || !areaId) {
-      return [];
+        : validateHostAppWorkflowCommand(item.commandName, `${itemField}.commandName`, diagnostics);
+    if (!base || !areaId) {
+      return;
     }
-    return [
-      {
-        areaId,
-        commandName,
-        description: readOptionalString(
-          item.description,
-          `${field}.${index}.description`,
-          diagnostics,
-        ),
-        id,
-        label,
-        recordKind: readOptionalString(
-          item.recordKind,
-          `${field}.${index}.recordKind`,
-          diagnostics,
-        ),
-      },
-    ];
+    return {
+      areaId,
+      commandName,
+      description: readOptionalString(item.description, `${itemField}.description`, diagnostics),
+      recordKind: readOptionalString(item.recordKind, `${itemField}.recordKind`, diagnostics),
+      ...base,
+    };
   });
 
 const validateHostAppWorkflowActions = (
   value: unknown,
   field: string,
   diagnostics: StudioDiagnostic[],
-) =>
-  readHostAppContributionArray(value, field, diagnostics).flatMap((item, index) => {
-    if (!isObject(item)) {
-      diagnostics.push(
-        configError(
-          "invalid-host-app-contribution",
-          `${field}.${index}`,
-          `Studio host app workflow action ${field}.${index} must be an object.`,
-        ),
-      );
-      return [];
-    }
-    const id = readString(item.id, `${field}.${index}.id`, diagnostics);
-    const label = readString(item.label, `${field}.${index}.label`, diagnostics);
+): StudioHostAppWorkflowActionDefinition[] =>
+  validateHostAppItems(value, field, "workflow action", diagnostics, (item, itemField) => {
+    const base = readIdLabel(item, itemField, diagnostics);
     const commandName = validateHostAppWorkflowCommand(
       item.commandName,
-      `${field}.${index}.commandName`,
+      `${itemField}.commandName`,
       diagnostics,
     );
-    const variant = validateHostAppActionVariant(
-      item.variant,
-      `${field}.${index}.variant`,
-      diagnostics,
-    );
-    if (!id || !label || !commandName || !variant) {
-      return [];
-    }
-    return [{ commandName, id, label, variant }];
+    const variant = validateHostAppActionVariant(item.variant, `${itemField}.variant`, diagnostics);
+    return base && commandName && variant ? { commandName, variant, ...base } : undefined;
   });
 
 const validateHostAppCodegenTargets = (
   value: unknown,
   field: string,
   diagnostics: StudioDiagnostic[],
-) =>
-  readHostAppContributionArray(value, field, diagnostics).flatMap((item, index) => {
-    if (!isObject(item)) {
-      diagnostics.push(
-        configError(
-          "invalid-host-app-contribution",
-          `${field}.${index}`,
-          `Studio host app generated target panel ${field}.${index} must be an object.`,
-        ),
-      );
-      return [];
-    }
-    const target = readString(item.target, `${field}.${index}.target`, diagnostics);
-    const label = readString(item.label, `${field}.${index}.label`, diagnostics);
+): StudioHostAppCodegenTargetDefinition[] =>
+  validateHostAppItems(value, field, "generated target panel", diagnostics, (item, itemField) => {
+    const target = readString(item.target, `${itemField}.target`, diagnostics);
+    const label = readString(item.label, `${itemField}.label`, diagnostics);
     if (!target || !label) {
-      return [];
+      return;
     }
-    return [
-      {
-        description: readOptionalString(
-          item.description,
-          `${field}.${index}.description`,
-          diagnostics,
-        ),
-        label,
-        outputLabel: readOptionalString(
-          item.outputLabel,
-          `${field}.${index}.outputLabel`,
-          diagnostics,
-        ),
-        target,
-      },
-    ];
+    return {
+      description: readOptionalString(item.description, `${itemField}.description`, diagnostics),
+      label,
+      outputLabel: readOptionalString(item.outputLabel, `${itemField}.outputLabel`, diagnostics),
+      target,
+    };
   });
 
 const validateHostAppGeneratedOutputPanels = (
   value: unknown,
   field: string,
   diagnostics: StudioDiagnostic[],
-) =>
-  readHostAppContributionArray(value, field, diagnostics).flatMap((item, index) => {
-    if (!isObject(item)) {
-      diagnostics.push(
-        configError(
-          "invalid-host-app-contribution",
-          `${field}.${index}`,
-          `Studio host app generated output panel ${field}.${index} must be an object.`,
-        ),
-      );
-      return [];
+): StudioHostAppGeneratedOutputPanelDefinition[] =>
+  validateHostAppItems(value, field, "generated output panel", diagnostics, (item, itemField) => {
+    const base = readIdLabel(item, itemField, diagnostics);
+    if (!base) {
+      return;
     }
-    const id = readString(item.id, `${field}.${index}.id`, diagnostics);
-    const label = readString(item.label, `${field}.${index}.label`, diagnostics);
-    if (!id || !label) {
-      return [];
-    }
-    return [
-      {
-        description: readOptionalString(
-          item.description,
-          `${field}.${index}.description`,
-          diagnostics,
-        ),
-        id,
-        label,
-        target: readOptionalString(item.target, `${field}.${index}.target`, diagnostics),
-      },
-    ];
+    return {
+      description: readOptionalString(item.description, `${itemField}.description`, diagnostics),
+      target: readOptionalString(item.target, `${itemField}.target`, diagnostics),
+      ...base,
+    };
   });
 
 const validateHostAppDiagnosticsPanels = (
   value: unknown,
   field: string,
   diagnostics: StudioDiagnostic[],
-) =>
-  readHostAppContributionArray(value, field, diagnostics).flatMap((item, index) => {
-    if (!isObject(item)) {
-      diagnostics.push(
-        configError(
-          "invalid-host-app-contribution",
-          `${field}.${index}`,
-          `Studio host app diagnostics panel ${field}.${index} must be an object.`,
-        ),
-      );
-      return [];
-    }
-    const id = readString(item.id, `${field}.${index}.id`, diagnostics);
-    const label = readString(item.label, `${field}.${index}.label`, diagnostics);
+): StudioHostAppDiagnosticsPanelDefinition[] =>
+  validateHostAppItems(value, field, "diagnostics panel", diagnostics, (item, itemField) => {
+    const base = readIdLabel(item, itemField, diagnostics);
     const commandName =
       item.commandName === undefined
         ? undefined
-        : validateHostAppWorkflowCommand(
-            item.commandName,
-            `${field}.${index}.commandName`,
-            diagnostics,
-          );
-    if (!id || !label) {
-      return [];
+        : validateHostAppWorkflowCommand(item.commandName, `${itemField}.commandName`, diagnostics);
+    if (!base) {
+      return;
     }
-    return [
-      {
-        commandName,
-        description: readOptionalString(
-          item.description,
-          `${field}.${index}.description`,
-          diagnostics,
-        ),
-        id,
-        label,
-      },
-    ];
+    return {
+      commandName,
+      description: readOptionalString(item.description, `${itemField}.description`, diagnostics),
+      ...base,
+    };
   });
 
 const validateHostAppSourceViews = (
   value: unknown,
   field: string,
   diagnostics: StudioDiagnostic[],
-) =>
-  readHostAppContributionArray(value, field, diagnostics).flatMap((item, index) => {
-    if (!isObject(item)) {
-      diagnostics.push(
-        configError(
-          "invalid-host-app-contribution",
-          `${field}.${index}`,
-          `Studio host app source view ${field}.${index} must be an object.`,
-        ),
-      );
-      return [];
+): StudioHostAppSourceViewDefinition[] =>
+  validateHostAppItems(value, field, "source view", diagnostics, (item, itemField) => {
+    const base = readIdLabel(item, itemField, diagnostics);
+    if (!base) {
+      return;
     }
-    const id = readString(item.id, `${field}.${index}.id`, diagnostics);
-    const label = readString(item.label, `${field}.${index}.label`, diagnostics);
-    if (!id || !label) {
-      return [];
-    }
-    return [
-      {
-        adapterId: readOptionalString(item.adapterId, `${field}.${index}.adapterId`, diagnostics),
-        description: readOptionalString(
-          item.description,
-          `${field}.${index}.description`,
-          diagnostics,
-        ),
-        id,
-        label,
-        sourceId: readOptionalString(item.sourceId, `${field}.${index}.sourceId`, diagnostics),
-      },
-    ];
+    return {
+      adapterId: readOptionalString(item.adapterId, `${itemField}.adapterId`, diagnostics),
+      description: readOptionalString(item.description, `${itemField}.description`, diagnostics),
+      sourceId: readOptionalString(item.sourceId, `${itemField}.sourceId`, diagnostics),
+      ...base,
+    };
   });
 
 export const validateHostAppContributions = (
@@ -452,10 +527,12 @@ export const validateHostAppContributions = (
       );
       return [];
     }
+
     const id = readString(item.id, `${contributionField}.id`, diagnostics);
     if (!id) {
       return [];
     }
+
     let authoring: StudioHostAppContribution["authoring"];
     if (item.authoring !== undefined) {
       if (isObject(item.authoring)) {

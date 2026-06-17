@@ -19,6 +19,13 @@ export default defineStudioConfig({
   data: {
     sources: [
       {
+        adapterId: "synthetic-file",
+        id: "file-backed",
+        options: {
+          path: "sources/file-record.json",
+        },
+      },
+      {
         adapterId: "synthetic-table",
         id: "table-backed",
         options: {
@@ -26,7 +33,6 @@ export default defineStudioConfig({
         },
       },
     ],
-    writeSourceId: "table-backed",
   },
   extensions: [syntheticSourceExtension],
   hooks: {

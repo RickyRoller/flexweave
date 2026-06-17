@@ -1,4 +1,6 @@
 import { loadStudioCatalog, normalizeRecordKind, studioRecordKinds } from "../internal/catalog";
+import type { StudioCatalog } from "../internal/catalog";
+import type { ResolvedStudioProjectConfig } from "../config/schema";
 import { resolveWorkflowConfig, workflowError } from "./shared";
 import type {
   DescribeStudioCatalogResult,
@@ -42,6 +44,30 @@ const schemaDescriptions: StudioRecordDescription[] = [
   },
 ];
 
+export const validateLoadedStudioCatalog = (
+  config: ResolvedStudioProjectConfig,
+  catalog: StudioCatalog,
+): ValidateStudioCatalogResult => {
+  const sourceSnapshots = catalog.sourceSnapshots.filter((snapshot) => snapshot.records.length > 0);
+  return {
+    configPath: config.configPath,
+    diagnostics: catalog.diagnostics,
+    mapperDiagnostics: [...catalog.mapperDiagnostics],
+    ok: catalog.diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
+    recordCount: catalog.records.length,
+    sourceDiagnostics: [...catalog.sourceDiagnostics],
+    sourceRecordCount: catalog.sourceSnapshots.reduce(
+      (total, snapshot) => total + snapshot.records.length,
+      0,
+    ),
+    sources: sourceSnapshots.map((snapshot) => ({
+      adapterId: snapshot.adapterId,
+      recordCount: snapshot.records.length,
+      sourceId: snapshot.sourceId,
+    })),
+  };
+};
+
 export const validateStudioCatalog = async (
   options: StudioWorkflowOptions = {},
 ): Promise<ValidateStudioCatalogResult> => {
@@ -59,24 +85,7 @@ export const validateStudioCatalog = async (
   }
 
   const catalog = await loadStudioCatalog(resolved.config);
-  const sourceSnapshots = catalog.sourceSnapshots.filter((snapshot) => snapshot.records.length > 0);
-  return {
-    configPath: resolved.config.configPath,
-    diagnostics: catalog.diagnostics,
-    mapperDiagnostics: [...catalog.mapperDiagnostics],
-    ok: catalog.diagnostics.every((diagnostic) => diagnostic.severity !== "error"),
-    recordCount: catalog.records.length,
-    sourceDiagnostics: [...catalog.sourceDiagnostics],
-    sourceRecordCount: catalog.sourceSnapshots.reduce(
-      (total, snapshot) => total + snapshot.records.length,
-      0,
-    ),
-    sources: sourceSnapshots.map((snapshot) => ({
-      adapterId: snapshot.adapterId,
-      recordCount: snapshot.records.length,
-      sourceId: snapshot.sourceId,
-    })),
-  };
+  return validateLoadedStudioCatalog(resolved.config, catalog);
 };
 
 export const describeStudioCatalog = async (

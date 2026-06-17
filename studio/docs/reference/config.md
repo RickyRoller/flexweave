@@ -61,6 +61,13 @@ and adapter-owned `options` object. Source records keep provenance through
 source locations such as file paths, JSON pointers, sheet names, rows, columns,
 cells, and fields.
 
+`data.writeSourceId`:
+Optional source id used by scaffold workflows for catalog writes. When omitted,
+Studio writes scaffolded catalog records to the built-in JSON catalog under
+`catalogRoot`, even if `data.sources` are configured for reads. Set this field
+to a declared source id only when that source adapter owns scaffold writes; the
+adapter must declare `write` and support rollback snapshots.
+
 `mode`:
 `"full"` by default. `"validate-only"` allows validation without generated
 output, runtime hook, or Rust binding fields.

@@ -312,24 +312,42 @@ test("planning rejects source configurations without a writable content adapter"
   );
 });
 
-test("planning rejects ambiguous writable source configurations", async () => {
+test("planning uses built-in JSON when writable sources are not explicit write targets", async () => {
   const configPath = join(extensionFixtureRoot, "ambiguous-writable-content.config.ts");
   const result = await planStudioMechanic({
     archetype: "mechanic",
     configPath,
-    id: "ambiguous_source_plan",
-    name: "Ambiguous source plan",
+    id: "json_backed_plan",
+    name: "JSON backed plan",
   });
 
-  expect(result.ok).toBe(false);
-  expect(result.diagnostics).toContainEqual(
-    expect.objectContaining({
-      code: "source-write-ambiguous",
-    }),
+  expect(result.ok).toBe(true);
+  expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+  expect(result.plannedFiles).toHaveLength(6);
+  expect(result.plannedFiles).toContain("catalog/abilities/json_backed_plan.json");
+  expect(existsSync(join(extensionFixtureRoot, "catalog/abilities/json_backed_plan.json"))).toBe(
+    false,
   );
-  expect(
-    existsSync(join(extensionFixtureRoot, "catalog/abilities/ambiguous_source_plan.json")),
-  ).toBe(false);
+});
+
+test("scaffold defaults to JSON catalog writes when sources have no write target", async () => {
+  const root = copyExtensionFixture();
+  const configPath = join(root, "json-write-with-sources.config.ts");
+  const sourcePath = join(root, "sources/writable-table.json");
+  const result = await scaffoldStudioMechanic({
+    archetype: "mechanic",
+    configPath,
+    id: "json_backed_scaffold",
+    name: "JSON backed scaffold",
+  });
+
+  expect(result.ok).toBe(true);
+  expect(result.rolledBack).toBe(false);
+  expect(result.diagnostics.filter((diagnostic) => diagnostic.severity === "error")).toEqual([]);
+  expect(result.writtenFiles).toContain("catalog/abilities/json_backed_scaffold.json");
+  expect(result.writtenFiles).toContain("runtime-hooks/json_backed_scaffold_runtime_hook.rs");
+  expect(existsSync(join(root, "catalog/abilities/json_backed_scaffold.json"))).toBe(true);
+  expect(JSON.parse(readFileSync(sourcePath, "utf-8"))).toEqual([]);
 });
 
 test("scaffold writes mechanics through a writable source adapter", async () => {

@@ -10,8 +10,7 @@ import type {
   ScaffoldStudioMechanicResult,
 } from "./types";
 
-const isSourceWriteConfigurationDiagnostic = (code: string) =>
-  code === "source-write-ambiguous" || code === "source-write-unsupported";
+const isSourceWriteConfigurationDiagnostic = (code: string) => code === "source-write-unsupported";
 
 const mechanicRecords = (
   id: string,

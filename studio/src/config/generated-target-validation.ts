@@ -1,5 +1,9 @@
-import { studioCodegenTargets } from "../codegen/types";
-import type { StudioBuiltInCodegenTarget, StudioGeneratedTargetDefinition } from "../codegen/types";
+import { isBuiltInStudioCodegenTarget, studioCodegenTargets } from "../codegen/types";
+import type {
+  StudioBuiltInCodegenTarget,
+  StudioGeneratedTargetDefinition,
+  StudioGeneratedTargetId,
+} from "../codegen/types";
 import { configError } from "./diagnostics";
 import { isObject, normalizeStringArray, readString } from "./primitive-readers";
 import type { StudioDiagnostic, StudioProjectConfig } from "./types";
@@ -132,7 +136,7 @@ export const validateBuiltInCodegenTargets = (
   const seen = new Set<string>();
   for (const [index, item] of value.entries()) {
     const field = `codegen.builtInTargets.${index}`;
-    if (typeof item !== "string" || !(studioCodegenTargets as readonly string[]).includes(item)) {
+    if (typeof item !== "string" || !isBuiltInStudioCodegenTarget(item)) {
       diagnostics.push(
         configError(
           "invalid-config-field",
@@ -154,7 +158,7 @@ export const validateBuiltInCodegenTargets = (
       continue;
     }
     seen.add(item);
-    targets.push(item as StudioBuiltInCodegenTarget);
+    targets.push(item);
   }
 
   return targets;
@@ -185,11 +189,13 @@ export const validateCodegenConfig = (
   value: StudioProjectConfig,
   diagnostics: StudioDiagnostic[],
   builtInTargetIds: readonly StudioBuiltInCodegenTarget[],
-  extensionTargetIds: readonly string[],
-): Partial<Record<string, string>> => {
-  const outputDirs: Partial<Record<string, string>> = {};
+  extensionTargetIds: readonly StudioGeneratedTargetId[],
+): Partial<Record<StudioGeneratedTargetId, string>> => {
+  const outputDirs: Partial<Record<StudioGeneratedTargetId, string>> = {};
   const codegenValue = value.codegen;
   const activeTargetIds = [...builtInTargetIds, ...extensionTargetIds];
+  const activeTargetIdSet = new Set<StudioGeneratedTargetId>(activeTargetIds);
+  const builtInTargetIdSet = new Set<StudioGeneratedTargetId>(builtInTargetIds);
 
   if (isObject(codegenValue) && isObject(codegenValue.outputDirs)) {
     for (const target of builtInTargetIds) {
@@ -204,7 +210,7 @@ export const validateCodegenConfig = (
     }
 
     for (const key of Object.keys(codegenValue.outputDirs)) {
-      if (!activeTargetIds.includes(key)) {
+      if (!activeTargetIdSet.has(key)) {
         diagnostics.push(
           configError(
             "unknown-codegen-target",
@@ -216,7 +222,7 @@ export const validateCodegenConfig = (
         continue;
       }
 
-      if (!(builtInTargetIds as readonly string[]).includes(key)) {
+      if (!builtInTargetIdSet.has(key)) {
         const configuredPath = readString(
           codegenValue.outputDirs[key],
           `codegen.outputDirs.${key}`,

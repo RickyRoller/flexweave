@@ -1,4 +1,4 @@
-import type { StudioBuiltInCodegenTarget, StudioCodegenTarget } from "../codegen/types";
+import type { StudioBuiltInCodegenTarget, StudioGeneratedTargetId } from "../codegen/types";
 import type { StudioDataAdapterRegistry } from "./data-adapter-registry";
 import type {
   StudioDataAdapter,
@@ -46,6 +46,7 @@ export interface StudioProjectConfig {
   data?: {
     adapters?: readonly StudioDataAdapter[];
     sources?: readonly StudioSourceConfig[];
+    writeSourceId?: string;
   };
   extensions?: readonly StudioExtension[];
   hooks?: {
@@ -87,6 +88,7 @@ export interface ResolvedStudioProjectConfig {
     adapterRegistry: StudioDataAdapterRegistry;
     adapters: StudioDataAdapter[];
     sources: StudioSourceConfig[];
+    writeSourceId?: string;
   };
   extensions: StudioExtension[];
   paths: {
@@ -95,7 +97,7 @@ export interface ResolvedStudioProjectConfig {
     };
     catalogRoot: string;
     codegen: {
-      outputDirs: Partial<Record<StudioCodegenTarget, string>>;
+      outputDirs: Partial<Record<StudioGeneratedTargetId, string>>;
     };
     hooks: {
       dir?: string;
