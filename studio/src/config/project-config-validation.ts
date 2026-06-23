@@ -244,7 +244,7 @@ export const validateStudioConfig = (
   }
 
   const extensionValidation = validateStudioExtensions(raw.extensions, diagnostics);
-  const extensions = extensionValidation.extensions;
+  const { extensions } = extensionValidation;
   const extensionTargetIds = extensions.flatMap((extension) =>
     (extension.generatedTargets ?? []).map((target) => target.id),
   );

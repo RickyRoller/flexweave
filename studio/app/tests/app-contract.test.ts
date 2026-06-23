@@ -181,6 +181,7 @@ test("app contribution composition reports commands without server functions", (
     },
     [
       {
+        id: "missing-server-function",
         workflowActions: [
           {
             commandName: "codegen",
@@ -189,7 +190,6 @@ test("app contribution composition reports commands without server functions", (
             variant: "secondary",
           },
         ],
-        id: "missing-server-function",
       },
     ],
   );

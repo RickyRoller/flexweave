@@ -62,17 +62,17 @@ test("host app scaffold rolls back planned writes after a mid-write failure", as
   mkdirSync(appRoot, { recursive: true });
   writeFileSync(srcBlockerPath, "not a directory\n");
 
-  let error: unknown;
+  let caughtError: unknown;
   try {
     await scaffoldStudioHostApp({
       appRoot: "studio-host",
       configPath,
     });
-  } catch (caught) {
-    error = caught;
+  } catch (error) {
+    caughtError = error;
   }
 
-  expect(error).toBeInstanceOf(Error);
+  expect(caughtError).toBeInstanceOf(Error);
   expect(readFileSync(srcBlockerPath, "utf-8")).toBe("not a directory\n");
   expect(existsSync(join(appRoot, ".flexweave-studio-app.json"))).toBe(false);
   expect(existsSync(join(appRoot, "package.json"))).toBe(false);
@@ -93,14 +93,14 @@ test("host app scaffold rollback removes directories created by the write sessio
   });
   mkdirSync(join(appRoot, "src", "project-adapter.ts"), { recursive: true });
 
-  let error: unknown;
+  let caughtError: unknown;
   try {
     writeSession.write();
-  } catch (caught) {
-    error = caught;
+  } catch (error) {
+    caughtError = error;
   }
 
-  expect(error).toBeInstanceOf(Error);
+  expect(caughtError).toBeInstanceOf(Error);
   expect(existsSync(appRoot)).toBe(false);
 });
 
@@ -116,17 +116,17 @@ test("host app migrate rolls back scaffold updates after a mid-write failure", a
   writeFileSync(metadataPath, legacyMetadata);
   writeFileSync(srcBlockerPath, "not a directory\n");
 
-  let error: unknown;
+  let caughtError: unknown;
   try {
     await migrateStudioProject({
       appRoot: "studio-host",
       configPath,
     });
-  } catch (caught) {
-    error = caught;
+  } catch (error) {
+    caughtError = error;
   }
 
-  expect(error).toBeInstanceOf(Error);
+  expect(caughtError).toBeInstanceOf(Error);
   expect(readFileSync(metadataPath, "utf-8")).toBe(legacyMetadata);
   expect(readFileSync(srcBlockerPath, "utf-8")).toBe("not a directory\n");
   expect(existsSync(join(appRoot, "package.json"))).toBe(false);

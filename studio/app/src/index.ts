@@ -339,7 +339,7 @@ export const createDefaultStudioProjectAdapter = async (
     };
   }
 
-  const config = loadedConfig.config;
+  const { config } = loadedConfig;
   const extensionContributions = collectStudioAppContributions(config.extensions);
   const baseProjectAdapter = defineStudioAppAdapter({
     authoring: {

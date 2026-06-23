@@ -3,7 +3,12 @@ import { dirname, join, relative } from "node:path";
 
 import { resolveConfigPath } from "../config/primitive-readers";
 import type { ResolvedStudioProjectConfig } from "../config/schema";
-import { readTextIfExists, restoreSnapshots, snapshotPaths, writeTextFile } from "../internal/files";
+import {
+  readTextIfExists,
+  restoreSnapshots,
+  snapshotPaths,
+  writeTextFile,
+} from "../internal/files";
 import { STUDIO_HOST_APP_SCAFFOLD_VERSION } from "./constants";
 import { resolveWorkflowConfig, workflowError, workflowWarning } from "./shared";
 import type {

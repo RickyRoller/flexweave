@@ -262,6 +262,17 @@ interface HostAppCommandValidationContext {
   workflowCommandNameSet: ReadonlySet<string>;
 }
 
+interface HostAppReferenceValidationContext {
+  areaIds: ReadonlySet<string>;
+  command: HostAppCommandValidationContext;
+  dataAdapterIds?: ReadonlySet<string>;
+  editorIds: ReadonlySet<string>;
+  generatedTargetIds?: ReadonlySet<string>;
+  panelTargetIds?: ReadonlySet<string>;
+  sourceIds?: ReadonlySet<string>;
+  sourceReferenceKeys?: ReadonlySet<string>;
+}
+
 const validateCommandNameReference = (
   commandName: StudioHostAppWorkflowCommandName | undefined,
   field: string,
@@ -279,19 +290,15 @@ const validateCommandNameReference = (
     return;
   }
 
-  if (
-    context.serverFunctionNames !== undefined &&
-    !context.serverFunctionNames.has(commandName)
-  ) {
+  if (context.serverFunctionNames !== undefined && !context.serverFunctionNames.has(commandName)) {
     diagnostics.push(missingHostAppServerFunctionDiagnostic(field, commandName));
   }
 };
 
-const validateHostAppContributionReferences = (
+const buildHostAppReferenceValidationContext = (
   model: StudioHostAppContributionModel,
-  diagnostics: StudioDiagnostic[],
   context: StudioHostAppContributionModelValidationContext,
-) => {
+): HostAppReferenceValidationContext => {
   const areaIds = new Set(model.authoring.areas.map((entry) => entry.value.id));
   const editorIds = new Set(model.authoring.editors.map((entry) => entry.value.id));
   const generatedTargetIds = context.generatedTargetIds
@@ -320,13 +327,30 @@ const validateHostAppContributionReferences = (
     serverFunctionNames: context.serverFunctionNames
       ? new Set<string>(context.serverFunctionNames)
       : undefined,
-    workflowCommandNames,
     workflowCommandNameSet: new Set<string>(workflowCommandNames),
+    workflowCommandNames,
   };
 
-  for (const entry of model.authoring.areas) {
+  return {
+    areaIds,
+    command: commandContext,
+    dataAdapterIds,
+    editorIds,
+    generatedTargetIds,
+    panelTargetIds,
+    sourceIds,
+    sourceReferenceKeys,
+  };
+};
+
+const validateAuthoringAreaReferences = (
+  entries: readonly StudioHostAppContributionModelEntry<StudioHostAppAuthoringAreaDefinition>[],
+  diagnostics: StudioDiagnostic[],
+  context: HostAppReferenceValidationContext,
+) => {
+  for (const entry of entries) {
     const { editorId, id } = entry.value;
-    if (editorId !== undefined && !editorIds.has(editorId)) {
+    if (editorId !== undefined && !context.editorIds.has(editorId)) {
       diagnostics.push(
         missingHostAppReferenceDiagnostic(
           `${entry.field}.editorId`,
@@ -336,10 +360,16 @@ const validateHostAppContributionReferences = (
       );
     }
   }
+};
 
-  for (const entry of model.authoring.editors) {
+const validateAuthoringEditorReferences = (
+  entries: readonly StudioHostAppContributionModelEntry<StudioHostAppAuthoringEditorDefinition>[],
+  diagnostics: StudioDiagnostic[],
+  context: HostAppReferenceValidationContext,
+) => {
+  for (const entry of entries) {
     const { areaId, commandName, id } = entry.value;
-    if (!areaIds.has(areaId)) {
+    if (!context.areaIds.has(areaId)) {
       diagnostics.push(
         missingHostAppReferenceDiagnostic(
           `${entry.field}.areaId`,
@@ -352,28 +382,46 @@ const validateHostAppContributionReferences = (
       commandName,
       `${entry.field}.commandName`,
       diagnostics,
-      commandContext,
+      context.command,
     );
   }
+};
 
-  if (generatedTargetIds) {
-    for (const entry of model.codegenTargets) {
-      const { target } = entry.value;
-      if (!generatedTargetIds.has(target)) {
-        diagnostics.push(
-          missingHostAppReferenceDiagnostic(
-            `${entry.field}.target`,
-            `Studio host app codegen target metadata references missing generated target "${target}".`,
-            "Register the generated target through built-in codegen targets or an active Studio extension.",
-          ),
-        );
-      }
-    }
+const validateCodegenTargetReferences = (
+  entries: readonly StudioHostAppContributionModelEntry<StudioHostAppCodegenTargetDefinition>[],
+  diagnostics: StudioDiagnostic[],
+  context: HostAppReferenceValidationContext,
+) => {
+  if (!context.generatedTargetIds) {
+    return;
   }
 
-  for (const entry of model.generatedOutputPanels) {
+  for (const entry of entries) {
+    const { target } = entry.value;
+    if (!context.generatedTargetIds.has(target)) {
+      diagnostics.push(
+        missingHostAppReferenceDiagnostic(
+          `${entry.field}.target`,
+          `Studio host app codegen target metadata references missing generated target "${target}".`,
+          "Register the generated target through built-in codegen targets or an active Studio extension.",
+        ),
+      );
+    }
+  }
+};
+
+const validateGeneratedOutputPanelReferences = (
+  entries: readonly StudioHostAppContributionModelEntry<StudioHostAppGeneratedOutputPanelDefinition>[],
+  diagnostics: StudioDiagnostic[],
+  context: HostAppReferenceValidationContext,
+) => {
+  for (const entry of entries) {
     const { id, target } = entry.value;
-    if (target !== undefined && panelTargetIds !== undefined && !panelTargetIds.has(target)) {
+    if (
+      target !== undefined &&
+      context.panelTargetIds !== undefined &&
+      !context.panelTargetIds.has(target)
+    ) {
       diagnostics.push(
         missingHostAppReferenceDiagnostic(
           `${entry.field}.target`,
@@ -383,57 +431,108 @@ const validateHostAppContributionReferences = (
       );
     }
   }
+};
 
-  for (const entry of model.diagnosticsPanels) {
+const validateCommandNameReferences = <
+  Value extends { commandName?: StudioHostAppWorkflowCommandName },
+>(
+  entries: readonly StudioHostAppContributionModelEntry<Value>[],
+  diagnostics: StudioDiagnostic[],
+  context: HostAppReferenceValidationContext,
+) => {
+  for (const entry of entries) {
     validateCommandNameReference(
       entry.value.commandName,
       `${entry.field}.commandName`,
       diagnostics,
-      commandContext,
+      context.command,
     );
   }
+};
 
-  for (const entry of model.sourceViews) {
-    const { adapterId, id, sourceId } = entry.value;
-    const adapterKnown =
-      adapterId === undefined || dataAdapterIds === undefined || dataAdapterIds.has(adapterId);
-
-    if (adapterId !== undefined && dataAdapterIds !== undefined && !dataAdapterIds.has(adapterId)) {
-      diagnostics.push(
-        missingHostAppReferenceDiagnostic(
-          `${entry.field}.adapterId`,
-          `Studio host app source view "${id}" references missing data adapter "${adapterId}".`,
-          "Register the data adapter in project data.adapters or through an active Studio extension.",
-        ),
-      );
-    }
-
-    if (sourceId !== undefined && sourceIds !== undefined) {
-      const sourceKnown = adapterId
-        ? adapterKnown && sourceReferenceKeys?.has(sourceReferenceKey(adapterId, sourceId))
-        : sourceIds.has(sourceId);
-      if (!sourceKnown) {
-        diagnostics.push(
-          missingHostAppReferenceDiagnostic(
-            `${entry.field}.sourceId`,
-            `Studio host app source view "${id}" references missing data source "${sourceId}".`,
-            adapterId
-              ? "Declare a data source with the referenced sourceId and adapterId pair."
-              : "Declare the source in data.sources or remove the sourceId binding.",
-          ),
-        );
-      }
-    }
+const validateSourceViewAdapterReference = (
+  entry: StudioHostAppContributionModelEntry<StudioHostAppSourceViewDefinition>,
+  diagnostics: StudioDiagnostic[],
+  dataAdapterIds?: ReadonlySet<string>,
+) => {
+  const { adapterId, id } = entry.value;
+  if (adapterId === undefined || dataAdapterIds === undefined || dataAdapterIds.has(adapterId)) {
+    return;
   }
 
-  for (const entry of model.workflowActions) {
-    validateCommandNameReference(
-      entry.value.commandName,
-      `${entry.field}.commandName`,
-      diagnostics,
-      commandContext,
-    );
+  diagnostics.push(
+    missingHostAppReferenceDiagnostic(
+      `${entry.field}.adapterId`,
+      `Studio host app source view "${id}" references missing data adapter "${adapterId}".`,
+      "Register the data adapter in project data.adapters or through an active Studio extension.",
+    ),
+  );
+};
+
+const sourceViewHasKnownSource = (
+  sourceId: string,
+  adapterId: string | undefined,
+  context: HostAppReferenceValidationContext,
+): boolean => {
+  if (!adapterId) {
+    return context.sourceIds?.has(sourceId) ?? false;
   }
+  return (
+    context.dataAdapterIds?.has(adapterId) !== false &&
+    (context.sourceReferenceKeys?.has(sourceReferenceKey(adapterId, sourceId)) ?? false)
+  );
+};
+
+const validateSourceViewSourceReference = (
+  entry: StudioHostAppContributionModelEntry<StudioHostAppSourceViewDefinition>,
+  diagnostics: StudioDiagnostic[],
+  context: HostAppReferenceValidationContext,
+) => {
+  const { adapterId, id, sourceId } = entry.value;
+  if (
+    sourceId === undefined ||
+    context.sourceIds === undefined ||
+    sourceViewHasKnownSource(sourceId, adapterId, context)
+  ) {
+    return;
+  }
+
+  diagnostics.push(
+    missingHostAppReferenceDiagnostic(
+      `${entry.field}.sourceId`,
+      `Studio host app source view "${id}" references missing data source "${sourceId}".`,
+      adapterId
+        ? "Declare a data source with the referenced sourceId and adapterId pair."
+        : "Declare the source in data.sources or remove the sourceId binding.",
+    ),
+  );
+};
+
+const validateSourceViewReferences = (
+  entries: readonly StudioHostAppContributionModelEntry<StudioHostAppSourceViewDefinition>[],
+  diagnostics: StudioDiagnostic[],
+  context: HostAppReferenceValidationContext,
+) => {
+  for (const entry of entries) {
+    validateSourceViewAdapterReference(entry, diagnostics, context.dataAdapterIds);
+    validateSourceViewSourceReference(entry, diagnostics, context);
+  }
+};
+
+const validateHostAppContributionReferences = (
+  model: StudioHostAppContributionModel,
+  diagnostics: StudioDiagnostic[],
+  validationContext: StudioHostAppContributionModelValidationContext,
+) => {
+  const context = buildHostAppReferenceValidationContext(model, validationContext);
+
+  validateAuthoringAreaReferences(model.authoring.areas, diagnostics, context);
+  validateAuthoringEditorReferences(model.authoring.editors, diagnostics, context);
+  validateCodegenTargetReferences(model.codegenTargets, diagnostics, context);
+  validateGeneratedOutputPanelReferences(model.generatedOutputPanels, diagnostics, context);
+  validateCommandNameReferences(model.diagnosticsPanels, diagnostics, context);
+  validateSourceViewReferences(model.sourceViews, diagnostics, context);
+  validateCommandNameReferences(model.workflowActions, diagnostics, context);
 };
 
 export const validateHostAppContributionModel = (
