@@ -33,6 +33,28 @@ bun run flexweave-studio migrate
 bun run flexweave-studio verify
 ```
 
+## Agent Skills
+
+Flexweave ships installable agent skills for consumer repo setup and mechanic
+authoring. Install them with the open `skills` CLI:
+
+```bash
+npx skills@latest add RickyRoller/flexweave --skill flexweave-setup --skill flexweave-author-mechanic
+```
+
+List the available skills without installing:
+
+```bash
+npx skills@latest add RickyRoller/flexweave --list
+```
+
+If Flexweave is vendored inside another repository, install from the direct
+subdirectory URL instead:
+
+```bash
+npx skills@latest add https://github.com/<owner>/<repo>/tree/main/flexweave --skill flexweave-setup --skill flexweave-author-mechanic
+```
+
 ## Commands
 
 | Command          | Purpose                                                              |

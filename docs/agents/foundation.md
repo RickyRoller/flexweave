@@ -22,6 +22,22 @@ This document is the fresh-context operating map for Flexweave.
 | Repository verification  | `package.json`, `scripts`, `Cargo.toml`                               |
 | Product documentation    | `README.md`, `docs`                                                   |
 
+## Agent Skills
+
+Flexweave skills are installable through the `skills` CLI:
+
+```bash
+npx skills@latest add RickyRoller/flexweave --skill flexweave-setup --skill flexweave-author-mechanic
+```
+
+| Skill                     | Path                                                | Use for                                                                                           |
+| ------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| Flexweave setup           | `.agents/skills/flexweave-setup/SKILL.md`           | Consumer repo onboarding, dependency wiring, Studio config, repo scripts, host app scaffold, map. |
+| Flexweave author mechanic | `.agents/skills/flexweave-author-mechanic/SKILL.md` | Consumer mechanics, abilities, generated definitions, runtime hooks, and post-codegen tests.      |
+
+The setup skill creates a repo-root `FLEXWEAVE.md` integration map. Mechanic
+authoring agents should read that artifact before using Studio workflows.
+
 ## Verification
 
 Prefer the narrowest meaningful command first, then broaden:

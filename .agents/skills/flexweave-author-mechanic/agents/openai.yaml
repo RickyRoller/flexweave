@@ -1,0 +1,4 @@
+interface:
+  display_name: "Flexweave Author Mechanic"
+  short_description: "Author mechanics with Flexweave Studio."
+  default_prompt: "Add a Flexweave mechanic to this repository."
