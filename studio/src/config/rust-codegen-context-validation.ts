@@ -3,41 +3,6 @@ import { configError } from "./diagnostics";
 import { isObject, normalizeStringArray, readString } from "./primitive-readers";
 import type { ResolvedStudioProjectConfig, StudioDiagnostic, StudioProjectConfig } from "./types";
 
-const validateRuntimeVocabConfig = (
-  value: unknown,
-  diagnostics: StudioDiagnostic[],
-): { ailments: string[]; damageTypes: string[] } => {
-  if (value === undefined) {
-    return {
-      ailments: [],
-      damageTypes: [],
-    };
-  }
-
-  if (!isObject(value)) {
-    diagnostics.push(
-      configError(
-        "invalid-config-field",
-        "rust.runtimeVocab",
-        "Studio project config field rust.runtimeVocab must be an object when provided.",
-      ),
-    );
-    return {
-      ailments: [],
-      damageTypes: [],
-    };
-  }
-
-  return {
-    ailments: normalizeStringArray(value.ailments, "rust.runtimeVocab.ailments", diagnostics),
-    damageTypes: normalizeStringArray(
-      value.damageTypes,
-      "rust.runtimeVocab.damageTypes",
-      diagnostics,
-    ),
-  };
-};
-
 const validateStringRecord = (
   value: unknown,
   field: string,
@@ -142,7 +107,6 @@ export const validateRustConfig = (
       "rust.preludeImports",
       diagnostics,
     ),
-    runtimeVocab: validateRuntimeVocabConfig(value.rust.runtimeVocab, diagnostics),
     typePaths: validateStringRecord(value.rust.typePaths, "rust.typePaths", diagnostics),
   };
 };

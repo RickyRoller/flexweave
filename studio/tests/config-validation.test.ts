@@ -28,28 +28,6 @@ const validFullConfig = () => ({
   },
 });
 
-test("config validation rejects invalid runtime vocabulary", () => {
-  const result = validateStudioConfig(
-    {
-      ...validFullConfig(),
-      rust: {
-        flexweaveModule: "flexweave",
-        runtimeVocab: {
-          ailments: ["burning", ""],
-          damageTypes: "fire",
-        },
-      },
-    },
-    configOptions,
-  );
-
-  expect(result.ok).toBe(false);
-  expect(result.config).toBeUndefined();
-  expect(result.diagnostics.map((diagnostic) => diagnostic.field)).toEqual(
-    expect.arrayContaining(["rust.runtimeVocab.ailments.1", "rust.runtimeVocab.damageTypes"]),
-  );
-});
-
 test("config validation resolves generic Rust codegen context", () => {
   const result = validateStudioConfig(
     {
@@ -69,10 +47,6 @@ test("config validation resolves generic Rust codegen context", () => {
           core: "flexweave",
         },
         preludeImports: ["core::fmt::Debug"],
-        runtimeVocab: {
-          ailments: ["burning"],
-          damageTypes: ["fire"],
-        },
         typePaths: {
           objectId: "flexweave::ObjectId",
         },

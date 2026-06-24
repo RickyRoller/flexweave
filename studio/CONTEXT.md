@@ -55,7 +55,7 @@ policy, configured output directory, and plan function.
 **Rust codegen context**:
 Resolved Rust generation settings from project config, including the Flexweave
 module path, generated header template, aliases, type paths, macro names,
-prelude imports, runtime vocabulary, and extension binding config.
+prelude imports, and extension binding config.
 
 **Extension Rust binding config**:
 A namespaced Rust config object validated by the extension that owns it.

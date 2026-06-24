@@ -29,9 +29,5 @@ export default defineStudioConfig({
     },
     flexweaveModule: "flexweave",
     preludeImports: ["core::fmt::Debug"],
-    runtimeVocab: {
-      ailments: ["minimal_ailment"],
-      damageTypes: ["minimal_damage"],
-    },
   },
 });

@@ -63,11 +63,9 @@ Do not hand-edit these directories:
 - Existing hook examples to copy: `<paths>`.
 - Runtime state/API helpers available to hooks: `<paths>`.
 
-## Runtime Vocabulary
+## Rust Bindings
 
 - Flexweave module path: `<rust path>`.
-- Damage types: `<list>`.
-- Ailments: `<list>`.
 - Project-specific Rust bindings: `<extension namespace -> summary>`.
 
 ## Mechanic Authoring Protocol

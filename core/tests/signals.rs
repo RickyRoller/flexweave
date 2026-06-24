@@ -10,14 +10,14 @@ use flexweave::{
 
 #[test]
 fn signal_projection_matches_tags_and_preserves_definition_order() {
-    let damage_fire = Tag::new([TestAtom::Damage, TestAtom::Fire]);
+    let category_variant = Tag::new([TestAtom::Category, TestAtom::Variant]);
     let definitions = SignalDefinitions::new([
         signal_definition(
             "first",
             SignalKind::ActiveStart,
             vec![LifecycleEventKind::EffectActiveCreated],
             SignalTagMatch::Query(TagSetQuery {
-                all: vec![damage_fire.clone()],
+                all: vec![category_variant.clone()],
                 any: Vec::new(),
                 none: Vec::new(),
             }),
@@ -35,7 +35,7 @@ fn signal_projection_matches_tags_and_preserves_definition_order() {
     let facts = projection.project_effect_event(&EffectLifecycleEvent::ActiveCreated(
         effect_instance_with(
             ActiveEffectId::new(7),
-            TagSet::new([damage_fire]),
+            TagSet::new([category_variant]),
             SourcePayload::Buff,
         ),
     ));
@@ -161,7 +161,7 @@ fn signal_projection_maps_effect_lifecycle_kinds() {
     let accepted = EffectLifecycleEvent::ApplicationAccepted(EffectApplication {
         source_id: Some(ObjectId::new(10)),
         target_id: ObjectId::new(20),
-        tags: TagSet::new([Tag::new([TestAtom::Damage])]),
+        tags: TagSet::new([Tag::new([TestAtom::Category])]),
         payload: SourcePayload::Buff,
     });
     let executed = effect_execution(SourcePayload::Hit);
@@ -211,7 +211,7 @@ fn reinvoking_active_signals_emits_while_active_without_execution_duplicates() {
     let projection = SignalProjection::new(definitions);
     let effect = effect_instance_with(
         ActiveEffectId::new(1),
-        TagSet::new([Tag::new([TestAtom::Damage])]),
+        TagSet::new([Tag::new([TestAtom::Category])]),
         SourcePayload::Buff,
     );
 
@@ -304,7 +304,7 @@ fn effect_instance(
 ) -> flexweave::EffectInstance<TagSet<TestAtom>, SourcePayload> {
     effect_instance_with(
         ActiveEffectId::new(1),
-        TagSet::new([Tag::new([TestAtom::Damage])]),
+        TagSet::new([Tag::new([TestAtom::Category])]),
         payload,
     )
 }
@@ -314,7 +314,7 @@ fn effect_execution(payload: SourcePayload) -> EffectExecution<TagSet<TestAtom>,
         active_effect_id: None,
         source_id: Some(ObjectId::new(10)),
         target_id: ObjectId::new(20),
-        tags: TagSet::new([Tag::new([TestAtom::Damage])]),
+        tags: TagSet::new([Tag::new([TestAtom::Category])]),
         payload,
         elapsed_units: None,
     }

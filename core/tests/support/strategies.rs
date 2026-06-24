@@ -22,10 +22,10 @@ pub fn arb_test_atom() -> impl Strategy<Value = TestAtom> {
     prop_oneof![
         Just(TestAtom::Ability),
         Just(TestAtom::Burst),
-        Just(TestAtom::Damage),
-        Just(TestAtom::Resistance),
-        Just(TestAtom::Elemental),
-        Just(TestAtom::Fire),
+        Just(TestAtom::Category),
+        Just(TestAtom::Group),
+        Just(TestAtom::Family),
+        Just(TestAtom::Variant),
     ]
 }
 

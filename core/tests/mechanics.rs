@@ -46,7 +46,7 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
 
     impl EffectDefinition {
         fn tags(self) -> TagSet<TestAtom> {
-            TagSet::new([Tag::new([TestAtom::Damage, TestAtom::Fire])])
+            TagSet::new([Tag::new([TestAtom::Category, TestAtom::Variant])])
         }
     }
 
@@ -196,7 +196,7 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
     assert_eq!(created.source_id, Some(source));
     assert_eq!(created.target_id, target);
     assert_eq!(created.payload, EffectPayload { amount: 7 });
-    assert!(created.has_tag(&Tag::new([TestAtom::Damage, TestAtom::Fire])));
+    assert!(created.has_tag(&Tag::new([TestAtom::Category, TestAtom::Variant])));
 
     let ticked_events =
         MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, EffectPayload>>::new()
@@ -232,7 +232,7 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
     assert_eq!(expired.target_id, target);
     assert_eq!(expired.remaining_units, Some(0));
     assert_eq!(expired.payload, EffectPayload { amount: 7 });
-    assert!(expired.has_tag(&Tag::new([TestAtom::Damage, TestAtom::Fire])));
+    assert!(expired.has_tag(&Tag::new([TestAtom::Category, TestAtom::Variant])));
 }
 
 #[test]
@@ -251,7 +251,7 @@ fn lifecycle_events_emit_in_registration_order_through_mechanics_driver() {
             EffectApplicationInput {
                 source_id: Some(ObjectId::new(1)),
                 target_id: ObjectId::new(2),
-                tags: TagSet::new([Tag::new([TestAtom::Damage])]),
+                tags: TagSet::new([Tag::new([TestAtom::Category])]),
                 payload: Payload::First,
                 decision: EffectApplicationDecision::Accept,
             },
@@ -264,7 +264,7 @@ fn lifecycle_events_emit_in_registration_order_through_mechanics_driver() {
             EffectApplicationInput {
                 source_id: Some(ObjectId::new(3)),
                 target_id: ObjectId::new(4),
-                tags: TagSet::new([Tag::new([TestAtom::Resistance])]),
+                tags: TagSet::new([Tag::new([TestAtom::Group])]),
                 payload: Payload::Second,
                 decision: EffectApplicationDecision::Accept,
             },
@@ -306,7 +306,7 @@ fn zero_elapsed_lifecycle_tick_emits_no_events() {
             EffectApplicationInput {
                 source_id: None,
                 target_id: ObjectId::new(1),
-                tags: TagSet::new([Tag::new([TestAtom::Damage])]),
+                tags: TagSet::new([Tag::new([TestAtom::Category])]),
                 payload: Payload::Timed,
                 decision: EffectApplicationDecision::Accept,
             },
@@ -376,7 +376,7 @@ fn effect_lifecycle_events_route_through_named_retained_channel() {
             EffectApplicationInput {
                 source_id: Some(source),
                 target_id: target,
-                tags: TagSet::new([Tag::new([TestAtom::Damage, TestAtom::Fire])]),
+                tags: TagSet::new([Tag::new([TestAtom::Category, TestAtom::Variant])]),
                 payload: Payload { amount: 9 },
                 decision: EffectApplicationDecision::Accept,
             },
@@ -460,7 +460,7 @@ fn event_channel_disconnects_handles_during_emission_without_reordering() {
             EffectApplicationInput {
                 source_id: None,
                 target_id: ObjectId::new(1),
-                tags: TagSet::new([Tag::new([TestAtom::Damage])]),
+                tags: TagSet::new([Tag::new([TestAtom::Category])]),
                 payload: Payload::Tick,
                 decision: EffectApplicationDecision::Accept,
             },
@@ -646,7 +646,7 @@ fn turn_based_clock_advances_cooldowns_and_effect_lifetimes_in_turns() {
             EffectApplicationInput {
                 source_id: Some(source),
                 target_id: target,
-                tags: TagSet::new([Tag::new([TestAtom::Damage])]),
+                tags: TagSet::new([Tag::new([TestAtom::Category])]),
                 payload: Payload::Shield,
                 decision: EffectApplicationDecision::Accept,
             },
@@ -719,7 +719,7 @@ fn realtime_clock_lets_callers_choose_duration_to_unit_scale() {
             EffectApplicationInput {
                 source_id: None,
                 target_id: ObjectId::new(20),
-                tags: TagSet::new([Tag::new([TestAtom::Damage])]),
+                tags: TagSet::new([Tag::new([TestAtom::Category])]),
                 payload: Payload::Pulse,
                 decision: EffectApplicationDecision::Accept,
             },
@@ -805,7 +805,7 @@ where
             remaining_units: Some(remaining_units),
             period: None,
             period_elapsed_units: 0,
-            tags: TagSet::new([Tag::new([TestAtom::Damage])]),
+            tags: TagSet::new([Tag::new([TestAtom::Category])]),
             payload,
         },
         elapsed_units: previous_remaining_units - remaining_units,

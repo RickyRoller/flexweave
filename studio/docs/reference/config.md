@@ -100,9 +100,6 @@ Optional objects of string aliases used by generated Rust targets.
 `rust.preludeImports`:
 Optional array of Rust imports available to generated targets.
 
-`rust.runtimeVocab`:
-Consumer-owned token lists needed by validation or generated code.
-
 `rust.bindings`:
 Optional object for extension-owned Rust binding config. Each extension owns
 and validates its own namespace under this object. Studio validates only the

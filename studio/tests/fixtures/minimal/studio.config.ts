@@ -18,10 +18,6 @@ export default defineStudioConfig({
   },
   rust: {
     flexweaveModule: "flexweave",
-    runtimeVocab: {
-      ailments: ["minimal_ailment"],
-      damageTypes: ["minimal_damage"],
-    },
   },
   verify: {
     commands: [

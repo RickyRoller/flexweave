@@ -263,7 +263,7 @@ test("host app scaffold honors metadata-declared project-owned files", async () 
   const entryPath = join(appRoot, "src/main.ts");
   writeFileSync(
     entryPath,
-    `${readFileSync(entryPath, "utf-8")}\nexport const atlasOwnedEntryCustomization = true;\n`,
+    `${readFileSync(entryPath, "utf-8")}\nexport const projectOwnedEntryCustomization = true;\n`,
   );
 
   const preserved = await scaffoldStudioHostApp({

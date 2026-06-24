@@ -10,59 +10,62 @@ struct NonCloneAtom(&'static str);
 
 #[test]
 fn tag_constructors_and_accessors_do_not_require_clone_or_eq() {
-    let tag = Tag::new([ConstructorOnlyAtom("damage"), ConstructorOnlyAtom("fire")]);
+    let tag = Tag::new([
+        ConstructorOnlyAtom("category"),
+        ConstructorOnlyAtom("variant"),
+    ]);
 
     assert_eq!(tag.atoms().len(), 2);
-    assert_eq!(tag.atoms()[0].0, "damage");
+    assert_eq!(tag.atoms()[0].0, "category");
 
     let set = TagSet::new([tag]);
 
     assert_eq!(set.items().len(), 1);
-    assert_eq!(set.items()[0].atoms()[1].0, "fire");
+    assert_eq!(set.items()[0].atoms()[1].0, "variant");
 }
 
 #[test]
 fn tag_apis_accept_non_clone_atoms_and_borrowed_atom_queries() {
-    let tag = Tag::new([NonCloneAtom("damage"), NonCloneAtom("fire")]);
+    let tag = Tag::new([NonCloneAtom("category"), NonCloneAtom("variant")]);
 
     assert_eq!(tag.atoms().len(), 2);
-    assert!(tag.has_atom(&NonCloneAtom("fire")));
-    assert!(!tag.has_atom(&NonCloneAtom("ice")));
-    assert!(tag.has_all_atoms([&NonCloneAtom("damage"), &NonCloneAtom("fire")]));
-    assert!(!tag.has_all_atoms([&NonCloneAtom("damage"), &NonCloneAtom("ice")]));
+    assert!(tag.has_atom(&NonCloneAtom("variant")));
+    assert!(!tag.has_atom(&NonCloneAtom("other")));
+    assert!(tag.has_all_atoms([&NonCloneAtom("category"), &NonCloneAtom("variant")]));
+    assert!(!tag.has_all_atoms([&NonCloneAtom("category"), &NonCloneAtom("other")]));
 }
 
 #[test]
 fn tag_set_apis_accept_non_clone_atoms_and_borrowed_atom_queries() {
-    let tag = Tag::new([NonCloneAtom("damage"), NonCloneAtom("fire")]);
-    let exact = Tag::new([NonCloneAtom("damage"), NonCloneAtom("fire")]);
-    let prefix = Tag::new([NonCloneAtom("damage")]);
+    let tag = Tag::new([NonCloneAtom("category"), NonCloneAtom("variant")]);
+    let exact = Tag::new([NonCloneAtom("category"), NonCloneAtom("variant")]);
+    let prefix = Tag::new([NonCloneAtom("category")]);
     let set = TagSet::new([tag]);
 
     assert_eq!(set.items().len(), 1);
     assert!(set.has(&exact));
     assert!(set.has_prefix(&prefix));
-    assert!(set.has_atom(&NonCloneAtom("fire")));
-    assert!(!set.has_atom(&NonCloneAtom("ice")));
-    assert!(set.has_tag_with_all_atoms([&NonCloneAtom("damage"), &NonCloneAtom("fire")]));
-    assert!(!set.has_tag_with_all_atoms([&NonCloneAtom("damage"), &NonCloneAtom("ice")]));
+    assert!(set.has_atom(&NonCloneAtom("variant")));
+    assert!(!set.has_atom(&NonCloneAtom("other")));
+    assert!(set.has_tag_with_all_atoms([&NonCloneAtom("category"), &NonCloneAtom("variant")]));
+    assert!(!set.has_tag_with_all_atoms([&NonCloneAtom("category"), &NonCloneAtom("other")]));
 }
 
 #[test]
 fn val_core_011_tag_sets_distinguish_shared_atoms_by_grouped_path() {
-    let damage_elemental = Tag::new([TestAtom::Damage, TestAtom::Elemental]);
-    let damage_fire = Tag::new([TestAtom::Damage, TestAtom::Elemental, TestAtom::Fire]);
-    let resistance_elemental = Tag::new([TestAtom::Resistance, TestAtom::Elemental]);
-    let split_damage = Tag::new([TestAtom::Damage]);
+    let category_family = Tag::new([TestAtom::Category, TestAtom::Family]);
+    let category_variant = Tag::new([TestAtom::Category, TestAtom::Family, TestAtom::Variant]);
+    let group_family = Tag::new([TestAtom::Group, TestAtom::Family]);
+    let split_category = Tag::new([TestAtom::Category]);
 
-    let grouped = TagSet::new([damage_fire.clone()]);
-    assert!(grouped.has_atom(&TestAtom::Elemental));
-    assert!(grouped.has_prefix(&damage_elemental));
-    assert!(grouped.has_tag_with_all_atoms([TestAtom::Damage, TestAtom::Elemental]));
-    assert!(!grouped.has(&resistance_elemental));
+    let grouped = TagSet::new([category_variant.clone()]);
+    assert!(grouped.has_atom(&TestAtom::Family));
+    assert!(grouped.has_prefix(&category_family));
+    assert!(grouped.has_tag_with_all_atoms([TestAtom::Category, TestAtom::Family]));
+    assert!(!grouped.has(&group_family));
 
-    let split = TagSet::new([split_damage, resistance_elemental]);
-    assert!(split.has_atom(&TestAtom::Damage));
-    assert!(split.has_atom(&TestAtom::Elemental));
-    assert!(!split.has_tag_with_all_atoms([TestAtom::Damage, TestAtom::Elemental]));
+    let split = TagSet::new([split_category, group_family]);
+    assert!(split.has_atom(&TestAtom::Category));
+    assert!(split.has_atom(&TestAtom::Family));
+    assert!(!split.has_tag_with_all_atoms([TestAtom::Category, TestAtom::Family]));
 }

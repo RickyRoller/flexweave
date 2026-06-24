@@ -19,8 +19,8 @@ fn effect_pipeline_creates_advances_expires_and_visits_by_target() {
     let source = ObjectId::new(7);
     let target = ObjectId::new(42);
     let other_target = ObjectId::new(99);
-    let enhancement = Tag::new([TestAtom::Damage, TestAtom::Fire]);
-    let more = Tag::new([TestAtom::Damage, TestAtom::Elemental]);
+    let enhancement = Tag::new([TestAtom::Category, TestAtom::Variant]);
+    let more = Tag::new([TestAtom::Category, TestAtom::Family]);
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
 
     let first = effects
@@ -91,7 +91,7 @@ fn effect_pipeline_creates_advances_expires_and_visits_by_target() {
     );
     assert_eq!(effects.count(), 3);
     assert!(effects.has_tag(target, &enhancement));
-    assert!(!effects.has_tag(target, &Tag::new([TestAtom::Resistance])));
+    assert!(!effects.has_tag(target, &Tag::new([TestAtom::Group])));
 
     let mut visited = Vec::new();
     effects.visit_target(target, |effect| {
@@ -152,7 +152,7 @@ fn effect_pipeline_removes_effects_with_distinct_lifecycle_fact() {
             EffectApplicationInput {
                 source_id: None,
                 target_id: ObjectId::new(1),
-                tags: TagSet::new([Tag::new([TestAtom::Damage])]),
+                tags: TagSet::new([Tag::new([TestAtom::Category])]),
                 payload: Payload::Buff,
                 decision: EffectApplicationDecision::Accept,
             },
@@ -199,7 +199,7 @@ fn active_effect_ids_are_typed_value_objects_and_pipeline_uses_them() {
             EffectApplicationInput::accept(
                 None,
                 ObjectId::new(5),
-                TagSet::new([Tag::new([TestAtom::Damage])]),
+                TagSet::new([Tag::new([TestAtom::Category])]),
                 Payload::Buff,
             ),
             |_| {},
@@ -225,7 +225,7 @@ fn active_effect_ids_are_typed_value_objects_and_pipeline_uses_them() {
             EffectApplicationInput::accept(
                 None,
                 ObjectId::new(6),
-                TagSet::new([Tag::new([TestAtom::Damage])]),
+                TagSet::new([Tag::new([TestAtom::Category])]),
                 Payload::Buff,
             ),
             |_| {},
@@ -404,7 +404,7 @@ fn effect_application_input_constructors_match_literals() {
 
     let source = ObjectId::new(10);
     let target = ObjectId::new(20);
-    let tags = TagSet::new([Tag::new([TestAtom::Damage, TestAtom::Fire])]);
+    let tags = TagSet::new([Tag::new([TestAtom::Category, TestAtom::Variant])]);
 
     assert_eq!(
         EffectApplicationInput::accept(source, target, tags.clone(), Payload::Hit),
@@ -602,7 +602,7 @@ fn periodic_effects_execute_at_deterministic_intervals() {
         EffectLifecycleEvent::PeriodicExecuted(second),
     ] = events.as_slice()
     else {
-        panic!("70 units with a 30-unit period should execute twice");
+        panic!("70 units with a 30-unit period should execute twother");
     };
     assert_eq!(advanced.effect.remaining_units, Some(30));
     assert_eq!(first.elapsed_units, Some(30));
@@ -727,7 +727,7 @@ fn application<Payload>(
     EffectApplicationInput {
         source_id: Some(ObjectId::new(10)),
         target_id: ObjectId::new(20),
-        tags: TagSet::new([Tag::new([TestAtom::Damage, TestAtom::Fire])]),
+        tags: TagSet::new([Tag::new([TestAtom::Category, TestAtom::Variant])]),
         payload,
         decision,
     }

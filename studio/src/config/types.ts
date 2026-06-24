@@ -61,10 +61,6 @@ export interface StudioProjectConfig {
     macroNames?: Record<string, string>;
     moduleAliases?: Record<string, string>;
     preludeImports?: readonly string[];
-    runtimeVocab?: {
-      ailments?: readonly string[];
-      damageTypes?: readonly string[];
-    };
     typePaths?: Record<string, string>;
   };
   verify?: {
@@ -112,10 +108,6 @@ export interface ResolvedStudioProjectConfig {
     macroNames: Record<string, string>;
     moduleAliases: Record<string, string>;
     preludeImports: string[];
-    runtimeVocab: {
-      ailments: string[];
-      damageTypes: string[];
-    };
     typePaths: Record<string, string>;
   };
   verify: {

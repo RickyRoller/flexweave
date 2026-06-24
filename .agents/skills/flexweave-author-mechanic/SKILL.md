@@ -1,6 +1,6 @@
 ---
 name: flexweave-author-mechanic
-description: Author Flexweave Studio-backed game mechanics and abilities in a consumer repo by reading the setup integration map, using flexweave-studio plan/scaffold/codegen/verify, and implementing consumer-owned runtime hooks. Use when a user asks to add, create, change, or debug a mechanic, ability, effect, modifier, ailment, tag, execution hook, or generated mechanics definition backed by Flexweave.
+description: Author Flexweave Studio-backed game mechanics and abilities in a consumer repo by reading the setup integration map, using flexweave-studio plan/scaffold/codegen/verify, and implementing consumer-owned runtime hooks. Use when a user asks to add, create, change, or debug a mechanic, ability, effect, modifier, tag, execution hook, catalog record, or generated mechanics definition backed by Flexweave.
 ---
 
 # Flexweave Author Mechanic
@@ -55,7 +55,7 @@ artifact before making mechanic changes.
    - Run full Studio verify or broader repo checks when generated contracts,
      hook dispatch, or shared runtime behavior changed.
 9. Update `FLEXWEAVE.md` if the change establishes a new hook pattern,
-   generated target, runtime vocabulary item, or verification command.
+   generated target, local source path, or verification command.
 
 ## Failure Handling
 

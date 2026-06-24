@@ -6,10 +6,10 @@ use flexweave::{DataStore, ObjectId, ObjectStore};
 pub enum TestAtom {
     Ability,
     Burst,
-    Damage,
-    Resistance,
-    Elemental,
-    Fire,
+    Category,
+    Group,
+    Family,
+    Variant,
 }
 
 pub fn marker_setup() -> (ObjectStore, DataStore<u8>, ObjectId, ObjectId, ObjectId) {

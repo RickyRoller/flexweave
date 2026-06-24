@@ -88,10 +88,6 @@ export default defineStudioConfig({
   },
   rust: {
     flexweaveModule: "flexweave",
-    runtimeVocab: {
-      ailments: ["synthetic_ailment"],
-      damageTypes: ["synthetic_damage"],
-    },
   },
   verify: {
     commands: [

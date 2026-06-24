@@ -23,7 +23,6 @@ agents can reliably operate with Flexweave.
    - Target runtime language/crate and package manager.
    - Where catalog source, generated Rust, runtime hooks, and hook tests should live.
    - Whether to create a local Studio host app now.
-   - Initial runtime vocabulary such as damage types and ailments.
 4. Install or wire dependencies using the repo's package manager:
    - Rust runtime: add `flexweave` to the owning crate.
    - Studio workflows: add `@flexweave/studio`.
@@ -32,7 +31,7 @@ agents can reliably operate with Flexweave.
    - `catalogRoot`.
    - `codegen.outputDirs` for `abilities`, `effects`, `executions`, `modifiers`, `reference`, and `tags`.
    - `hooks.dir` and optional `hooks.testStubsDir`.
-   - `rust.flexweaveModule` and `rust.runtimeVocab`.
+   - `rust.flexweaveModule`.
    - `verify.commands` for the repo's existing checks.
 6. Add repo scripts for recurring workflows:
    - Validate catalog.
@@ -56,8 +55,9 @@ agents can reliably operate with Flexweave.
 - Do not hand-edit generated mechanics definitions. Change catalog sources or
   generated target config, then rerun codegen.
 - Treat runtime hooks as consumer-owned after Studio creates missing stubs.
-- Keep game-specific concepts out of Flexweave Core. Put Player, Tower, Map,
-  Inventory, and other game vocabulary in the consumer runtime.
+- Keep game-specific concepts out of reusable Flexweave contracts. Put
+  consumer-specific meaning in the consumer runtime, catalog, extensions, and
+  local docs.
 - Prefer the repo's existing build/test scripts in `verify.commands`; do not
   invent a second verification stack.
 
