@@ -49,6 +49,9 @@ agents can reliably operate with Flexweave.
 8. Create or update the repo-root `FLEXWEAVE.md` integration map. Use
    `references/integration-map-template.md`. This artifact is required context
    for the mechanic authoring skill.
+9. If the repo has an agent startup file such as `AGENTS.md`, add a durable
+   pointer there to read `FLEXWEAVE.md` for Flexweave and Studio work. Do not
+   require future agents to use this setup skill during normal authoring.
 
 ## Boundaries
 

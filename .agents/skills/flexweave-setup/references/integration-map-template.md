@@ -1,7 +1,8 @@
 # FLEXWEAVE.md Template
 
 Create this file at the consumer repo root. Keep it short and operational; it
-is context for future agents, not user-facing product documentation.
+is context for future agents, not user-facing product documentation. Link to it
+from the repo's agent startup file, such as `AGENTS.md`, when one exists.
 
 ```md
 # Flexweave Integration Map
