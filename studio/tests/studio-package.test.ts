@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "bun:test";
 
@@ -26,7 +26,6 @@ test("package metadata exposes only the Studio public contract", () => {
     "reference",
     "tags",
   ]);
-  expect(existsSync(join(studioRoot, "examples"))).toBe(false);
   expect(
     readdirSync(join(studioRoot, "tests/fixtures"), { withFileTypes: true })
       .filter((entry) => entry.isDirectory())

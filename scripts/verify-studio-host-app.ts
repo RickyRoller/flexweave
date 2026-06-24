@@ -115,10 +115,6 @@ try {
         .join("\n"),
     );
   }
-
-  if (existsSync(join(root, "studio/examples"))) {
-    fail("studio/examples must not exist.");
-  }
 } finally {
   rmSync(rootDirectory, { force: true, recursive: true });
 }

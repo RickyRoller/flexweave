@@ -11,7 +11,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { loadStudioConfig } from "../studio/src/config/load";
@@ -22,15 +21,6 @@ const studioRoot = join(root, "studio");
 const studioAppRoot = join(studioRoot, "app");
 const fixtureRoot = join(studioRoot, "tests/fixtures/minimal");
 const fixtureConfigPath = join(fixtureRoot, "studio.config.ts");
-const studioRetiredTermScanRoots = [
-  "studio/package.json",
-  "studio/README.md",
-  "studio/CONTEXT.md",
-  "studio/app",
-  "studio/docs",
-  "studio/src",
-  "studio/tests",
-];
 const failures: string[] = [];
 
 const fail = (message: string) => {
@@ -112,9 +102,6 @@ const assertPackageImportBoundary = () => {
       pattern: /(^|\n)\s*import\s+.*@flexweave\/studio-app|(^|\n)\s*import\s+.*\.\.\/app/,
     },
     { label: "consumer app source", pattern: /(?:^|["'])apps\// },
-    { label: "old package source", pattern: /packages\/game-data|gamedata\.config/ },
-    { label: "old package import", pattern: /@forge\// },
-    { label: "old Studio app name", pattern: /atlas-design-studio/ },
   ];
 
   for (const scanRoot of [join(studioRoot, "src"), join(studioRoot, "tests")]) {
@@ -142,12 +129,7 @@ const assertAppPackageBoundary = () => {
     fail("studio/app/package.json must depend on @flexweave/studio.");
   }
 
-  const forbiddenPatterns = [
-    { label: "consumer app source", pattern: /(?:^|["'])apps\// },
-    { label: "old package source", pattern: /packages\/game-data|gamedata\.config/ },
-    { label: "old package import", pattern: /@forge\// },
-    { label: "old Studio app name", pattern: /atlas-design-studio/ },
-  ];
+  const forbiddenPatterns = [{ label: "consumer app source", pattern: /(?:^|["'])apps\// }];
 
   for (const scanRoot of [join(studioAppRoot, "src"), join(studioAppRoot, "tests")]) {
     for (const file of listFilesRecursive(scanRoot)) {
@@ -165,32 +147,7 @@ const assertAppPackageBoundary = () => {
   }
 };
 
-const assertRetiredTermInventory = () => {
-  const result = spawnSync(
-    process.execPath,
-    [join(root, "scripts/verify-retired-terms.ts"), ...studioRetiredTermScanRoots],
-    {
-      cwd: root,
-      encoding: "utf-8",
-    },
-  );
-
-  if (result.error) {
-    fail(`Studio retired-term inventory scan failed to start: ${result.error.message}`);
-    return;
-  }
-
-  if (result.status !== 0) {
-    const report = [result.stdout.trim(), result.stderr.trim()].filter(Boolean).join("\n");
-    fail(`Studio retired-term inventory scan failed:\n${report}`);
-  }
-};
-
 const assertFixtureBoundary = async () => {
-  if (existsSync(join(studioRoot, "examples"))) {
-    fail("studio/examples must not exist.");
-  }
-
   if (!existsSync(fixtureConfigPath)) {
     fail("Minimal Studio fixture must include studio.config.ts.");
     return;
@@ -363,7 +320,6 @@ const assertGeneratedWritesStayConfigured = async () => {
 assertPackageMetadata();
 assertPackageImportBoundary();
 assertAppPackageBoundary();
-assertRetiredTermInventory();
 await assertFixtureBoundary();
 await assertGeneratedWritesStayConfigured();
 

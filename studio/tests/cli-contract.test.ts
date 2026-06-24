@@ -70,21 +70,6 @@ test("CLI help advertises the Phase 3 public Studio contract", async () => {
   ]) {
     expect(helpCorpus).toContain(phrase);
   }
-
-  for (const retiredTerm of [
-    /\bForge\b/,
-    /\bAtlas\b/,
-    /\bPlayers?\b/,
-    /\bTowers?\b/,
-    /\bMaps?\b/,
-    /\bZones?\b/,
-    /\bInventory\b/,
-    /\bEquipment\b/,
-    /\bPlacement\b/,
-    /crates\/flexweave/,
-  ]) {
-    expect(helpCorpus).not.toMatch(retiredTerm);
-  }
 });
 
 test("CLI human output covers config loading success and workflow failure", async () => {

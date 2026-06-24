@@ -13,8 +13,8 @@ flexweave/
 
 ## Root
 
-The root owns workspace membership, toolchain versions, shared scripts,
-repository documentation, and verification guards.
+The root owns workspace membership, toolchain versions, shared scripts, and
+repository documentation.
 
 ## Core
 
@@ -27,7 +27,3 @@ repository documentation, and verification guards.
 ## Studio App
 
 `studio/app` is the package workspace member for `@flexweave/studio-app`.
-
-## Guardrails
-
-No product surface includes a directory named `examples`.
