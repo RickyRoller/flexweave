@@ -32,6 +32,17 @@ The mechanic is complete only when all of these are true:
 - Flexweave Core is installed in the owning runtime crate.
 - Runtime behavior flows through the repo's Flexweave-backed seam for every
   adopted primitive it claims to use.
+- Bounded runtime state such as health/resources includes both current and
+  maximum values in the repo's Flexweave-backed attribute/data seam, unless the
+  integration map documents a different adopted shape.
+- Ability-backed mechanics perform their primary gameplay command through the
+  Flexweave ability activation executor or hook path. A no-op executor followed
+  by separate lifecycle-event dispatch is not enough for damage, effect
+  application, resource spending, or target mutation.
+- UI projections, death/despawn, status changes, and other observable reactions
+  consume emitted Core facts/events from attributes, abilities, effects, or
+  mechanics ticking. Polling current store values is not proof of event-backed
+  integration, except for initial render or fallback display.
 - Existing compile/check commands for the runtime pass.
 - Gameplay-facing tests or scenarios exercise the mechanic behavior.
 - `FLEXWEAVE.md` records new mechanics, runtime entry points, Core primitives,

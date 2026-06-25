@@ -21,6 +21,8 @@ using the `flexweave-setup` skill.
    - Runtime state and lifecycle the mechanic needs.
    - Core backing plan: which Flexweave primitives own identity, attributes,
      ability lifecycle, cooldowns, effects, tags, ticking, or events.
+   - Event consumers: which UI, death/despawn, status, or follow-on runtime
+     reactions must be driven by emitted Core events instead of polling stores.
    - Existing manual systems to preserve or call out.
    - Runtime modules, structs, or systems to edit.
    - Gameplay tests or scenarios that prove the mechanic works.
@@ -31,6 +33,19 @@ using the `flexweave-setup` skill.
    - Identify the narrow runtime seam where the requested behavior belongs.
 4. Implement runtime behavior:
    - Route state and lifecycle through the repo's Flexweave-backed seam.
+   - When adding health, resources, shields, or similar bounded values, model
+     both current and maximum values through the repo's Flexweave-backed
+     attribute/data seam unless `FLEXWEAVE.md` documents a different adopted
+     resource pattern.
+   - Drive observable reactions from Core-emitted events/facts. UI updates,
+     death/despawn, status changes, and follow-on mechanics should consume
+     attribute changes or lifecycle events; direct reads are acceptable for
+     initial rendering, assertions, and fallback display only.
+   - For abilities that perform gameplay work, execute that primary work inside
+     the Flexweave ability activation executor/hook path. Ability lifecycle
+     events should report and project what happened; they should not be the
+     only place where the ability's damage, effect application, resource spend,
+     or other command is performed.
    - Reuse existing runtime helpers and mechanics patterns.
    - Preserve existing manual systems unless the user requested migration. If a
      manual system remains in the path of the mechanic, record that partial
