@@ -2,8 +2,9 @@
 
 ## Command Templates
 
-Replace `<bin>` with the command prefix recorded in `FLEXWEAVE.md`, such as
-`bun x flexweave-studio` or `pnpm exec flexweave-studio`.
+Replace `<bin>` with the command prefix recorded in `FLEXWEAVE.md`, usually
+`flexweave-studio`. Use package-manager executors only when the consumer repo's
+integration map records one.
 
 ```bash
 <bin> validate --config <config> --json
@@ -57,6 +58,7 @@ Use this internally before editing files:
 - Runtime behavior:
 - Existing hooks/tests to mirror:
 - Verification commands:
+- FLEXWEAVE.md updates:
 ```
 
 ## Generated Files
@@ -76,3 +78,19 @@ The reusable Flexweave Studio package currently guarantees the built-in
 commands. Prefer project-specific authoring docs from `FLEXWEAVE.md` when they
 exist; otherwise use the built-in archetype for skeleton records and complete
 runtime behavior in consumer-owned hooks.
+
+## Integration Map Updates
+
+When the mechanic changes runtime wiring, update `FLEXWEAVE.md` as an
+operational map:
+
+- Record authored mechanic ids, catalog record paths, hook files, runtime
+  entry points, and focused test commands under an "Authored Mechanics" or
+  equivalent mechanics section.
+- Keep setup provenance separate. Do not list authored mechanics as
+  setup-created starter content.
+- Revisit `Open Decisions` after wiring. Delete or rewrite entries that are no
+  longer true.
+- Keep dependency status precise. If generated hooks are imported but
+  Flexweave Core is not installed, say that hook dispatch is wired while Core
+  remains disabled.

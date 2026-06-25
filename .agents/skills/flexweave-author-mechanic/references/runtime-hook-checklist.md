@@ -17,12 +17,18 @@ Runtime hooks are consumer-owned after Studio creates missing stubs.
   event emission, logging, and deterministic randomness.
 - Keep hook inputs and outputs aligned with generated definitions.
 - Update hook dispatch or registration if the runtime requires explicit wiring.
+- Replace generated placeholder hook bodies with the consumer-owned behavior or
+  data contract the runtime actually imports. Do not leave a no-op hook as the
+  apparent implementation for an authored mechanic.
 
 ## Tests
 
 - Add a focused runtime test for the new behavior.
 - Include at least one negative or boundary case when the hook has branching,
   limits, lifecycle behavior, or failure modes.
+- If generated hook test stubs are kept, they may remain declaration smoke
+  tests, but the authored mechanic still needs meaningful runtime assertions
+  elsewhere.
 - Run generated freshness checks before runtime tests so failures point at the
   right layer.
 

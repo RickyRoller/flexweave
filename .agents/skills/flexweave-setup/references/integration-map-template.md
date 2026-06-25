@@ -9,19 +9,20 @@ from the repo's agent startup file, such as `AGENTS.md`, when one exists.
 
 ## Purpose
 
-This repo uses Flexweave for <core primitives | Studio authoring/codegen |
+This repo uses Flexweave for <Studio authoring/codegen | core primitives |
 local Studio host app>. Flexweave-owned generated files are refreshed through
-Studio commands; game semantics live in the consumer runtime.
+Studio commands; game semantics live in the consumer runtime once mechanics are
+authored.
 
 ## Integration Mode
 
-- Core: <enabled/disabled>, imported by <crate/package/module>.
+- Core: <enabled/disabled>, imported by <crate/package/module or not wired>.
 - Studio codegen: <enabled/disabled>, config path: `<path, usually studio.config.json>`.
 - Studio host app: <enabled/disabled>, app root: `<path or none>`.
 
 ## Dependencies
 
-- Rust crate: `flexweave` from <registry/path/version>.
+- Rust crate: `flexweave` from <registry/path/version or not installed>.
 - Studio CLI: `flexweave-studio` from <install source/version>.
 - Studio app package: `@flexweave/studio-app` from <registry/path/version or none>.
 - Studio command prefix: `<flexweave-studio | pnpm exec flexweave-studio | npx flexweave-studio | direct bin>`.
@@ -34,7 +35,7 @@ Studio commands; game semantics live in the consumer runtime.
 - Migrate after package updates: `<command>`.
 - Fast Studio verify: `<command>`.
 - Full Studio verify: `<command>`.
-- Runtime tests for mechanics: `<command>`.
+- Runtime tests for mechanics: `<command or none established yet>`.
 - Local Studio host app: `<command or none>`.
 
 ## Catalog And Sources
@@ -60,13 +61,14 @@ Do not hand-edit these directories:
 
 - Hook root: `<path>`.
 - Hook test stub root: `<path or none>`.
-- Hook dispatch/registration entry point: `<path>`.
-- Existing hook examples to copy: `<paths>`.
-- Runtime state/API helpers available to hooks: `<paths>`.
+- Hook dispatch/registration entry point: `<path or not wired yet>`.
+- Existing hook examples to copy: `<paths or none>`.
+- Runtime state/API helpers available to hooks: `<paths or inspect runtime when authoring>`.
 
 ## Rust Bindings
 
-- Flexweave module path: `<rust path>`.
+- Flexweave module path in Studio config: `<rust path>`.
+- Cargo/runtime import status: `<installed and imported | not wired yet>`.
 - Project-specific Rust bindings: `<extension namespace -> summary>`.
 
 ## Mechanic Authoring Protocol

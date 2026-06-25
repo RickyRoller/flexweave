@@ -7,7 +7,8 @@ Use this checklist to keep Flexweave setup concrete and repeatable.
 - Locate the repo root and existing tooling: Cargo, Bun, npm, pnpm, yarn, or a
   mixed workspace. Do not introduce JavaScript tooling solely for Studio CLI
   commands.
-- Identify the game runtime package or crate that should import Flexweave Core.
+- Identify whether the user explicitly asked for Flexweave Core/runtime wiring.
+  Do not infer Core wiring only because the repo is Rust-based.
 - Identify existing authored-data directories, generated-code directories,
   runtime hook modules, and test conventions.
 - Check for existing codegen scripts or generated-file policies.
@@ -18,10 +19,13 @@ Use this checklist to keep Flexweave setup concrete and repeatable.
 
 ## Integration Mode
 
-- Core only: add the Rust crate and runtime tests around primitive usage.
-- Studio codegen: add Studio config, catalog root, generated output dirs,
-  runtime hook dirs, Rust binding config, and verification commands.
-- Studio host app: scaffold the local host app and wire app check/build scripts.
+- Studio codegen: default setup mode. Add Studio config, catalog root,
+  generated output dirs, runtime hook dirs, Rust binding config, and
+  verification commands.
+- Core runtime: opt-in only. Add the Rust crate, import it into the owning
+  runtime module, and add focused runtime tests around primitive usage.
+- Studio host app: opt-in only. Scaffold the local host app and wire app
+  check/build scripts.
 
 ## Initial Studio Config Shape
 
@@ -63,6 +67,16 @@ Use `studio.config.ts` only when the project needs executable extensions, data
 adapters, content mappers, generated targets, or host app contributions that
 cannot be represented in JSON.
 
+`rust.flexweaveModule` declares the Rust path generated code should use once the
+runtime imports Flexweave. It is not an instruction to add a Cargo dependency
+during setup.
+
+For a Rust game that has not opted into runtime wiring yet, keep generated Rust
+definitions and hook roots in predictable project paths, but do not import them
+from `main.rs`, `lib.rs`, or another runtime entry point. Empty `.gitkeep` files
+are fine for ownership directories; avoid creating consumer-owned `mod.rs`,
+dispatch, hook implementation, or test files during setup.
+
 ## Command Names
 
 Record direct CLI commands in `FLEXWEAVE.md`. Add package-manager scripts only
@@ -83,13 +97,15 @@ prefer Bun unless the consumer repo already uses Bun.
 
 ## Validation Order
 
-1. Dependency install or workspace link succeeds.
-2. Config loads.
-3. `validate` succeeds.
-4. `codegen` writes only under configured output dirs.
-5. `codegen --check` is clean.
-6. `verify --fast` runs configured fast checks.
-7. Host app scaffold verifies when host app is enabled.
+1. Direct `flexweave-studio --help` succeeds, or the user is told to install
+   the CLI directly.
+2. Core dependency install succeeds only when Core/runtime wiring was requested.
+3. Config loads.
+4. `validate` succeeds.
+5. `codegen` writes only under configured output dirs.
+6. `codegen --check` is clean.
+7. `verify --fast` runs configured fast checks.
+8. Host app scaffold verifies when host app is enabled.
 
 ## Starter Content
 

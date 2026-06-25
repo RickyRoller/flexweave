@@ -54,8 +54,14 @@ artifact before making mechanic changes.
    - Run the narrow runtime tests that exercise the new mechanic.
    - Run full Studio verify or broader repo checks when generated contracts,
      hook dispatch, or shared runtime behavior changed.
-9. Update `FLEXWEAVE.md` if the change establishes a new hook pattern,
-   generated target, local source path, or verification command.
+9. Update `FLEXWEAVE.md` coherently if the change establishes a new hook
+   pattern, generated target, local source path, or verification command:
+   - Add or update an authored mechanics section for the new mechanic ids,
+     catalog records, hook files, runtime entry points, and tests.
+   - Do not move authored mechanics into the setup "Starter Content" section.
+     That section should continue to describe setup-created sample content.
+   - Remove or revise open decisions that the mechanic work resolved, such as
+     "hook dispatch not wired yet", so the map does not contradict itself.
 
 ## Failure Handling
 
