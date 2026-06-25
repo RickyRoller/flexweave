@@ -1,15 +1,15 @@
-# Flexweave Core
+# Flexweave
 
-Flexweave Core is the Rust crate for deterministic mechanics primitives. The
+Flexweave is the Rust crate for deterministic mechanics primitives. The
 crate package name is `flexweave`.
 
-Use Core when a caller needs a domain-neutral foundation for objects, attached
+Use Flexweave when a caller needs a domain-neutral foundation for objects, attached
 data, attributes, tags, abilities, effects, signals, lifecycle clocks, and
 explicit primitive errors.
 
 ## Primitive Model
 
-An Object is a stable mechanics handle. Core allocates Object ids in
+An Object is a stable mechanics handle. Flexweave allocates Object ids in
 deterministic creation order, and Object stores preserve deterministic
 iteration order.
 
@@ -41,7 +41,7 @@ those units through fixed-step or real-time adapters.
 
 ## Determinism
 
-Core avoids unordered public iteration where ordering is part of the contract.
+Flexweave avoids unordered public iteration where ordering is part of the contract.
 Object ids, Data store scans, tag queries, and mechanics-store queries are
 designed to produce repeatable results from identical inputs.
 
@@ -56,9 +56,9 @@ cargo doc -p flexweave --no-deps
 
 ## Boundary
 
-Core owns object identity, attached data, attributes, derived attributes, tags,
+Flexweave owns object identity, attached data, attributes, derived attributes, tags,
 queries, abilities, effects, registries, signals, caller-defined clock units,
 deterministic mechanics stores, and primitive errors.
 
-Core does not own authored content storage, generated output paths, design UI,
+Flexweave does not own authored content storage, generated output paths, design UI,
 or caller runtime bindings.

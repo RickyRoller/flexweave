@@ -109,7 +109,7 @@ Metadata distinguishes scaffold-managed files from project-owned adapter code.
 
 ## Relationships
 
-- Studio builds on Core concepts but remains optional.
+- Studio builds on Flexweave primitives but remains optional.
 - Studio packages provide reusable workflows and shell behavior.
 - Projects provide content, config, data adapters, mappers, runtime
   hooks, generated output paths, branding, and deployment.

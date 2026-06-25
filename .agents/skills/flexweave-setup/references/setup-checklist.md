@@ -6,8 +6,8 @@ Use this checklist to keep Flexweave setup concrete and repeatable.
 
 - Locate the repo root and existing tooling: Cargo workspace files, runtime
   crate manifests, agent startup docs, and build/test commands.
-- Locate the owning Rust runtime crate for Flexweave Core. If there is no Rust
-  runtime crate, stop and ask where Core should be integrated.
+- Locate the owning Rust runtime crate for Flexweave. If there is no Rust
+  runtime crate, stop and ask where Flexweave should be integrated.
 - Inspect current runtime mechanics state before editing: object identity,
   attributes, abilities/cooldowns, effects/lifecycle, tags, ticking, and events.
   Record whether each is Flexweave-backed, manual, or not adopted yet.
@@ -18,13 +18,13 @@ Use this checklist to keep Flexweave setup concrete and repeatable.
 
 ## Integration Mode
 
-- Core availability: required. Add the `flexweave` crate to the owning runtime
+- Flexweave availability: required. Add the `flexweave` crate to the owning runtime
   crate and verify with existing compile/check commands.
-- Core adoption map: required. Document which Flexweave primitives the runtime
+- Flexweave adoption map: required. Document which Flexweave primitives the runtime
   already uses, which manual systems must be preserved, and which primitives are
   not adopted yet.
 
-## Core Adoption Map
+## Flexweave Adoption Map
 
 Record the current status in `FLEXWEAVE.md` instead of forcing a migration during
 setup:
@@ -42,8 +42,8 @@ explicitly asks for that migration.
 
 ## FLEXWEAVE.md Content
 
-- Runtime crate/package/module that owns Flexweave Core.
-- Core dependency source and version/path if discoverable.
+- Runtime crate/package/module that owns Flexweave.
+- Flexweave dependency source and version/path if discoverable.
 - Existing runtime paths for object identity, attributes, abilities, effects,
   tags, ticking, events, and tests.
 - Commands for runtime compile/check and focused mechanics tests.
@@ -52,7 +52,7 @@ explicitly asks for that migration.
 
 ## Validation Order
 
-1. Core dependency install succeeds in the owning runtime crate.
+1. Flexweave dependency install succeeds in the owning runtime crate.
 2. The runtime crate's existing compile/check command succeeds.
 3. `FLEXWEAVE.md` records the adoption map and verification commands.
 4. The repo's agent startup file points future agents at `FLEXWEAVE.md` when

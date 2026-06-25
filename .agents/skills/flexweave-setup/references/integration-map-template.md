@@ -9,13 +9,13 @@ from the repo's agent startup file, such as `AGENTS.md`, when one exists.
 
 ## Purpose
 
-This repo uses Flexweave Core for runtime mechanics primitives. Game-specific
+This repo uses Flexweave for runtime mechanics primitives. Game-specific
 semantics live in the consumer runtime; Flexweave supplies reusable lifecycle,
 state, query, and event building blocks.
 
 ## Integration Mode
 
-- Core: enabled, installed in `<runtime crate/package/module>`.
+- Flexweave: enabled, installed in `<runtime crate/package/module>`.
 
 ## Dependencies
 
@@ -27,7 +27,7 @@ state, query, and event building blocks.
 - Runtime tests for mechanics: `<command or none established yet>`.
 - Full repo verification: `<command or none established yet>`.
 
-## Core Adoption Map
+## Flexweave Adoption Map
 
 - Object identity: `<Flexweave-backed | manual | not adopted yet>` via `<paths or notes>`.
 - Attributes: `<Flexweave-backed | manual | not adopted yet>` via `<paths or notes>`.
@@ -50,7 +50,7 @@ state, query, and event building blocks.
 ## Mechanic Authoring Protocol
 
 1. Read this file and inspect the runtime paths it names.
-2. Classify the requested mechanic by Core primitive: identity, attributes,
+2. Classify the requested mechanic by Flexweave primitive: identity, attributes,
    abilities, effects, tags, ticking, events, signals, or registries.
 3. Reuse the repo's existing Flexweave-backed seam for adopted primitives.
 4. Preserve documented manual systems unless migration is requested.

@@ -1,6 +1,6 @@
 ---
 name: flexweave-setup
-description: Set up Flexweave Core in a consumer game repository by installing the Rust library, mapping current runtime adoption, and writing FLEXWEAVE.md. Use when a user wants to install, adopt, integrate, configure, or onboard Flexweave Core in a repo.
+description: Set up Flexweave in a consumer game repository by installing the Rust library, mapping current runtime adoption, and writing FLEXWEAVE.md. Use when a user wants to install, adopt, integrate, configure, or onboard Flexweave in a repo.
 ---
 
 # Flexweave Setup
@@ -15,14 +15,14 @@ agents a precise operating map.
    - Rust manifests: `Cargo.toml`, crate layout, runtime modules.
    - Existing mechanics, world/state, systems, schedules, and tests.
 2. Identify the runtime adoption state:
-   - Core availability: required for Rust game runtimes. Locate the owning
+   - Flexweave availability: required for Rust game runtimes. Locate the owning
      runtime crate before editing dependency files.
-   - Core adoption map: record whether object identity, attributes, abilities,
+   - Flexweave adoption map: record whether object identity, attributes, abilities,
      effects, tags, ticking, and events are Flexweave-backed, manual, or not
      adopted yet.
 3. Ask only for decisions that cannot be inferred safely:
    - Target runtime language/crate when more than one plausible runtime exists.
-   - Which existing runtime seam should own Flexweave Core state when several
+   - Which existing runtime seam should own Flexweave state when several
      candidates are equally plausible.
 4. Wire dependencies without changing repo tooling unnecessarily:
    - Rust runtime: add the `flexweave` crate to the owning runtime crate and
@@ -36,7 +36,7 @@ agents a precise operating map.
 ## Completion Criteria
 
 - The owning runtime crate depends on `flexweave`.
-- `FLEXWEAVE.md` names the runtime crate, Core dependency source, adoption map,
+- `FLEXWEAVE.md` names the runtime crate, Flexweave dependency source, adoption map,
   existing mechanics seams, verification commands, and open migration decisions.
 - Future agents can tell which runtime responsibilities are already
   Flexweave-backed and which manual systems should be preserved.

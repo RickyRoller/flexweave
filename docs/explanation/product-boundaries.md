@@ -1,12 +1,12 @@
 # Product Boundaries
 
-Flexweave is split into a small Rust Core and optional Studio authoring
-surfaces.
+Flexweave provides a Rust mechanics primitive crate and optional Studio
+authoring surfaces.
 
-Core stays domain-agnostic. It provides object identity, attached data,
-attributes, derived attributes, tags, queries, abilities, effects, signals,
-registries, caller-defined clock units, and primitive errors. Caller code gives
-those primitives application meaning.
+The Rust crate stays domain-agnostic. It provides object identity, attached
+data, attributes, derived attributes, tags, queries, abilities, effects,
+signals, registries, caller-defined clock units, and primitive errors. Caller
+code gives those primitives application meaning.
 
 Studio is the authoring and build-time layer. It owns Studio catalog contracts,
 Studio project config loading, validation, migrations, generated output checks,

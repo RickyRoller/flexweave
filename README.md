@@ -7,7 +7,7 @@ and the Studio authoring surface.
 
 | Surface                  | Path         | Purpose                                                                                                             |
 | ------------------------ | ------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Flexweave Core           | `core`       | Rust crate for deterministic mechanics primitives.                                                                  |
+| Flexweave Rust crate     | `core`       | Rust crate for deterministic mechanics primitives.                                                                  |
 | Flexweave Studio package | `studio`     | TypeScript package for catalog contracts, validation, migrations, generated output checks, and authoring workflows. |
 | Flexweave Studio app     | `studio/app` | Reusable application shell imported by project-local Studio host apps.                                              |
 
@@ -58,13 +58,13 @@ npx skills@latest add https://github.com/<owner>/<repo>/tree/main/flexweave --sk
 
 ## Commands
 
-| Command          | Purpose                                                              |
-| ---------------- | -------------------------------------------------------------------- |
-| `bun run build`  | Build Core and available Studio surfaces.                            |
-| `bun run check`  | Run read-only format, structure, term-scan, Core, and Studio checks. |
-| `bun run fix`    | Format supported files.                                              |
-| `bun run test`   | Run Core and Studio tests.                                           |
-| `bun run verify` | Run the full workspace verification gate.                            |
+| Command          | Purpose                                                                    |
+| ---------------- | -------------------------------------------------------------------------- |
+| `bun run build`  | Build the Rust crate and available Studio surfaces.                        |
+| `bun run check`  | Run read-only format, structure, term-scan, Rust crate, and Studio checks. |
+| `bun run fix`    | Format supported files.                                                    |
+| `bun run test`   | Run Rust crate and Studio tests.                                           |
+| `bun run verify` | Run the full workspace verification gate.                                  |
 
 ## Documentation
 
@@ -79,7 +79,7 @@ Start with:
 
 - [Documentation Forms](./docs/reference/documentation-forms.md)
 - [Repository Layout](./docs/reference/repository-layout.md)
-- [Using Core](./docs/how-to/use-core.md)
+- [Using Flexweave](./docs/how-to/use-flexweave.md)
 - [Using Studio](./docs/how-to/use-studio.md)
 - [Updating Studio Packages](./docs/how-to/update-studio-packages.md)
 - [Product Boundaries](./docs/explanation/product-boundaries.md)

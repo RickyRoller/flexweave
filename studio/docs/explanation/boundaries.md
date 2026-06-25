@@ -1,6 +1,6 @@
 # Product Boundaries
 
-Flexweave Core provides reusable mechanics primitives. Flexweave Studio is an
+Flexweave provides reusable mechanics primitives. Flexweave Studio is an
 optional authoring and build-time layer on top of those primitives.
 
 The Studio package owns contracts and workflows:

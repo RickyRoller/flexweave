@@ -1,6 +1,6 @@
-# Flexweave Core
+# Flexweave
 
-Flexweave Core covers reusable, domain-agnostic mechanics primitives.
+Flexweave covers reusable, domain-agnostic mechanics primitives.
 
 ## Language
 
@@ -70,11 +70,11 @@ iteration order, query order, lifecycle facts, and primitive results.
 
 ## Relationships
 
-- Core provides primitive mechanics building blocks while caller code assigns
+- Flexweave provides primitive mechanics building blocks while caller code assigns
   application meaning.
 - Object ids identify Flexweave objects only.
 - A data store attaches one typed value to an object id.
-- Clock units are opaque to Core.
+- Clock units are opaque to Flexweave.
 - Query results preserve deterministic object iteration order.
 - Abilities, effects, and signals define lifecycle shape while caller code owns
   product meaning at the boundary.

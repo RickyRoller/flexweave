@@ -7,8 +7,8 @@ Accepted
 ## Context
 
 Flexweave contains a Rust mechanics primitive crate and optional Studio
-authoring surfaces. These surfaces need independent ownership so Core can be
-used without Studio, while Studio can provide package-driven authoring,
+authoring surfaces. These surfaces need independent ownership so the Rust crate
+can be used without Studio, while Studio can provide package-driven authoring,
 validation, migrations, generated output checks, and a reusable app shell.
 
 ## Decision
@@ -25,7 +25,7 @@ adapter, branding, and deployment.
 
 ## Consequences
 
-- Core verification can run with Rust commands only.
+- Rust crate verification can run with Rust commands only.
 - Studio verification can run without consumer project source.
 - Package updates follow update, migrate, and verify commands.
 - Documentation can describe Flexweave as a standalone product.
