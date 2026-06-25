@@ -4,112 +4,56 @@ Use this checklist to keep Flexweave setup concrete and repeatable.
 
 ## Discovery
 
-- Locate the repo root and existing tooling: Cargo, Bun, npm, pnpm, yarn, or a
-  mixed workspace. Do not introduce JavaScript tooling solely for Studio CLI
-  commands.
-- Identify whether the user explicitly asked for Flexweave Core/runtime wiring.
-  Do not infer Core wiring only because the repo is Rust-based.
-- Identify existing authored-data directories, generated-code directories,
-  runtime hook modules, and test conventions.
-- Check for existing codegen scripts or generated-file policies.
-- Check whether the repo already has `studio.config.json`, `studio.config.ts`,
-  `@flexweave/studio`, `@flexweave/studio-app`, or `flexweave` dependencies.
-- Check whether `flexweave-studio --help` is available. If it is missing, tell
-  the user to install the CLI directly instead of vendoring it into the repo.
+- Locate the repo root and existing tooling: Cargo workspace files, runtime
+  crate manifests, agent startup docs, and build/test commands.
+- Locate the owning Rust runtime crate for Flexweave Core. If there is no Rust
+  runtime crate, stop and ask where Core should be integrated.
+- Inspect current runtime mechanics state before editing: object identity,
+  attributes, abilities/cooldowns, effects/lifecycle, tags, ticking, and events.
+  Record whether each is Flexweave-backed, manual, or not adopted yet.
+- Identify existing runtime modules, state containers, scheduling/ticking code,
+  event flow, and test conventions.
+- Check whether the runtime crate already has a `flexweave` dependency and how
+  it is imported.
 
 ## Integration Mode
 
-- Studio codegen: default setup mode. Add Studio config, catalog root,
-  generated output dirs, runtime hook dirs, Rust binding config, and
-  verification commands.
-- Core runtime: opt-in only. Add the Rust crate, import it into the owning
-  runtime module, and add focused runtime tests around primitive usage.
-- Studio host app: opt-in only. Scaffold the local host app and wire app
-  check/build scripts.
+- Core availability: required. Add the `flexweave` crate to the owning runtime
+  crate and verify with existing compile/check commands.
+- Core adoption map: required. Document which Flexweave primitives the runtime
+  already uses, which manual systems must be preserved, and which primitives are
+  not adopted yet.
 
-## Initial Studio Config Shape
+## Core Adoption Map
 
-Use repo-specific paths, but prefer this ownership split:
+Record the current status in `FLEXWEAVE.md` instead of forcing a migration during
+setup:
 
-```json
-{
-  "catalogRoot": "content/catalog",
-  "codegen": {
-    "outputDirs": {
-      "abilities": "runtime/generated/abilities",
-      "effects": "runtime/generated/effects",
-      "executions": "runtime/generated/executions",
-      "modifiers": "runtime/generated/modifiers",
-      "reference": "content/generated-reference",
-      "tags": "runtime/generated/tags"
-    }
-  },
-  "hooks": {
-    "dir": "runtime/hooks",
-    "testStubsDir": "runtime/generated-hook-tests"
-  },
-  "rust": {
-    "flexweaveModule": "flexweave"
-  },
-  "verify": {
-    "commands": [
-      {
-        "command": ["cargo", "test", "-p", "game-runtime"],
-        "fast": true,
-        "name": "runtime tests"
-      }
-    ]
-  }
-}
-```
+- Object identity: `Flexweave-backed`, `manual`, or `not adopted yet`.
+- Attributes: `Flexweave-backed`, `manual`, or `not adopted yet`.
+- Abilities/cooldowns: `Flexweave-backed`, `manual`, or `not adopted yet`.
+- Effects/lifecycle: `Flexweave-backed`, `manual`, or `not adopted yet`.
+- Tags/queries: `Flexweave-backed`, `manual`, or `not adopted yet`.
+- Mechanics ticking/events: `Flexweave-backed`, `manual`, or `not adopted yet`.
 
-Use `studio.config.ts` only when the project needs executable extensions, data
-adapters, content mappers, generated targets, or host app contributions that
-cannot be represented in JSON.
+If an existing manual system owns one of these responsibilities, preserve it and
+document the gap. Do not replace manual systems during setup unless the user
+explicitly asks for that migration.
 
-`rust.flexweaveModule` declares the Rust path generated code should use once the
-runtime imports Flexweave. It is not an instruction to add a Cargo dependency
-during setup.
+## FLEXWEAVE.md Content
 
-For a Rust game that has not opted into runtime wiring yet, keep generated Rust
-definitions and hook roots in predictable project paths, but do not import them
-from `main.rs`, `lib.rs`, or another runtime entry point. Empty `.gitkeep` files
-are fine for ownership directories; avoid creating consumer-owned `mod.rs`,
-dispatch, hook implementation, or test files during setup.
-
-## Command Names
-
-Record direct CLI commands in `FLEXWEAVE.md`. Add package-manager scripts only
-when the repo already has a matching convention:
-
-```bash
-flexweave-studio validate --config studio.config.json
-flexweave-studio codegen --config studio.config.json
-flexweave-studio codegen --check --config studio.config.json
-flexweave-studio migrate --config studio.config.json
-flexweave-studio verify --fast --config studio.config.json
-flexweave-studio verify --config studio.config.json
-```
-
-If the repo already has a package-manager convention, wrappers such as
-`pnpm exec flexweave-studio` or `npx flexweave-studio` are acceptable. Do not
-prefer Bun unless the consumer repo already uses Bun.
+- Runtime crate/package/module that owns Flexweave Core.
+- Core dependency source and version/path if discoverable.
+- Existing runtime paths for object identity, attributes, abilities, effects,
+  tags, ticking, events, and tests.
+- Commands for runtime compile/check and focused mechanics tests.
+- Manual systems that should stay manual until a user asks for migration.
+- Open decisions that future mechanic work should resolve.
 
 ## Validation Order
 
-1. Direct `flexweave-studio --help` succeeds, or the user is told to install
-   the CLI directly.
-2. Core dependency install succeeds only when Core/runtime wiring was requested.
-3. Config loads.
-4. `validate` succeeds.
-5. `codegen` writes only under configured output dirs.
-6. `codegen --check` is clean.
-7. `verify --fast` runs configured fast checks.
-8. Host app scaffold verifies when host app is enabled.
-
-## Starter Content
-
-Do not create sample catalog records during setup. Setup may create empty
-directories and generated outputs from an empty catalog. If the user wants sample
-or starter content, complete setup first and then use the mechanic authoring
-skill to plan and scaffold that content explicitly.
+1. Core dependency install succeeds in the owning runtime crate.
+2. The runtime crate's existing compile/check command succeeds.
+3. `FLEXWEAVE.md` records the adoption map and verification commands.
+4. The repo's agent startup file points future agents at `FLEXWEAVE.md` when
+   such a file exists.

@@ -9,86 +9,58 @@ from the repo's agent startup file, such as `AGENTS.md`, when one exists.
 
 ## Purpose
 
-This repo uses Flexweave for <Studio authoring/codegen | core primitives |
-local Studio host app>. Flexweave-owned generated files are refreshed through
-Studio commands; game semantics live in the consumer runtime once mechanics are
-authored.
+This repo uses Flexweave Core for runtime mechanics primitives. Game-specific
+semantics live in the consumer runtime; Flexweave supplies reusable lifecycle,
+state, query, and event building blocks.
 
 ## Integration Mode
 
-- Core: <enabled/disabled>, imported by <crate/package/module or not wired>.
-- Studio codegen: <enabled/disabled>, config path: `<path, usually studio.config.json>`.
-- Studio host app: <enabled/disabled>, app root: `<path or none>`.
+- Core: enabled, installed in `<runtime crate/package/module>`.
 
 ## Dependencies
 
-- Rust crate: `flexweave` from <registry/path/version or not installed>.
-- Studio CLI: `flexweave-studio` from <install source/version>.
-- Studio app package: `@flexweave/studio-app` from <registry/path/version or none>.
-- Studio command prefix: `<flexweave-studio | pnpm exec flexweave-studio | npx flexweave-studio | direct bin>`.
+- Rust crate: `flexweave` from <registry/path/version>.
 
 ## Command Map
 
-- Validate catalog: `<command>`.
-- Refresh generated output: `<command>`.
-- Check generated freshness: `<command>`.
-- Migrate after package updates: `<command>`.
-- Fast Studio verify: `<command>`.
-- Full Studio verify: `<command>`.
+- Runtime compile/check: `<command>`.
 - Runtime tests for mechanics: `<command or none established yet>`.
-- Local Studio host app: `<command or none>`.
+- Full repo verification: `<command or none established yet>`.
 
-## Catalog And Sources
+## Core Adoption Map
 
-- Catalog root: `<path>`.
-- Source adapters: `<built-in JSON | project adapter ids>`.
-- Writable scaffold source: `<catalogRoot | source id>`.
-- Generated reference doc: `<path or none>`.
+- Object identity: `<Flexweave-backed | manual | not adopted yet>` via `<paths or notes>`.
+- Attributes: `<Flexweave-backed | manual | not adopted yet>` via `<paths or notes>`.
+- Abilities/cooldowns: `<Flexweave-backed | manual | not adopted yet>` via `<paths or notes>`.
+- Effects/lifecycle: `<Flexweave-backed | manual | not adopted yet>` via `<paths or notes>`.
+- Tags/queries: `<Flexweave-backed | manual | not adopted yet>` via `<paths or notes>`.
+- Mechanics ticking/events: `<Flexweave-backed | manual | not adopted yet>` via `<paths or notes>`.
+- Manual systems to preserve: `<paths or none>`.
 
-## Generated Output Ownership
+## Runtime Map
 
-Do not hand-edit these directories:
-
-- Abilities: `<path>`.
-- Effects: `<path>`.
-- Executions: `<path>`.
-- Modifiers: `<path>`.
-- Tags: `<path>`.
-- Reference: `<path>`.
-- Extension targets: `<target id -> path>`.
-
-## Runtime Hooks
-
-- Hook root: `<path>`.
-- Hook test stub root: `<path or none>`.
-- Hook dispatch/registration entry point: `<path or not wired yet>`.
-- Existing hook examples to copy: `<paths or none>`.
-- Runtime state/API helpers available to hooks: `<paths or inspect runtime when authoring>`.
-
-## Rust Bindings
-
-- Flexweave module path in Studio config: `<rust path>`.
-- Cargo/runtime import status: `<installed and imported | not wired yet>`.
-- Project-specific Rust bindings: `<extension namespace -> summary>`.
+- Runtime state owner: `<path>`.
+- Object creation/destruction path: `<path or not established yet>`.
+- Attribute/state mutation path: `<path or not established yet>`.
+- Ability activation path: `<path or not established yet>`.
+- Effect application/ticking path: `<path or not established yet>`.
+- Event publication/subscription path: `<path or not established yet>`.
+- Existing mechanics examples to mirror: `<paths or none>`.
 
 ## Mechanic Authoring Protocol
 
-1. Read this file and the active Studio config.
-2. Run validate and generated freshness checks before writing.
-3. Use `flexweave-studio plan` before `scaffold`.
-4. Run `flexweave-studio codegen`; never edit generated files directly.
-5. Implement consumer-owned hook behavior and runtime tests.
-6. Run validate, generated freshness check, fast verify, and relevant runtime tests.
+1. Read this file and inspect the runtime paths it names.
+2. Classify the requested mechanic by Core primitive: identity, attributes,
+   abilities, effects, tags, ticking, events, signals, or registries.
+3. Reuse the repo's existing Flexweave-backed seam for adopted primitives.
+4. Preserve documented manual systems unless migration is requested.
+5. Run existing compile/check commands and relevant gameplay tests.
+6. Update this file when the mechanic changes adoption status or establishes a
+   new reusable runtime path.
 
 ## Open Decisions
 
 - <decision, owner, date or trigger>
-
-## Starter Content
-
-- Setup-created starter mechanics: none.
-- If sample content is desired, use the Flexweave author mechanic skill after
-  setup and record the generated hook/test pattern here.
 
 ## Last Verified
 
