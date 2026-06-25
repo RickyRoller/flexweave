@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { STUDIO_CONFIG_FILE_NAME, validateStudioConfig } from "./schema";
+import { STUDIO_CONFIG_FILE_NAME, STUDIO_CONFIG_FILE_NAMES, validateStudioConfig } from "./schema";
 import type {
   ResolvedStudioProjectConfig,
   StudioConfigValidationResult,
@@ -35,10 +35,12 @@ export const findStudioConfig = (cwd = process.cwd()): StudioConfigDiscoveryResu
   let current = resolve(cwd);
 
   while (true) {
-    const candidate = resolve(current, STUDIO_CONFIG_FILE_NAME);
-    searched.push(candidate);
-    if (existsSync(candidate)) {
-      return { configPath: candidate, searched };
+    for (const fileName of STUDIO_CONFIG_FILE_NAMES) {
+      const candidate = resolve(current, fileName);
+      searched.push(candidate);
+      if (existsSync(candidate)) {
+        return { configPath: candidate, searched };
+      }
     }
 
     const parent = dirname(current);
@@ -47,6 +49,16 @@ export const findStudioConfig = (cwd = process.cwd()): StudioConfigDiscoveryResu
     }
     current = parent;
   }
+};
+
+const loadConfigValue = async (configPath: string): Promise<unknown> => {
+  if (configPath.endsWith(".json")) {
+    return JSON.parse(readFileSync(configPath, "utf-8"));
+  }
+
+  const href = `${pathToFileURL(configPath).href}?studioConfigLoad=${Date.now()}`;
+  const module = await import(href);
+  return module.default ?? module.config;
 };
 
 export const loadStudioConfig = async (
@@ -72,9 +84,7 @@ export const loadStudioConfig = async (
   }
 
   try {
-    const href = `${pathToFileURL(discovery.configPath).href}?studioConfigLoad=${Date.now()}`;
-    const module = await import(href);
-    const configValue = module.default ?? module.config;
+    const configValue = await loadConfigValue(discovery.configPath);
     return validateStudioConfig(configValue, {
       configDir: dirname(discovery.configPath),
       configPath: discovery.configPath,

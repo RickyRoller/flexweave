@@ -7,7 +7,8 @@ import type {
   StudioSourceLocation,
 } from "../extensions";
 
-export const STUDIO_CONFIG_FILE_NAME = "studio.config.ts";
+export const STUDIO_CONFIG_FILE_NAME = "studio.config.json";
+export const STUDIO_CONFIG_FILE_NAMES = [STUDIO_CONFIG_FILE_NAME, "studio.config.ts"] as const;
 
 export interface StudioDiagnostic {
   code: string;

@@ -1,4 +1,4 @@
 interface:
   display_name: "Flexweave Setup"
-  short_description: "Set up Flexweave Core and Studio in a consumer repo."
+  short_description: "Set up Flexweave config and integration map in a consumer repo."
   default_prompt: "Set up Flexweave in this repository."

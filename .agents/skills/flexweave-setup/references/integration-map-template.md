@@ -16,15 +16,15 @@ Studio commands; game semantics live in the consumer runtime.
 ## Integration Mode
 
 - Core: <enabled/disabled>, imported by <crate/package/module>.
-- Studio codegen: <enabled/disabled>, config path: `<path>`.
+- Studio codegen: <enabled/disabled>, config path: `<path, usually studio.config.json>`.
 - Studio host app: <enabled/disabled>, app root: `<path or none>`.
 
 ## Dependencies
 
 - Rust crate: `flexweave` from <registry/path/version>.
-- Studio package: `@flexweave/studio` from <registry/path/version>.
+- Studio CLI: `flexweave-studio` from <install source/version>.
 - Studio app package: `@flexweave/studio-app` from <registry/path/version or none>.
-- Package manager command prefix: `<bun x | pnpm exec | npx | direct bin>`.
+- Studio command prefix: `<flexweave-studio | pnpm exec flexweave-studio | npx flexweave-studio | direct bin>`.
 
 ## Command Map
 
@@ -71,7 +71,7 @@ Do not hand-edit these directories:
 
 ## Mechanic Authoring Protocol
 
-1. Read this file and `studio.config.ts`.
+1. Read this file and the active Studio config.
 2. Run validate and generated freshness checks before writing.
 3. Use `flexweave-studio plan` before `scaffold`.
 4. Run `flexweave-studio codegen`; never edit generated files directly.
@@ -81,6 +81,12 @@ Do not hand-edit these directories:
 ## Open Decisions
 
 - <decision, owner, date or trigger>
+
+## Starter Content
+
+- Setup-created starter mechanics: none.
+- If sample content is desired, use the Flexweave author mechanic skill after
+  setup and record the generated hook/test pattern here.
 
 ## Last Verified
 

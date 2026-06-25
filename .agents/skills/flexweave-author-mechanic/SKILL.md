@@ -13,7 +13,7 @@ artifact before making mechanic changes.
 
 1. Load context:
    - Read `FLEXWEAVE.md`.
-   - Read the active `studio.config.ts`.
+   - Read the active Studio config, usually `studio.config.json`.
    - Read generated reference docs when the integration map names one.
    - Inspect existing hook implementations, runtime registration, and tests.
 2. Translate the user request into a mechanic brief:

@@ -9,7 +9,8 @@ server-safe workflow functions for local host apps.
 Flexweave Studio does not own consumer runtime semantics, consumer catalog
 content, generated output directories, runtime hook implementations after stub
 creation, local host app entry points, deployment, or project-specific labels.
-Those belong to the consumer project and are declared through `studio.config.ts`.
+Those belong to the consumer project and are declared through `studio.config.json`
+by default.
 
 ## Public Entry Points
 
@@ -63,7 +64,8 @@ flexweave-studio migrate
 ```
 
 Every project command accepts `--config <path>`. When omitted, Studio discovers
-`studio.config.ts` by walking upward from the current working directory.
+`studio.config.json`, then `studio.config.ts`, by walking upward from the
+current working directory.
 Consumer paths in the config resolve from the directory containing the active
 config file.
 

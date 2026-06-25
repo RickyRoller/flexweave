@@ -1,104 +1,44 @@
 # Configure A Studio Project
 
-Create `studio.config.ts` at the consumer project root or pass its path with
-`--config`.
+Create `studio.config.json` at the consumer project root or pass its path with
+`--config`. Use JSON for normal game repos so Studio does not require a
+project-local JavaScript package install.
 
-```ts
-import { defineStudioConfig } from "@flexweave/studio/config";
-import {
-  defineStudioContentMapper,
-  defineStudioDataAdapter,
-  defineStudioExtension,
-} from "@flexweave/studio/extensions";
-
-const tableAdapter = defineStudioDataAdapter({
-  capabilities: ["read", "schema"],
-  id: "local-table",
-  load: ({ source }) => ({
-    records: [
+```json
+{
+  "catalogRoot": "content/catalog",
+  "codegen": {
+    "outputDirs": {
+      "abilities": "runtime/generated/abilities",
+      "effects": "runtime/generated/effects",
+      "executions": "runtime/generated/executions",
+      "modifiers": "runtime/generated/modifiers",
+      "reference": "content/generated-reference",
+      "tags": "runtime/generated/tags"
+    }
+  },
+  "hooks": {
+    "dir": "runtime/hooks",
+    "testStubsDir": "runtime/generated-hook-tests"
+  },
+  "rust": {
+    "flexweaveModule": "flexweave"
+  },
+  "verify": {
+    "commands": [
       {
-        id: "sample-row",
-        kind: "sample.table",
-        location: { column: 1, row: 2, sheet: "balance" },
-        value: source.options?.row,
+        "command": ["cargo", "test"],
+        "fast": true,
+        "name": "runtime tests"
       },
-    ],
-  }),
-});
-
-const tableMapper = defineStudioContentMapper({
-  id: "local-table-mapper",
-  map: ({ snapshots }) => ({
-    records: snapshots.flatMap((snapshot) =>
-      snapshot.records.map((record) => ({
-        expectedKind: "tags",
-        location: record.location,
-        sourceRecord: record,
-        value: {
-          id: record.id,
-          kind: "tag",
-          label: "Sample tag",
-        },
-      })),
-    ),
-  }),
-});
-
-const projectSources = defineStudioExtension({
-  contentMappers: [tableMapper],
-  dataAdapters: [tableAdapter],
-  id: "project-sources",
-});
-
-export default defineStudioConfig({
-  app: {
-    buildCommand: ["bun", "run", "build"],
-    checkCommand: ["bun", "run", "typecheck"],
-    root: "studio-host",
-  },
-  catalogRoot: "content/catalog",
-  data: {
-    sources: [
       {
-        adapterId: "local-table",
-        id: "balance-table",
-        options: {
-          row: {
-            id: "sample-row",
-            label: "Sample row",
-          },
-        },
-      },
-    ],
-  },
-  extensions: [projectSources],
-  codegen: {
-    outputDirs: {
-      abilities: "runtime/generated/abilities",
-      effects: "runtime/generated/effects",
-      executions: "runtime/generated/executions",
-      modifiers: "runtime/generated/modifiers",
-      reference: "content/generated-reference",
-      tags: "runtime/generated/tags",
-    },
-  },
-  hooks: {
-    dir: "runtime/hooks",
-    testStubsDir: "runtime/generated-hook-tests",
-  },
-  rust: {
-    flexweaveModule: "flexweave",
-  },
-  verify: {
-    commands: [
-      {
-        command: ["bun", "--version"],
-        fast: true,
-        name: "consumer check",
-      },
-    ],
-  },
-});
+        "command": ["cargo", "check"],
+        "fast": true,
+        "name": "runtime check"
+      }
+    ]
+  }
+}
 ```
 
 Relative paths resolve from the directory containing the active config file.
@@ -116,9 +56,15 @@ is the fallback when no check command is configured.
 
 Use a validate-only config only for validation flows:
 
-```ts
-export default defineStudioConfig({
-  mode: "validate-only",
-  catalogRoot: "content/catalog",
-});
+```json
+{
+  "mode": "validate-only",
+  "catalogRoot": "content/catalog"
+}
 ```
+
+Use a TypeScript config only when the project needs executable extensions,
+custom data adapters, content mappers, generated targets, or host app
+contributions. TypeScript configs can still import helpers from
+`@flexweave/studio`, which means the consumer repo must make that package
+resolvable through its chosen JavaScript tooling.

@@ -64,7 +64,7 @@ Use this internally before editing files:
 Generated files are owned by Studio and should be changed only by:
 
 - Editing catalog source records.
-- Updating `studio.config.ts` or extension codegen config.
+- Updating the active Studio config or extension codegen config.
 - Running `flexweave-studio codegen`.
 
 If generated output is stale, fix the source of truth and rerun codegen.

@@ -60,7 +60,7 @@ test("CLI help advertises the Phase 3 public Studio contract", async () => {
   for (const phrase of [
     "flexweave-studio",
     "@flexweave/studio",
-    "defineStudioConfig",
+    "studio.config.json",
     "Studio catalog",
     "Studio project config",
     "generated mechanics definitions",

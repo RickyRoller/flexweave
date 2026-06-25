@@ -29,5 +29,8 @@ Commands:
   local host app scaffold metadata when present and reports changed files,
   skipped work, unsupported versions, and manual follow-ups.
 
+When omitted, project commands discover `studio.config.json` before
+`studio.config.ts`.
+
 Failures exit non-zero. JSON output includes structured diagnostics plus
 per-check status records and does not require parsing human output.

@@ -27,6 +27,52 @@ test("config loading supports explicit paths, discovery, relative paths, and val
   const discovered = await loadStudioConfig({ cwd: nested });
   expect(discovered.config?.configPath).toBe(fixtureConfigPath);
 
+  const jsonRoot = join(tmpdir(), `studio-json-config-${crypto.randomUUID()}`);
+  mkdirSync(join(jsonRoot, "catalog", "abilities"), { recursive: true });
+  writeFileSync(
+    join(jsonRoot, "studio.config.json"),
+    `${JSON.stringify(
+      {
+        catalogRoot: "catalog",
+        codegen: {
+          outputDirs: {
+            abilities: "generated/abilities",
+            effects: "generated/effects",
+            executions: "generated/executions",
+            modifiers: "generated/modifiers",
+            reference: "generated/reference",
+            tags: "generated/tags",
+          },
+        },
+        hooks: {
+          dir: "runtime-hooks",
+        },
+        rust: {
+          flexweaveModule: "flexweave",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+  writeFileSync(
+    join(jsonRoot, "studio.config.ts"),
+    [
+      'import { defineStudioConfig } from "@flexweave/studio/config";',
+      "export default defineStudioConfig({",
+      '  catalogRoot: "wrong",',
+      "});",
+      "",
+    ].join("\n"),
+  );
+
+  const jsonNested = join(jsonRoot, "catalog/abilities");
+  expect(findStudioConfig(jsonNested).configPath).toBe(join(jsonRoot, "studio.config.json"));
+  const jsonLoaded = await loadStudioConfig({ cwd: jsonNested });
+  expect(jsonLoaded.ok).toBe(true);
+  expect(jsonLoaded.config?.configPath).toBe(join(jsonRoot, "studio.config.json"));
+  expect(jsonLoaded.config?.paths.catalogRoot).toBe(join(jsonRoot, "catalog"));
+
   const validateOnlyRoot = join(tmpdir(), `studio-validate-only-${crypto.randomUUID()}`);
   mkdirSync(join(validateOnlyRoot, "catalog"), { recursive: true });
   linkWorkspacePackage(validateOnlyRoot);

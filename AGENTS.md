@@ -23,7 +23,7 @@ npx skills@latest add RickyRoller/flexweave --skill flexweave-setup --skill flex
 ```
 
 - Use `.agents/skills/flexweave-setup/SKILL.md` when integrating Flexweave into
-  a consumer repo, creating `studio.config.ts`, wiring codegen scripts, or
+  a consumer repo, creating `studio.config.json`, wiring Studio ownership paths, or
   creating the `FLEXWEAVE.md` integration map.
 - Use `.agents/skills/flexweave-author-mechanic/SKILL.md` when adding or
   changing a consumer mechanic, ability, effect, modifier, execution hook, tag,

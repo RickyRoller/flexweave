@@ -46,7 +46,7 @@ const commandHelp: Record<string, string[]> = {
   codegen: [
     "flexweave-studio codegen [--check] [--target name|a,b] [--config path] [--json] [--quiet]",
     "Refresh or check generated mechanics definitions for the configured Studio catalog.",
-    "Uses Studio project config from defineStudioConfig to keep generated output in consumer-declared paths.",
+    "Uses Studio project config to keep generated output in consumer-declared paths.",
     "Reports runtime hooks that connect generated definitions to the consumer runtime.",
   ],
   describe: [
@@ -92,7 +92,7 @@ const rootHelp = () => [
   "flexweave-studio <command> [--config path] [--json] [--quiet]",
   "",
   "Package: @flexweave/studio",
-  "Use in a consumer project with defineStudioConfig to load Studio project config.",
+  "Use in a consumer project with studio.config.json or an explicit Studio project config path.",
   "Workflows validate a Studio catalog, refresh generated mechanics definitions, and check runtime hooks for the consumer runtime.",
   "",
   "Commands:",

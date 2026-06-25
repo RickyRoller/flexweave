@@ -1,12 +1,16 @@
 # Studio Project Config Reference
 
-`@flexweave/studio/config` exports `defineStudioConfig`, input types, resolved
-config types, and diagnostic types. The helper is a typed identity function and
-does not perform filesystem IO.
+`studio.config.json` is the default project config format. JSON configs keep
+ordinary game repos independent from project-local JavaScript package installs.
+
+`@flexweave/studio/config` also exports `defineStudioConfig`, input types,
+resolved config types, and diagnostic types for projects that need TypeScript
+configs. The helper is a typed identity function and does not perform filesystem
+IO.
 
 `@flexweave/studio/config/load` exports config discovery and loading helpers.
 Discovery searches upward from the provided working directory for
-`studio.config.ts`.
+`studio.config.json`, then `studio.config.ts`.
 
 `@flexweave/studio/extensions` exports `defineStudioExtension`,
 `defineStudioDataAdapter`, `defineStudioContentMapper`, source snapshot types,

@@ -5,13 +5,13 @@ the configured catalog and writes them only to configured output directories.
 They should be refreshed with:
 
 ```bash
-flexweave-studio codegen --config studio.config.ts
+flexweave-studio codegen --config studio.config.json
 ```
 
 CI should use the no-write freshness check:
 
 ```bash
-flexweave-studio codegen --check --config studio.config.ts
+flexweave-studio codegen --check --config studio.config.json
 ```
 
 Runtime hook stubs are different from generated mechanics definitions. Studio
@@ -20,8 +20,8 @@ creates missing stubs only once and never overwrites existing hook files.
 Package updates should use an explicit upgrade flow:
 
 ```bash
-flexweave-studio migrate --config studio.config.ts
-flexweave-studio verify --config studio.config.ts
+flexweave-studio migrate --config studio.config.json
+flexweave-studio verify --config studio.config.json
 ```
 
 `migrate` gives package and extension-owned changes a stable command contract.

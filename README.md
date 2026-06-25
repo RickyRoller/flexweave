@@ -13,24 +13,25 @@ and the Studio authoring surface.
 
 ## Local Host App Model
 
-Consumer projects run Studio through a small local host app backed by versioned
-Flexweave packages. The consumer project owns its Studio project config,
-catalog content, generated output directories, runtime hooks, local host app
-entry point, adapter, branding, and deployment.
+Consumer projects run Studio workflows through the versioned `flexweave-studio`
+CLI. The consumer project owns its Studio project config, catalog content,
+generated output directories, runtime hooks, optional local host app entry point,
+adapter, branding, and deployment.
 
-The shared Flexweave packages own the reusable workflows and app shell. Package
-Create the initial local host app with:
+Create a local host app only when the project needs an authoring UI. The shared
+Flexweave packages own the reusable workflows and app shell. Create the initial
+local host app with:
 
 ```bash
-flexweave-studio scaffold host-app
+flexweave-studio scaffold host-app --config studio.config.json
 ```
 
-Package updates use this flow:
+CLI and package updates use this flow:
 
 ```bash
-bun update @flexweave/studio @flexweave/studio-app
-bun run flexweave-studio migrate
-bun run flexweave-studio verify
+npm update --global @flexweave/studio
+flexweave-studio migrate --config studio.config.json
+flexweave-studio verify --config studio.config.json
 ```
 
 ## Agent Skills

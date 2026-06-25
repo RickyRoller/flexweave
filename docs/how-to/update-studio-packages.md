@@ -1,20 +1,23 @@
 # Update Studio Packages
 
-Use this flow when a consumer project receives a newer Flexweave Studio package
-set.
+Use this flow when a consumer project receives a newer Flexweave Studio CLI or
+host app package set.
 
 ## Steps
 
-1. Update the Studio packages.
+1. Update the Studio CLI.
 
    ```bash
-   bun update @flexweave/studio @flexweave/studio-app
+   npm update --global @flexweave/studio
    ```
 
-2. Run migrations supplied by the installed package version.
+   If the repo has a local Studio host app, also update its local app package
+   dependencies with that repo's package manager.
+
+2. Run migrations supplied by the installed CLI version.
 
    ```bash
-   bun run flexweave-studio migrate
+   flexweave-studio migrate --config studio.config.json
    ```
 
    `migrate` reads local host app scaffold metadata when present and lists
@@ -24,10 +27,10 @@ set.
    wiring.
 
    ```bash
-   bun run flexweave-studio verify
+   flexweave-studio verify --config studio.config.json
    ```
 
-   When `studio.config.ts` declares `app.root`, `verify` also checks the local
+   When `studio.config.json` declares `app.root`, `verify` also checks the local
    host app scaffold and runs its configured check or build command.
 
 ## Expected Ownership
