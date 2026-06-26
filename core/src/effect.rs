@@ -8,11 +8,11 @@ mod pipeline;
 
 pub use application::{
     EffectApplication, EffectApplicationDecision, EffectApplicationInput,
-    EffectApplicationRejection,
+    EffectApplicationRejection, EffectSourcePolicy,
 };
 pub use definition::{
     EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectKind, EffectRouting,
 };
 pub use events::{EffectAdvance, EffectExecution, EffectInstance, EffectLifecycleEvent};
 pub use ids::ActiveEffectId;
-pub use pipeline::EffectPipeline;
+pub use pipeline::{EffectApplicationError, EffectPipeline};

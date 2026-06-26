@@ -1,5 +1,5 @@
 use crate::clock::ClockUnits;
-use crate::identity::ObjectId;
+use crate::identity::{ObjectId, ObjectStore};
 use crate::tag::TagCollection;
 use std::fmt;
 
@@ -20,6 +20,13 @@ pub type AbilityEndResult<Tags, Cost, Payload, Error> =
 pub enum AbilityError {
     MissingAbility,
     MissingActivation,
+    InvalidOwner {
+        owner_id: ObjectId,
+    },
+    OwnerMismatch {
+        expected_owner_id: ObjectId,
+        actual_owner_id: ObjectId,
+    },
     AbilityOnCooldown,
 }
 
@@ -28,6 +35,8 @@ impl fmt::Display for AbilityError {
         let message = match self {
             Self::MissingAbility => "missing ability",
             Self::MissingActivation => "missing ability activation",
+            Self::InvalidOwner { .. } => "invalid ability owner",
+            Self::OwnerMismatch { .. } => "ability owner mismatch",
             Self::AbilityOnCooldown => "ability is on cooldown",
         };
         formatter.write_str(message)
@@ -66,6 +75,22 @@ where
         }
     }
 }
+
+/// Ability grant validation failures.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AbilityGrantError {
+    InvalidOwner { owner_id: ObjectId },
+}
+
+impl fmt::Display for AbilityGrantError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidOwner { .. } => formatter.write_str("invalid ability grant owner"),
+        }
+    }
+}
+
+impl std::error::Error for AbilityGrantError {}
 
 /// Grant input for `AbilityStore`.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -154,6 +179,9 @@ where
     }
 
     /// Grants a new ability and returns its deterministic id.
+    ///
+    /// This is the low-level unchecked path: `input.owner_id` is copied as-is.
+    /// Prefer [`Self::grant_checked`] when an `ObjectStore` is available.
     pub fn grant(&mut self, input: Grant<Tags, Cost, Payload>) -> AbilityId {
         let id = self.next_id;
         self.next_id = AbilityId::new(self.next_id.get() + 1);
@@ -169,7 +197,27 @@ where
         id
     }
 
+    /// Grants a new ability after validating that its owner is live.
+    pub fn grant_checked(
+        &mut self,
+        objects: &ObjectStore,
+        input: Grant<Tags, Cost, Payload>,
+    ) -> Result<AbilityId, AbilityGrantError> {
+        if !objects.exists(input.owner_id) {
+            return Err(AbilityGrantError::InvalidOwner {
+                owner_id: input.owner_id,
+            });
+        }
+
+        Ok(self.grant(input))
+    }
+
     /// Validates an authorable definition before granting a runtime ability.
+    ///
+    /// This is the low-level unchecked grant path for object references: it
+    /// validates authoring metadata but copies `input.owner_id` as-is.
+    /// Prefer [`Self::grant_checked`] plus definition validation for common
+    /// runtime flows.
     pub fn grant_with_definition<PayloadSchema>(
         &mut self,
         definition: &AbilityDefinition<PayloadSchema>,
@@ -270,6 +318,33 @@ where
         self.begin_activation_with_events(ability_id, commit_timing, context, hooks, |_| {})
     }
 
+    /// Begins a non-instant activation for an expected owner.
+    ///
+    /// This checked wrapper rejects invalid expected owners and owner/ability
+    /// mismatches before caller-owned hooks run.
+    pub fn begin_activation_for_with<Context, Hooks>(
+        &mut self,
+        owner_id: ObjectId,
+        ability_id: AbilityId,
+        commit_timing: AbilityCommitTiming,
+        context: &mut Context,
+        hooks: &mut Hooks,
+    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error>>
+    where
+        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        Cost: Clone,
+        Payload: Clone,
+    {
+        self.begin_activation_for_with_events(
+            owner_id,
+            ability_id,
+            commit_timing,
+            context,
+            hooks,
+            |_| {},
+        )
+    }
+
     /// Begins a non-instant activation and emits attempt, rejection, commit, and start facts.
     pub fn begin_activation_with_events<Context, Hooks, F>(
         &mut self,
@@ -367,6 +442,71 @@ where
         self.active_abilities.push(active.clone());
         emit(AbilityLifecycleEvent::Started(active));
         Ok(activation_id)
+    }
+
+    /// Begins a non-instant activation for an expected owner and emits lifecycle facts.
+    ///
+    /// This checked wrapper rejects invalid expected owners and owner/ability
+    /// mismatches before caller-owned hooks run. It otherwise delegates to
+    /// [`Self::begin_activation_with_events`].
+    pub fn begin_activation_for_with_events<Context, Hooks, F>(
+        &mut self,
+        owner_id: ObjectId,
+        ability_id: AbilityId,
+        commit_timing: AbilityCommitTiming,
+        context: &mut Context,
+        hooks: &mut Hooks,
+        mut emit: F,
+    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error>>
+    where
+        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        Cost: Clone,
+        Payload: Clone,
+        F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+    {
+        if owner_id.is_invalid() {
+            emit(AbilityLifecycleEvent::Rejected(
+                AbilityActivationRejection {
+                    attempt: None,
+                    reason: AbilityActivationRejectionReason::InvalidOwner,
+                },
+            ));
+            return Err(AbilityActivationError::Ability(
+                AbilityError::InvalidOwner { owner_id },
+            ));
+        }
+
+        let Some(ability_index) = self.find_index(ability_id) else {
+            emit(AbilityLifecycleEvent::Rejected(
+                AbilityActivationRejection {
+                    attempt: None,
+                    reason: AbilityActivationRejectionReason::MissingAbility,
+                },
+            ));
+            return Err(AbilityActivationError::Ability(
+                AbilityError::MissingAbility,
+            ));
+        };
+
+        let actual_owner_id = self.abilities[ability_index].owner_id;
+        if actual_owner_id != owner_id {
+            let attempt = Self::attempt_from_ability(&self.abilities[ability_index]);
+            emit(AbilityLifecycleEvent::Attempted(attempt.clone()));
+            emit(AbilityLifecycleEvent::Rejected(
+                AbilityActivationRejection {
+                    attempt: Some(attempt),
+                    reason: AbilityActivationRejectionReason::OwnerMismatch,
+                },
+            ));
+            return Err(AbilityActivationError::Ability(
+                AbilityError::OwnerMismatch {
+                    expected_owner_id: owner_id,
+                    actual_owner_id,
+                },
+            ));
+        }
+
+        self.begin_activation_with_events(ability_id, commit_timing, context, hooks, emit)
     }
 
     /// Runs an instant activation without emitting lifecycle facts.
