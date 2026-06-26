@@ -129,6 +129,16 @@ where
     pub payload: Payload,
 }
 
+/// Grants and active executions removed while cleaning up one owner object.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct RevokedOwnerAbilities<Tags, Cost, Payload>
+where
+    Tags: TagCollection,
+{
+    pub grants: Vec<GrantedAbility<Tags, Cost, Payload>>,
+    pub active_abilities: Vec<ActiveAbility<Tags, Cost, Payload>>,
+}
+
 impl<Tags, Cost, Payload> GrantedAbility<Tags, Cost, Payload>
 where
     Tags: TagCollection,
@@ -177,6 +187,55 @@ where
     ) -> Result<AbilityId, AbilityDefinitionError> {
         definition.validate()?;
         Ok(self.grant(input))
+    }
+
+    /// Revokes granted and active abilities owned by `owner_id`.
+    #[must_use]
+    pub fn revoke_owner(&mut self, owner_id: ObjectId) -> RevokedOwnerAbilities<Tags, Cost, Payload>
+    where
+        Cost: Clone,
+        Payload: Clone,
+    {
+        self.revoke_owner_with_events(owner_id, |_| {})
+    }
+
+    /// Revokes granted abilities and cancels active abilities owned by `owner_id`.
+    pub fn revoke_owner_with_events<F>(
+        &mut self,
+        owner_id: ObjectId,
+        mut emit: F,
+    ) -> RevokedOwnerAbilities<Tags, Cost, Payload>
+    where
+        Cost: Clone,
+        Payload: Clone,
+        F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+    {
+        let mut active_abilities = Vec::new();
+        let mut active_index = 0;
+        while active_index < self.active_abilities.len() {
+            if self.active_abilities[active_index].owner_id == owner_id {
+                let active = self.active_abilities.remove(active_index);
+                emit(AbilityLifecycleEvent::Canceled(active.clone()));
+                active_abilities.push(active);
+            } else {
+                active_index += 1;
+            }
+        }
+
+        let mut grants = Vec::new();
+        let mut ability_index = 0;
+        while ability_index < self.abilities.len() {
+            if self.abilities[ability_index].owner_id == owner_id {
+                grants.push(self.abilities.remove(ability_index));
+            } else {
+                ability_index += 1;
+            }
+        }
+
+        RevokedOwnerAbilities {
+            grants,
+            active_abilities,
+        }
     }
 
     #[must_use]

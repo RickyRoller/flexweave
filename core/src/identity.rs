@@ -92,6 +92,17 @@ impl ObjectStore {
         Ok(id)
     }
 
+    /// Destroys a live object handle without reusing its id.
+    pub fn destroy(&mut self, id: ObjectId) -> Result<ObjectId, CoreError> {
+        if id.is_invalid() {
+            return Err(CoreError::InvalidObjectId);
+        }
+        let Some(index) = self.ids.iter().position(|existing_id| *existing_id == id) else {
+            return Err(CoreError::InvalidObjectId);
+        };
+        Ok(self.ids.remove(index))
+    }
+
     /// Returns true when `id` is live in this store.
     #[must_use]
     pub fn exists(&self, id: ObjectId) -> bool {

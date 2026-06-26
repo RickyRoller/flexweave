@@ -15,4 +15,4 @@ pub use definition::{
 };
 pub use events::{EffectAdvance, EffectExecution, EffectInstance, EffectLifecycleEvent};
 pub use ids::ActiveEffectId;
-pub use pipeline::EffectPipeline;
+pub use pipeline::{EffectObjectRemovalPolicy, EffectPipeline};

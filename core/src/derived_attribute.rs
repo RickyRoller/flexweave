@@ -78,6 +78,11 @@ impl DerivedAttribute {
         self.tracked.count()
     }
 
+    /// Removes the tracked cache entry for `id` without running the calculator.
+    pub fn untrack(&mut self, id: ObjectId) -> bool {
+        self.tracked.remove(id)
+    }
+
     /// Seeds or overwrites the tracked cache without notifying listeners.
     pub fn sync(&mut self, id: ObjectId) -> Option<AttributeValue> {
         let current = self.get(id);

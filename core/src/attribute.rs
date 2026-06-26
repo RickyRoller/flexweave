@@ -323,6 +323,11 @@ impl Attribute {
         self.values.put(id, value);
     }
 
+    /// Detaches the stored value for `id` without emitting an attribute-change fact.
+    pub fn detach(&mut self, id: ObjectId) -> bool {
+        self.values.remove(id)
+    }
+
     /// Registers a listener in deterministic registration order.
     pub fn add_listener<F>(&mut self, listener: F)
     where

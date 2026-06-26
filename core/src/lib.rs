@@ -27,6 +27,7 @@ pub mod errors;
 pub mod identity;
 pub mod lifecycle;
 pub mod mechanics;
+pub mod object_lifecycle;
 pub(crate) mod object_map;
 pub mod query;
 pub mod registry;
@@ -53,7 +54,7 @@ pub use effect::{
     ActiveEffectId, EffectAdvance, EffectApplication, EffectApplicationDecision,
     EffectApplicationInput, EffectApplicationRejection, EffectClockPolicy, EffectDefinition,
     EffectDefinitionError, EffectExecution, EffectInstance, EffectKind, EffectLifecycleEvent,
-    EffectPipeline, EffectRouting,
+    EffectObjectRemovalPolicy, EffectPipeline, EffectRouting,
 };
 pub use errors::CoreError;
 pub use identity::{INVALID_OBJECT_ID, ObjectId, ObjectStore};
@@ -63,6 +64,7 @@ pub use lifecycle::{
     LifecycleEvent, LifecycleEventKind, LocalLifecycleEvent, ScopedEventConnection,
 };
 pub use mechanics::{MechanicsDriver, MechanicsStore};
+pub use object_lifecycle::{ObjectDestructionDriver, ObjectLifecycleStore};
 pub use registry::{DefinitionRegistryEntry, Registry, RegistryEntry};
 pub use signal::{
     SignalDefinition, SignalDefinitionError, SignalDefinitions, SignalExportPolicy, SignalFact,

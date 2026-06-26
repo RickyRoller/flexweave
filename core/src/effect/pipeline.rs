@@ -20,6 +20,14 @@ where
     effects: Vec<EffectInstance<Tags, Payload>>,
 }
 
+/// Which object references cause active effects to be removed during cleanup.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EffectObjectRemovalPolicy {
+    Source,
+    Target,
+    SourceOrTarget,
+}
+
 impl<Tags, Payload> Default for EffectPipeline<Tags, Payload>
 where
     Tags: TagCollection,
@@ -178,6 +186,44 @@ where
         Some(removed)
     }
 
+    /// Removes active effects that reference `object_id` according to `policy`.
+    #[must_use]
+    pub fn remove_for_object(
+        &mut self,
+        object_id: ObjectId,
+        policy: EffectObjectRemovalPolicy,
+    ) -> Vec<EffectInstance<Tags, Payload>>
+    where
+        Payload: Clone,
+    {
+        self.remove_for_object_with_events(object_id, policy, |_| {})
+    }
+
+    /// Removes active effects that reference `object_id` and emits removal facts.
+    pub fn remove_for_object_with_events<F>(
+        &mut self,
+        object_id: ObjectId,
+        policy: EffectObjectRemovalPolicy,
+        mut on_event: F,
+    ) -> Vec<EffectInstance<Tags, Payload>>
+    where
+        Payload: Clone,
+        F: FnMut(EffectLifecycleEvent<Tags, Payload>),
+    {
+        let mut removed = Vec::new();
+        let mut index = 0;
+        while index < self.effects.len() {
+            if policy.matches(&self.effects[index], object_id) {
+                let effect = self.effects.remove(index);
+                on_event(EffectLifecycleEvent::Removed(effect.clone()));
+                removed.push(effect);
+            } else {
+                index += 1;
+            }
+        }
+        removed
+    }
+
     #[must_use]
     pub fn count(&self) -> usize {
         self.effects.len()
@@ -214,6 +260,25 @@ where
     {
         for effect in &self.effects {
             on_effect(effect);
+        }
+    }
+}
+
+impl EffectObjectRemovalPolicy {
+    fn matches<Tags, Payload>(
+        self,
+        effect: &EffectInstance<Tags, Payload>,
+        object_id: ObjectId,
+    ) -> bool
+    where
+        Tags: TagCollection,
+    {
+        match self {
+            Self::Source => effect.source_id == Some(object_id),
+            Self::Target => effect.target_id == object_id,
+            Self::SourceOrTarget => {
+                effect.source_id == Some(object_id) || effect.target_id == object_id
+            }
         }
     }
 }

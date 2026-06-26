@@ -23,6 +23,11 @@ impl<T> DataStore<T> {
         self.values.put(id, value);
     }
 
+    /// Detaches data for `id` without validating object existence.
+    pub fn detach(&mut self, id: ObjectId) -> bool {
+        self.values.remove(id)
+    }
+
     /// Returns true when data is attached for `id`.
     #[must_use]
     pub fn has(&self, id: ObjectId) -> bool {
