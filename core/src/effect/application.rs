@@ -1,3 +1,4 @@
+use crate::ability::ActiveAbility;
 use crate::identity::ObjectId;
 use crate::tag::TagCollection;
 
@@ -18,6 +19,15 @@ where
 pub enum EffectApplicationDecision {
     Accept,
     Reject { reason: String },
+}
+
+/// Policy for applications whose `source_id` is absent.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EffectSourcePolicy {
+    /// Allow `source_id: None` for environmental or system effects.
+    AllowSystemSource,
+    /// Require `source_id: Some(_)` and validate that source against the object store.
+    RequireLiveSource,
 }
 
 /// Application input for the effect pipeline.
@@ -70,6 +80,33 @@ where
                 reason: reason.into(),
             },
         }
+    }
+
+    #[must_use]
+    pub fn accept_from_active_ability<AbilityTags, Cost, AbilityPayload>(
+        active: &ActiveAbility<AbilityTags, Cost, AbilityPayload>,
+        target_id: ObjectId,
+        tags: Tags,
+        payload: Payload,
+    ) -> Self
+    where
+        AbilityTags: TagCollection,
+    {
+        Self::accept(active.source_id(), target_id, tags, payload)
+    }
+
+    #[must_use]
+    pub fn reject_from_active_ability<AbilityTags, Cost, AbilityPayload>(
+        active: &ActiveAbility<AbilityTags, Cost, AbilityPayload>,
+        target_id: ObjectId,
+        tags: Tags,
+        payload: Payload,
+        reason: impl Into<String>,
+    ) -> Self
+    where
+        AbilityTags: TagCollection,
+    {
+        Self::reject(active.source_id(), target_id, tags, payload, reason)
     }
 }
 

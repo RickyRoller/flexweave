@@ -17,6 +17,6 @@ pub use events::{
 pub use hooks::AbilityHooks;
 pub use ids::{AbilityActivationId, AbilityId, CooldownUnits};
 pub use store::{
-    AbilityActivationError, AbilityEndResult, AbilityError, AbilityStore, Grant, GrantedAbility,
-    RevokedOwnerAbilities,
+    AbilityActivationError, AbilityEndResult, AbilityError, AbilityGrantError, AbilityStore, Grant,
+    GrantedAbility, RevokedOwnerAbilities,
 };

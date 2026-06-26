@@ -2,10 +2,11 @@ mod common;
 
 use common::TestAtom;
 use flexweave::{
-    ActiveEffectId, EffectApplicationDecision, EffectApplicationInput, EffectClockPolicy,
+    AbilityActivationId, AbilityCommitTiming, AbilityId, ActiveAbility, ActiveEffectId,
+    EffectApplicationDecision, EffectApplicationError, EffectApplicationInput, EffectClockPolicy,
     EffectDefinition, EffectDefinitionError, EffectKind, EffectLifecycleEvent, EffectPipeline,
-    EffectRouting, EventChannel, EventChannelDefinition, EventRetention, LifecycleEventKind,
-    ObjectId, Tag, TagSet,
+    EffectRouting, EffectSourcePolicy, EventChannel, EventChannelDefinition, EventRetention,
+    LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet,
 };
 
 #[test]
@@ -429,6 +430,182 @@ fn effect_application_input_constructors_match_literals() {
             },
         }
     );
+}
+
+#[test]
+fn checked_effect_application_rejects_invalid_target() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum Payload {
+        Hit,
+    }
+
+    let mut objects = ObjectStore::new();
+    let source = objects.create();
+    let missing_target = ObjectId::new(9_999);
+    let mut pipeline = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
+    let mut events = Vec::new();
+
+    assert_eq!(
+        pipeline.apply_checked_with_events(
+            &objects,
+            &effect_definition("hit", EffectKind::Instant, None, None),
+            EffectApplicationInput::accept(
+                source,
+                missing_target,
+                TagSet::new([Tag::new([TestAtom::Category])]),
+                Payload::Hit,
+            ),
+            EffectSourcePolicy::RequireLiveSource,
+            |event| events.push(event),
+        ),
+        Err(EffectApplicationError::InvalidTarget {
+            target_id: missing_target,
+        })
+    );
+    assert!(events.is_empty());
+    assert_eq!(pipeline.count(), 0);
+}
+
+#[test]
+fn checked_effect_application_rejects_invalid_explicit_source() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum Payload {
+        Hit,
+    }
+
+    let mut objects = ObjectStore::new();
+    let target = objects.create();
+    let missing_source = ObjectId::new(9_999);
+    let mut pipeline = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
+    let mut events = Vec::new();
+
+    assert_eq!(
+        pipeline.apply_checked_with_events(
+            &objects,
+            &effect_definition("hit", EffectKind::Instant, None, None),
+            EffectApplicationInput::accept(
+                missing_source,
+                target,
+                TagSet::new([Tag::new([TestAtom::Category])]),
+                Payload::Hit,
+            ),
+            EffectSourcePolicy::RequireLiveSource,
+            |event| events.push(event),
+        ),
+        Err(EffectApplicationError::InvalidSource {
+            source_id: missing_source,
+        })
+    );
+    assert!(events.is_empty());
+    assert_eq!(pipeline.count(), 0);
+}
+
+#[test]
+fn checked_effect_application_allows_system_source_when_policy_permits() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum Payload {
+        Hit,
+    }
+
+    let mut objects = ObjectStore::new();
+    let target = objects.create();
+    let mut pipeline = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
+    let mut events = Vec::new();
+
+    let active_id = pipeline
+        .apply_checked_with_events(
+            &objects,
+            &effect_definition("hit", EffectKind::Instant, None, None),
+            EffectApplicationInput::accept(
+                None,
+                target,
+                TagSet::new([Tag::new([TestAtom::Category])]),
+                Payload::Hit,
+            ),
+            EffectSourcePolicy::AllowSystemSource,
+            |event| events.push(event),
+        )
+        .unwrap();
+
+    assert_eq!(active_id, None);
+    let [
+        EffectLifecycleEvent::ApplicationAccepted(accepted),
+        EffectLifecycleEvent::Executed(executed),
+    ] = events.as_slice()
+    else {
+        panic!("system-sourced instant effect should be accepted and executed");
+    };
+    assert_eq!(accepted.source_id, None);
+    assert_eq!(executed.source_id, None);
+
+    assert_eq!(
+        pipeline.apply_checked_with_events(
+            &objects,
+            &effect_definition("requires_source", EffectKind::Instant, None, None),
+            EffectApplicationInput::accept(
+                None,
+                target,
+                TagSet::new([Tag::new([TestAtom::Category])]),
+                Payload::Hit,
+            ),
+            EffectSourcePolicy::RequireLiveSource,
+            |_| {},
+        ),
+        Err(EffectApplicationError::MissingSource)
+    );
+}
+
+#[test]
+fn effect_input_can_derive_source_from_active_ability() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum Payload {
+        Hit,
+    }
+
+    let mut objects = ObjectStore::new();
+    let source = objects.create();
+    let target = objects.create();
+    let active = ActiveAbility {
+        activation_id: AbilityActivationId::new(1),
+        ability_id: AbilityId::new(1),
+        owner_id: source,
+        tags: TagSet::new([Tag::new([TestAtom::Ability])]),
+        cost: None::<()>,
+        payload: (),
+        commit_timing: AbilityCommitTiming::OnStart,
+        committed: true,
+    };
+    let input = EffectApplicationInput::accept_from_active_ability(
+        &active,
+        target,
+        TagSet::new([Tag::new([TestAtom::Category])]),
+        Payload::Hit,
+    );
+
+    assert_eq!(active.source_id(), source);
+    assert_eq!(input.source_id, Some(source));
+
+    let mut pipeline = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
+    let mut events = Vec::new();
+    pipeline
+        .apply_checked_with_events(
+            &objects,
+            &effect_definition("hit", EffectKind::Instant, None, None),
+            input,
+            EffectSourcePolicy::RequireLiveSource,
+            |event| events.push(event),
+        )
+        .unwrap();
+
+    let [
+        EffectLifecycleEvent::ApplicationAccepted(accepted),
+        EffectLifecycleEvent::Executed(executed),
+    ] = events.as_slice()
+    else {
+        panic!("active-ability-sourced instant effect should be accepted and executed");
+    };
+    assert_eq!(accepted.source_id, Some(source));
+    assert_eq!(executed.source_id, Some(source));
 }
 
 #[test]

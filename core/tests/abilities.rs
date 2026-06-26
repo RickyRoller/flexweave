@@ -4,9 +4,10 @@ use common::TestAtom;
 use flexweave::{
     AbilityActivationError, AbilityActivationId, AbilityActivationMode,
     AbilityActivationRejectionReason, AbilityCancelPolicy, AbilityCommitTiming, AbilityDefinition,
-    AbilityDefinitionError, AbilityError, AbilityHooks, AbilityId, AbilityLifecycleEvent,
-    AbilityStore, EventChannel, EventChannelDefinition, EventRetention, Grant, GrantedAbility,
-    LifecycleEvent, LifecycleEventKind, ObjectId, Tag, TagSet, ability,
+    AbilityDefinitionError, AbilityError, AbilityGrantError, AbilityHooks, AbilityId,
+    AbilityLifecycleEvent, AbilityStore, EventChannel, EventChannelDefinition, EventRetention,
+    Grant, GrantedAbility, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId,
+    ObjectStore, Tag, TagSet, ability,
 };
 
 #[test]
@@ -243,6 +244,47 @@ fn val_core_012_failed_ability_hooks_do_not_apply_cooldown_or_later_hooks() {
 }
 
 #[test]
+fn checked_grant_rejects_invalid_or_missing_owner() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Payload;
+
+    let mut objects = ObjectStore::new();
+    let live_owner = objects.create();
+    let tag = Tag::new([TestAtom::Ability]);
+    let mut abilities = AbilityStore::<TagSet<TestAtom>, (), Payload>::new();
+
+    assert_eq!(
+        abilities.grant_checked(
+            &objects,
+            Grant::new(INVALID_OBJECT_ID, TagSet::new([tag.clone()]), Payload),
+        ),
+        Err(AbilityGrantError::InvalidOwner {
+            owner_id: INVALID_OBJECT_ID,
+        })
+    );
+
+    let missing_owner = ObjectId::new(9_999);
+    assert_eq!(
+        abilities.grant_checked(
+            &objects,
+            Grant::new(missing_owner, TagSet::new([tag.clone()]), Payload),
+        ),
+        Err(AbilityGrantError::InvalidOwner {
+            owner_id: missing_owner,
+        })
+    );
+
+    let ability_id = abilities
+        .grant_checked(
+            &objects,
+            Grant::new(live_owner, TagSet::new([tag]), Payload),
+        )
+        .unwrap();
+    assert_eq!(ability_id, AbilityId::new(1));
+    assert_eq!(abilities.count(), 1);
+}
+
+#[test]
 fn active_ability_begin_on_start_commits_and_remains_active() {
     let mut abilities = ActiveAbilityStore::new();
     let ability_id = grant_active_ability(&mut abilities, Some(500));
@@ -418,6 +460,60 @@ fn active_ability_rejection_leaves_no_active_state_or_cooldown() {
             assert!(rejection.attempt.is_some());
         }
         event => panic!("expected rejection event, got {event:?}"),
+    }
+}
+
+#[test]
+fn checked_activation_rejects_owner_mismatch_before_hooks() {
+    let mut abilities = ActiveAbilityStore::new();
+    let ability_id = grant_active_ability(&mut abilities, Some(500));
+    let mut context = ActiveContext {
+        resource: 10,
+        events: Vec::new(),
+    };
+    let mut hooks = ActiveHooks { reject: false };
+    let mut events = Vec::new();
+    let expected_owner_id = ObjectId::new(10);
+
+    assert_eq!(
+        abilities.begin_activation_for_with_events(
+            expected_owner_id,
+            ability_id,
+            AbilityCommitTiming::OnStart,
+            &mut context,
+            &mut hooks,
+            |event| events.push(event),
+        ),
+        Err(AbilityActivationError::Ability(
+            AbilityError::OwnerMismatch {
+                expected_owner_id,
+                actual_owner_id: ObjectId::new(9),
+            }
+        ))
+    );
+
+    assert_eq!(context.events, Vec::<&'static str>::new());
+    assert_eq!(abilities.cooldown_remaining(ability_id), Ok(0));
+    assert_eq!(abilities.active_activation_count(), 0);
+    assert_eq!(
+        lifecycle_kinds(&events),
+        vec![
+            LifecycleEventKind::AbilityActivationAttempted,
+            LifecycleEventKind::AbilityActivationRejected,
+        ]
+    );
+    match &events[1] {
+        AbilityLifecycleEvent::Rejected(rejection) => {
+            assert_eq!(
+                rejection.reason,
+                AbilityActivationRejectionReason::OwnerMismatch
+            );
+            assert_eq!(
+                rejection.attempt.as_ref().map(|attempt| attempt.owner_id),
+                Some(ObjectId::new(9)),
+            );
+        }
+        event => panic!("expected owner mismatch rejection, got {event:?}"),
     }
 }
 

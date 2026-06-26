@@ -2,11 +2,11 @@ mod common;
 
 use common::TestAtom;
 use flexweave::{
-    AbilityCommitTiming, AbilityHooks, AbilityLifecycleEvent, AbilityStore, Attribute, CoreError,
-    DataStore, DerivedAttribute, EffectApplicationDecision, EffectApplicationInput,
-    EffectClockPolicy, EffectDefinition, EffectKind, EffectLifecycleEvent,
-    EffectObjectRemovalPolicy, EffectPipeline, Grant, ObjectDestructionDriver, ObjectId,
-    ObjectStore, Tag, TagSet, query,
+    AbilityCommitTiming, AbilityGrantError, AbilityHooks, AbilityLifecycleEvent, AbilityStore,
+    Attribute, CoreError, DataStore, DerivedAttribute, EffectApplicationError,
+    EffectApplicationInput, EffectClockPolicy, EffectDefinition, EffectKind, EffectLifecycleEvent,
+    EffectObjectRemovalPolicy, EffectPipeline, EffectSourcePolicy, Grant, ObjectDestructionDriver,
+    ObjectId, ObjectStore, Tag, TagSet, query,
 };
 
 #[test]
@@ -74,23 +74,31 @@ fn ability_owner_cleanup_revokes_grants_and_cancels_active_abilities() {
         type Error = ();
     }
 
-    let owner = ObjectId::new(10);
-    let other_owner = ObjectId::new(11);
+    let mut objects = ObjectStore::new();
+    let owner = objects.create();
+    let other_owner = objects.create();
     let mut abilities = AbilityStore::<TagSet<TestAtom>, (), Payload>::new();
-    let owned = abilities.grant(Grant::new(
-        owner,
-        TagSet::new([Tag::new([TestAtom::Ability])]),
-        Payload,
-    ));
-    let retained = abilities.grant(Grant::new(
-        other_owner,
-        TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Burst])]),
-        Payload,
-    ));
+    let owned = abilities
+        .grant_checked(
+            &objects,
+            Grant::new(owner, TagSet::new([Tag::new([TestAtom::Ability])]), Payload),
+        )
+        .unwrap();
+    let retained = abilities
+        .grant_checked(
+            &objects,
+            Grant::new(
+                other_owner,
+                TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Burst])]),
+                Payload,
+            ),
+        )
+        .unwrap();
     let mut context = ();
     let mut hooks = Hooks;
     let owned_activation = abilities
-        .begin_activation_with(
+        .begin_activation_for_with(
+            owner,
             owned,
             AbilityCommitTiming::OnStart,
             &mut context,
@@ -98,7 +106,8 @@ fn ability_owner_cleanup_revokes_grants_and_cancels_active_abilities() {
         )
         .unwrap();
     let retained_activation = abilities
-        .begin_activation_with(
+        .begin_activation_for_with(
+            other_owner,
             retained,
             AbilityCommitTiming::OnStart,
             &mut context,
@@ -132,9 +141,10 @@ fn effect_object_cleanup_removes_source_and_target_matches_with_events() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     struct Payload;
 
-    let source = ObjectId::new(1);
-    let removed_target = ObjectId::new(2);
-    let retained_target = ObjectId::new(3);
+    let mut objects = ObjectStore::new();
+    let source = objects.create();
+    let removed_target = objects.create();
+    let retained_target = objects.create();
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     let definition = EffectDefinition {
         key: "active".to_owned(),
@@ -145,28 +155,30 @@ fn effect_object_cleanup_removes_source_and_target_matches_with_events() {
         payload_schema: (),
     };
     effects
-        .apply_with_events(
+        .apply_checked_with_events(
+            &objects,
             &definition,
-            EffectApplicationInput {
-                source_id: Some(source),
-                target_id: removed_target,
-                tags: TagSet::new([Tag::new([TestAtom::Category])]),
-                payload: Payload,
-                decision: EffectApplicationDecision::Accept,
-            },
+            EffectApplicationInput::accept(
+                source,
+                removed_target,
+                TagSet::new([Tag::new([TestAtom::Category])]),
+                Payload,
+            ),
+            EffectSourcePolicy::RequireLiveSource,
             |_| {},
         )
         .unwrap();
     effects
-        .apply_with_events(
+        .apply_checked_with_events(
+            &objects,
             &definition,
-            EffectApplicationInput {
-                source_id: None,
-                target_id: retained_target,
-                tags: TagSet::new([Tag::new([TestAtom::Category])]),
-                payload: Payload,
-                decision: EffectApplicationDecision::Accept,
-            },
+            EffectApplicationInput::accept(
+                None,
+                retained_target,
+                TagSet::new([Tag::new([TestAtom::Category])]),
+                Payload,
+            ),
+            EffectSourcePolicy::AllowSystemSource,
             |_| {},
         )
         .unwrap();
@@ -185,15 +197,16 @@ fn effect_object_cleanup_removes_source_and_target_matches_with_events() {
 
     events.clear();
     effects
-        .apply_with_events(
+        .apply_checked_with_events(
+            &objects,
             &definition,
-            EffectApplicationInput {
-                source_id: Some(source),
-                target_id: retained_target,
-                tags: TagSet::new([Tag::new([TestAtom::Category, TestAtom::Variant])]),
-                payload: Payload,
-                decision: EffectApplicationDecision::Accept,
-            },
+            EffectApplicationInput::accept(
+                source,
+                retained_target,
+                TagSet::new([Tag::new([TestAtom::Category, TestAtom::Variant])]),
+                Payload,
+            ),
+            EffectSourcePolicy::RequireLiveSource,
             |_| {},
         )
         .unwrap();
@@ -208,4 +221,67 @@ fn effect_object_cleanup_removes_source_and_target_matches_with_events() {
     assert_eq!(events.len(), 1);
     assert_eq!(effects.count(), 1);
     assert!(effects.has_tag(retained_target, &Tag::new([TestAtom::Category])));
+}
+
+#[test]
+fn destroyed_objects_are_rejected_by_checked_runtime_paths() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Payload;
+
+    let mut objects = ObjectStore::new();
+    let destroyed = objects.create();
+    let live = objects.create();
+    assert_eq!(objects.destroy(destroyed), Ok(destroyed));
+
+    let mut abilities = AbilityStore::<TagSet<TestAtom>, (), Payload>::new();
+    assert_eq!(
+        abilities.grant_checked(
+            &objects,
+            Grant::new(
+                destroyed,
+                TagSet::new([Tag::new([TestAtom::Ability])]),
+                Payload,
+            ),
+        ),
+        Err(AbilityGrantError::InvalidOwner {
+            owner_id: destroyed,
+        })
+    );
+
+    let definition = EffectDefinition::instant("instant", ());
+    let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
+    assert_eq!(
+        effects.apply_checked_with_events(
+            &objects,
+            &definition,
+            EffectApplicationInput::accept(
+                live,
+                destroyed,
+                TagSet::new([Tag::new([TestAtom::Category])]),
+                Payload,
+            ),
+            EffectSourcePolicy::RequireLiveSource,
+            |_| {},
+        ),
+        Err(EffectApplicationError::InvalidTarget {
+            target_id: destroyed,
+        })
+    );
+    assert_eq!(
+        effects.apply_checked_with_events(
+            &objects,
+            &definition,
+            EffectApplicationInput::accept(
+                destroyed,
+                live,
+                TagSet::new([Tag::new([TestAtom::Category])]),
+                Payload,
+            ),
+            EffectSourcePolicy::RequireLiveSource,
+            |_| {},
+        ),
+        Err(EffectApplicationError::InvalidSource {
+            source_id: destroyed,
+        })
+    );
 }

@@ -13,6 +13,11 @@
 #![doc = "Flexweave owns allocation."]
 #![doc = "Stores and queries preserve deterministic iteration where ordering is part"]
 #![doc = "of the public contract."]
+#![doc = "When an `ObjectStore` is available, prefer checked runtime paths such as"]
+#![doc = "`AbilityStore::grant_checked`, `AbilityStore::begin_activation_for_with_events`,"]
+#![doc = "and `EffectPipeline::apply_checked_with_events`; the raw grant, activation,"]
+#![doc = "and application methods are low-level paths that trust caller-managed"]
+#![doc = "object-reference invariants."]
 #![doc = ""]
 #![doc = "The crate is fully safe Rust. Caller-owned hooks and closures carry domain"]
 #![doc = "logic at the edges while Flexweave owns the reusable lifecycle shape."]
@@ -38,8 +43,8 @@ pub use ability::{
     AbilityActivationAttempt, AbilityActivationCommit, AbilityActivationError, AbilityActivationId,
     AbilityActivationMode, AbilityActivationRejection, AbilityActivationRejectionReason,
     AbilityCancelPolicy, AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError,
-    AbilityEndResult, AbilityError, AbilityHooks, AbilityId, AbilityLifecycleEvent, AbilityStore,
-    ActiveAbility, CooldownUnits, Grant, GrantedAbility,
+    AbilityEndResult, AbilityError, AbilityGrantError, AbilityHooks, AbilityId,
+    AbilityLifecycleEvent, AbilityStore, ActiveAbility, CooldownUnits, Grant, GrantedAbility,
 };
 pub use attribute::{
     Attribute, AttributeChange, AttributeDefaultValue, AttributeDefinition,
@@ -52,9 +57,10 @@ pub use data_store::DataStore;
 pub use derived_attribute::{DerivedAttribute, DerivedChange};
 pub use effect::{
     ActiveEffectId, EffectAdvance, EffectApplication, EffectApplicationDecision,
-    EffectApplicationInput, EffectApplicationRejection, EffectClockPolicy, EffectDefinition,
-    EffectDefinitionError, EffectExecution, EffectInstance, EffectKind, EffectLifecycleEvent,
-    EffectObjectRemovalPolicy, EffectPipeline, EffectRouting,
+    EffectApplicationError, EffectApplicationInput, EffectApplicationRejection, EffectClockPolicy,
+    EffectDefinition, EffectDefinitionError, EffectExecution, EffectInstance, EffectKind,
+    EffectLifecycleEvent, EffectObjectRemovalPolicy, EffectPipeline, EffectRouting,
+    EffectSourcePolicy,
 };
 pub use errors::CoreError;
 pub use identity::{INVALID_OBJECT_ID, ObjectId, ObjectStore};

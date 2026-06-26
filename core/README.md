@@ -27,11 +27,16 @@ selection order.
 
 Abilities describe activation lifecycle, cooldown units, commit timing, grants,
 and cancellation policy. Caller-owned hooks decide whether an activation is
-accepted and what payload is committed.
+accepted and what payload is committed. Use `grant_checked` and
+`begin_activation_for_with_events` in common runtime flows so ability owners are
+validated against live objects and expected owners before hooks run.
 
 Effects describe application, execution, active lifetime, advancement,
 removal, and expiration. Active effect instances carry runtime effect state for
-a finite or indefinite lifetime.
+a finite or indefinite lifetime. Use `apply_checked_with_events` with an
+explicit `EffectSourcePolicy` when an `ObjectStore` is available; the raw
+`apply_with_events` path is reserved for callers that intentionally manage
+object-reference validity themselves.
 
 Signals and event channels record lifecycle facts that callers can project into
 their own runtime model. Retention policies make the exported facts explicit.

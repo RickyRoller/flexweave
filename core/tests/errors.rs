@@ -1,7 +1,7 @@
 use flexweave::{
-    AbilityActivationError, AbilityDefinitionError, AbilityError, AttributeDefinitionError,
-    CoreError, EffectDefinitionError, EventChannelDefinitionError, EventChannelError,
-    LifecycleEventKind, SignalDefinitionError,
+    AbilityActivationError, AbilityDefinitionError, AbilityError, AbilityGrantError,
+    AttributeDefinitionError, CoreError, EffectApplicationError, EffectDefinitionError,
+    EventChannelDefinitionError, EventChannelError, LifecycleEventKind, SignalDefinitionError,
 };
 use std::fmt;
 
@@ -27,8 +27,10 @@ fn public_flexweave_errors_implement_std_error() {
     assert_error::<CoreError>();
     assert_error::<AbilityDefinitionError>();
     assert_error::<AbilityError>();
+    assert_error::<AbilityGrantError>();
     assert_error::<AbilityActivationError<HookError>>();
     assert_error::<AttributeDefinitionError>();
+    assert_error::<EffectApplicationError>();
     assert_error::<EffectDefinitionError>();
     assert_error::<EventChannelDefinitionError>();
     assert_error::<EventChannelError>();

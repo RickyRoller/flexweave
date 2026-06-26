@@ -8,6 +8,8 @@ use super::ids::{AbilityActivationId, AbilityId, CooldownUnits};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AbilityActivationRejectionReason {
     MissingAbility,
+    InvalidOwner,
+    OwnerMismatch,
     OnCooldown,
     Hook,
 }
@@ -59,6 +61,17 @@ where
     pub payload: Payload,
     pub commit_timing: AbilityCommitTiming,
     pub committed: bool,
+}
+
+impl<Tags, Cost, Payload> ActiveAbility<Tags, Cost, Payload>
+where
+    Tags: TagCollection,
+{
+    /// Returns the domain-neutral source object for effects derived from this activation.
+    #[must_use]
+    pub fn source_id(&self) -> ObjectId {
+        self.owner_id
+    }
 }
 
 /// Ability lifecycle events.
