@@ -81,4 +81,3 @@ Carry originating definition keys where useful:
 - Active/runtime lifecycle facts can include originating definition key where useful.
 - Tests show activation/application cannot silently drift from definition metadata.
 - Studio ownership boundaries remain documented and unchanged.
-

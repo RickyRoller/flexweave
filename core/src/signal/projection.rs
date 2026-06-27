@@ -58,6 +58,7 @@ where
         for effect in effects {
             let context = SignalSourceContext {
                 source_lifecycle_event_kind: LifecycleEventKind::SignalReinvoked,
+                source_definition_key: effect.definition_key.clone(),
                 source_id: effect.source_id,
                 target_id: effect.target_id,
                 owner_id: None,
@@ -115,6 +116,7 @@ where
                 retention: definition.retention,
                 export: definition.export,
                 source_lifecycle_event_kind: context.source_lifecycle_event_kind,
+                source_definition_key: context.source_definition_key.clone(),
                 source_id: context.source_id,
                 target_id: context.target_id,
                 owner_id: context.owner_id,
@@ -133,6 +135,7 @@ where
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct SignalSourceContext<Atom, SourcePayload> {
     source_lifecycle_event_kind: LifecycleEventKind,
+    source_definition_key: Option<String>,
     source_id: Option<ObjectId>,
     target_id: ObjectId,
     owner_id: Option<ObjectId>,
@@ -153,6 +156,7 @@ where
     match event {
         EffectLifecycleEvent::ApplicationAccepted(application) => SignalSourceContext {
             source_lifecycle_event_kind: event.lifecycle_event_kind(),
+            source_definition_key: application.definition_key.clone(),
             source_id: application.source_id,
             target_id: application.target_id,
             owner_id: None,
@@ -164,6 +168,7 @@ where
         },
         EffectLifecycleEvent::ApplicationRejected(rejection) => SignalSourceContext {
             source_lifecycle_event_kind: event.lifecycle_event_kind(),
+            source_definition_key: rejection.application.definition_key.clone(),
             source_id: rejection.application.source_id,
             target_id: rejection.application.target_id,
             owner_id: None,
@@ -177,6 +182,7 @@ where
         | EffectLifecycleEvent::Removed(effect)
         | EffectLifecycleEvent::Expired(effect) => SignalSourceContext {
             source_lifecycle_event_kind: event.lifecycle_event_kind(),
+            source_definition_key: effect.definition_key.clone(),
             source_id: effect.source_id,
             target_id: effect.target_id,
             owner_id: None,
@@ -193,6 +199,7 @@ where
         EffectLifecycleEvent::Executed(execution)
         | EffectLifecycleEvent::PeriodicExecuted(execution) => SignalSourceContext {
             source_lifecycle_event_kind: event.lifecycle_event_kind(),
+            source_definition_key: execution.definition_key.clone(),
             source_id: execution.source_id,
             target_id: execution.target_id,
             owner_id: None,
@@ -204,6 +211,7 @@ where
         },
         EffectLifecycleEvent::Advanced(advance) => SignalSourceContext {
             source_lifecycle_event_kind: event.lifecycle_event_kind(),
+            source_definition_key: advance.effect.definition_key.clone(),
             source_id: advance.effect.source_id,
             target_id: advance.effect.target_id,
             owner_id: None,

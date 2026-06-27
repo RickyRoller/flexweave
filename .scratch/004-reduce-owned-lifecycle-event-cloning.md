@@ -65,4 +65,3 @@ Possible direction:
 - No-event ability/effect methods avoid event-construction clones.
 - Tests or compile checks cover non-`Clone` payloads where owned retention is not requested.
 - Documentation clearly distinguishes borrowed streaming, owned event materialization, and retained event costs.
-

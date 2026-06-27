@@ -27,6 +27,7 @@ pub struct SignalFact<Atom, SignalPayload, SourcePayload> {
     pub retention: SignalRetentionPolicy,
     pub export: SignalExportPolicy,
     pub source_lifecycle_event_kind: LifecycleEventKind,
+    pub source_definition_key: Option<String>,
     pub source_id: Option<ObjectId>,
     pub target_id: ObjectId,
     pub owner_id: Option<ObjectId>,

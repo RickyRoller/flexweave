@@ -4,7 +4,10 @@ use crate::tag::TagCollection;
 use std::collections::HashMap;
 use std::fmt;
 
-use super::definition::{AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError};
+use super::definition::{
+    AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError, AbilityDefinitionRegistryError,
+    AbilityDefinitions,
+};
 use super::events::{
     AbilityActivationAttemptView, AbilityActivationCommitView, AbilityActivationRejectionReason,
     AbilityActivationRejectionView, AbilityLifecycleEvent, AbilityLifecycleEventView,
@@ -94,6 +97,47 @@ impl fmt::Display for AbilityGrantError {
 
 impl std::error::Error for AbilityGrantError {}
 
+/// Registered activation errors for key-aware ability workflows.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum RegisteredAbilityActivationError<E> {
+    MissingGrantedDefinitionKey { ability_id: AbilityId },
+    Definition(AbilityDefinitionRegistryError),
+    Activation(AbilityActivationError<E>),
+}
+
+impl<E> fmt::Display for RegisteredAbilityActivationError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MissingGrantedDefinitionKey { ability_id } => write!(
+                formatter,
+                "ability `{ability_id}` was not granted from a registered definition"
+            ),
+            Self::Definition(error) => {
+                write!(formatter, "registered ability activation failed: {error}")
+            }
+            Self::Activation(error) => {
+                write!(formatter, "registered ability activation failed: {error}")
+            }
+        }
+    }
+}
+
+impl<E> std::error::Error for RegisteredAbilityActivationError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::MissingGrantedDefinitionKey { .. } => None,
+            Self::Definition(error) => Some(error),
+            Self::Activation(error) => Some(error),
+        }
+    }
+}
+
 /// Grant input for `AbilityStore`.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Grant<Tags, Cost, Payload> {
@@ -150,6 +194,7 @@ where
     Tags: TagCollection,
 {
     pub id: AbilityId,
+    pub definition_key: Option<String>,
     pub owner_id: ObjectId,
     pub tags: Tags,
     pub cost: Option<Cost>,
@@ -183,6 +228,7 @@ where
     Tags: TagCollection,
 {
     ability_id: AbilityId,
+    definition_key: Option<String>,
     owner_id: ObjectId,
     tags: Tags,
     cost: Option<Cost>,
@@ -200,6 +246,7 @@ where
     {
         Self {
             ability_id: ability.id,
+            definition_key: ability.definition_key.clone(),
             owner_id: ability.owner_id,
             tags: ability.tags.clone(),
             cost: ability.cost.clone(),
@@ -210,6 +257,7 @@ where
     fn attempt_view(&self) -> AbilityActivationAttemptView<'_, Tags, Cost, Payload> {
         AbilityActivationAttemptView {
             ability_id: self.ability_id,
+            definition_key: self.definition_key.as_deref(),
             owner_id: self.owner_id,
             tags: &self.tags,
             cost: self.cost.as_ref(),
@@ -226,6 +274,7 @@ where
         ActiveAbility {
             activation_id,
             ability_id: self.ability_id,
+            definition_key: self.definition_key,
             owner_id: self.owner_id,
             tags: self.tags,
             cost: self.cost,
@@ -257,11 +306,20 @@ where
     /// This is the low-level unchecked path: `input.owner_id` is copied as-is.
     /// Prefer [`Self::grant_checked`] when an `ObjectStore` is available.
     pub fn grant(&mut self, input: Grant<Tags, Cost, Payload>) -> AbilityId {
+        self.grant_with_definition_key(None, input)
+    }
+
+    fn grant_with_definition_key(
+        &mut self,
+        definition_key: Option<String>,
+        input: Grant<Tags, Cost, Payload>,
+    ) -> AbilityId {
         let id = self.next_id;
         self.next_id = AbilityId::new(self.next_id.get() + 1);
         self.ability_index_by_id.insert(id, self.abilities.len());
         self.abilities.push(GrantedAbility {
             id,
+            definition_key,
             owner_id: input.owner_id,
             tags: input.tags,
             cost: input.cost,
@@ -299,7 +357,18 @@ where
         input: Grant<Tags, Cost, Payload>,
     ) -> Result<AbilityId, AbilityDefinitionError> {
         definition.validate()?;
-        Ok(self.grant(input))
+        Ok(self.grant_with_definition_key(Some(definition.key.clone()), input))
+    }
+
+    /// Grants an ability by looking up a previously validated definition key.
+    pub fn grant_registered<PayloadSchema>(
+        &mut self,
+        definitions: &AbilityDefinitions<PayloadSchema>,
+        key: &str,
+        input: Grant<Tags, Cost, Payload>,
+    ) -> Result<AbilityId, AbilityDefinitionRegistryError> {
+        let definition = definitions.require(key)?;
+        Ok(self.grant_with_definition_key(Some(definition.key.clone()), input))
     }
 
     /// Revokes granted and active abilities owned by `owner_id`.
@@ -734,6 +803,95 @@ where
         self.begin_activation_with_borrowed_events(ability_id, commit_timing, context, hooks, emit)
     }
 
+    /// Begins an activation using commit timing from the granted ability's registered definition.
+    pub fn begin_registered_activation_with<PayloadSchema, Context, Hooks>(
+        &mut self,
+        definitions: &AbilityDefinitions<PayloadSchema>,
+        ability_id: AbilityId,
+        context: &mut Context,
+        hooks: &mut Hooks,
+    ) -> Result<AbilityActivationId, RegisteredAbilityActivationError<Hooks::Error>>
+    where
+        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        Cost: Clone,
+        Payload: Clone,
+    {
+        self.begin_registered_activation_with_borrowed_events(
+            definitions,
+            ability_id,
+            context,
+            hooks,
+            |_| {},
+        )
+    }
+
+    /// Begins an activation from a registered definition and emits owned lifecycle facts.
+    pub fn begin_registered_activation_with_events<PayloadSchema, Context, Hooks, F>(
+        &mut self,
+        definitions: &AbilityDefinitions<PayloadSchema>,
+        ability_id: AbilityId,
+        context: &mut Context,
+        hooks: &mut Hooks,
+        mut emit: F,
+    ) -> Result<AbilityActivationId, RegisteredAbilityActivationError<Hooks::Error>>
+    where
+        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        Cost: Clone,
+        Payload: Clone,
+        F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+    {
+        self.begin_registered_activation_with_borrowed_events(
+            definitions,
+            ability_id,
+            context,
+            hooks,
+            |event| emit(event.to_owned_event()),
+        )
+    }
+
+    /// Begins an activation from a registered definition and streams borrowed lifecycle facts.
+    pub fn begin_registered_activation_with_borrowed_events<PayloadSchema, Context, Hooks, F>(
+        &mut self,
+        definitions: &AbilityDefinitions<PayloadSchema>,
+        ability_id: AbilityId,
+        context: &mut Context,
+        hooks: &mut Hooks,
+        emit: F,
+    ) -> Result<AbilityActivationId, RegisteredAbilityActivationError<Hooks::Error>>
+    where
+        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        Cost: Clone,
+        Payload: Clone,
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+    {
+        let Some(ability) = self.find(ability_id) else {
+            return self
+                .begin_activation_with_borrowed_events(
+                    ability_id,
+                    AbilityCommitTiming::OnStart,
+                    context,
+                    hooks,
+                    emit,
+                )
+                .map_err(RegisteredAbilityActivationError::Activation);
+        };
+        let definition_key = ability
+            .definition_key
+            .as_deref()
+            .ok_or(RegisteredAbilityActivationError::MissingGrantedDefinitionKey { ability_id })?;
+        let definition = definitions
+            .require(definition_key)
+            .map_err(RegisteredAbilityActivationError::Definition)?;
+        self.begin_activation_with_borrowed_events(
+            ability_id,
+            definition.commit_timing,
+            context,
+            hooks,
+            emit,
+        )
+        .map_err(RegisteredAbilityActivationError::Activation)
+    }
+
     /// Runs an instant activation without emitting lifecycle facts.
     ///
     /// This performs the standard instant lifecycle: begin activation, run the
@@ -1050,6 +1208,7 @@ where
     ) -> AbilityActivationAttemptView<'_, Tags, Cost, Payload> {
         AbilityActivationAttemptView {
             ability_id: ability.id,
+            definition_key: ability.definition_key.as_deref(),
             owner_id: ability.owner_id,
             tags: &ability.tags,
             cost: ability.cost.as_ref(),

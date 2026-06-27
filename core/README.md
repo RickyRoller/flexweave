@@ -62,6 +62,12 @@ validation hints unless caller code wires publication. Definition validation can
 prove that keys are known, but runtime behavior appears only when the caller
 chooses an `EventChannel` or adapter and publishes the fact.
 
+Validated `AbilityDefinitions` and `EffectDefinitions` are caller-constructed
+runtime bundles. A caller can build one bundle per zone, encounter, content
+pack, or session, validate duplicate keys at that composition point, and pass
+the active bundle to registered runtime helpers. Flexweave does not own catalog
+loading or require one central definition registry for an entire game.
+
 Lifecycle events have two runtime shapes. Borrowed event views stream through
 callbacks without cloning caller-owned payloads for publication. Owned lifecycle
 events remain available for retained facts, diagnostics, replay, tests, and any

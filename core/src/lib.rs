@@ -110,6 +110,7 @@
 #![doc = ""]
 #![doc = "let event = EffectLifecycleEvent::Executed(EffectExecution {"]
 #![doc = "    active_effect_id: None,"]
+#![doc = "    definition_key: Some(\"effects/impact\".to_owned()),"]
 #![doc = "    source_id: Some(ObjectId::new(1)),"]
 #![doc = "    target_id: ObjectId::new(2),"]
 #![doc = "    tags: TagSet::new([Tag::new([Atom::Impact])]),"]
@@ -161,9 +162,10 @@ pub use ability::{
     AbilityActivationCommitView, AbilityActivationError, AbilityActivationId,
     AbilityActivationMode, AbilityActivationRejection, AbilityActivationRejectionReason,
     AbilityActivationRejectionView, AbilityCancelPolicy, AbilityCommitTiming, AbilityDefinition,
-    AbilityDefinitionError, AbilityEndResult, AbilityError, AbilityGrantError, AbilityHooks,
-    AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityStore, ActiveAbility,
-    ActiveAbilityView, CooldownUnits, Grant, GrantedAbility, RevokedOwnerAbilities,
+    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndResult,
+    AbilityError, AbilityGrantError, AbilityHooks, AbilityId, AbilityLifecycleEvent,
+    AbilityLifecycleEventView, AbilityStore, ActiveAbility, ActiveAbilityView, CooldownUnits,
+    Grant, GrantedAbility, RegisteredAbilityActivationError, RevokedOwnerAbilities,
 };
 pub use attribute::{
     Attribute, AttributeChange, AttributeDefaultValue, AttributeDefinition,
@@ -178,9 +180,10 @@ pub use effect::{
     ActiveEffectId, EffectAdvance, EffectAdvanceView, EffectApplication, EffectApplicationDecision,
     EffectApplicationError, EffectApplicationInput, EffectApplicationRejection,
     EffectApplicationRejectionView, EffectApplicationView, EffectClockPolicy, EffectDefinition,
-    EffectDefinitionError, EffectExecution, EffectExecutionView, EffectInstance,
-    EffectInstanceView, EffectKind, EffectLifecycleEvent, EffectLifecycleEventView,
-    EffectObjectRemovalPolicy, EffectPipeline, EffectRouting, EffectSourcePolicy,
+    EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions, EffectExecution,
+    EffectExecutionView, EffectInstance, EffectInstanceView, EffectKind, EffectLifecycleEvent,
+    EffectLifecycleEventView, EffectObjectRemovalPolicy, EffectPipeline, EffectRouting,
+    EffectSourcePolicy,
 };
 pub use errors::CoreError;
 pub use identity::{INVALID_OBJECT_ID, ObjectId, ObjectStore};

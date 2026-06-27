@@ -83,4 +83,3 @@ Keep `RealtimeClock::units_for` as a stateless conversion for one-shot use.
 - Effect duration tests cover repeated small realtime deltas.
 - Periodic effect tests cover repeated small realtime deltas.
 - Existing `RealtimeClock::units_for` behavior remains available and documented as stateless/flooring.
-

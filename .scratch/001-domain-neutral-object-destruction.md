@@ -93,4 +93,3 @@ This mirrors the existing mechanics ticking driver idea without creating a monol
 - Tests prove destroyed ids do not remain query-visible.
 - Tests prove cleanup removes retained Flexweave state from registered stores.
 - Tests prove ids remain deterministic and are not reused.
-

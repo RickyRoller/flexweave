@@ -13,6 +13,7 @@ where
     Tags: TagCollection,
 {
     pub id: ActiveEffectId,
+    pub definition_key: Option<String>,
     pub source_id: Option<ObjectId>,
     pub target_id: ObjectId,
     pub remaining_units: Option<ClockUnits>,
@@ -39,6 +40,7 @@ where
     Tags: TagCollection,
 {
     pub id: ActiveEffectId,
+    pub definition_key: Option<&'event str>,
     pub source_id: Option<ObjectId>,
     pub target_id: ObjectId,
     pub remaining_units: Option<ClockUnits>,
@@ -64,6 +66,7 @@ where
     {
         EffectInstance {
             id: self.id,
+            definition_key: self.definition_key.map(str::to_owned),
             source_id: self.source_id,
             target_id: self.target_id,
             remaining_units: self.remaining_units,
@@ -83,6 +86,7 @@ where
     fn from(value: &'event EffectInstance<Tags, Payload>) -> Self {
         Self {
             id: value.id,
+            definition_key: value.definition_key.as_deref(),
             source_id: value.source_id,
             target_id: value.target_id,
             remaining_units: value.remaining_units,
@@ -140,6 +144,7 @@ where
     Tags: TagCollection,
 {
     pub active_effect_id: Option<ActiveEffectId>,
+    pub definition_key: Option<String>,
     pub source_id: Option<ObjectId>,
     pub target_id: ObjectId,
     pub tags: Tags,
@@ -154,6 +159,7 @@ where
     Tags: TagCollection,
 {
     pub active_effect_id: Option<ActiveEffectId>,
+    pub definition_key: Option<&'event str>,
     pub source_id: Option<ObjectId>,
     pub target_id: ObjectId,
     pub tags: &'event Tags,
@@ -172,6 +178,7 @@ where
     {
         EffectExecution {
             active_effect_id: self.active_effect_id,
+            definition_key: self.definition_key.map(str::to_owned),
             source_id: self.source_id,
             target_id: self.target_id,
             tags: self.tags.clone(),

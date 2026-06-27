@@ -8,6 +8,7 @@ pub struct EffectApplication<Tags, Payload>
 where
     Tags: TagCollection,
 {
+    pub definition_key: Option<String>,
     pub source_id: Option<ObjectId>,
     pub target_id: ObjectId,
     pub tags: Tags,
@@ -20,6 +21,7 @@ pub struct EffectApplicationView<'event, Tags, Payload>
 where
     Tags: TagCollection,
 {
+    pub definition_key: Option<&'event str>,
     pub source_id: Option<ObjectId>,
     pub target_id: ObjectId,
     pub tags: &'event Tags,
@@ -36,6 +38,7 @@ where
         Payload: Clone,
     {
         EffectApplication {
+            definition_key: self.definition_key.map(str::to_owned),
             source_id: self.source_id,
             target_id: self.target_id,
             tags: self.tags.clone(),

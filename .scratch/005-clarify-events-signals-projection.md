@@ -77,4 +77,3 @@ Add examples:
 - Examples show raw event flow and signal projection flow.
 - Tests or doc tests demonstrate projection and manual channel publication.
 - Bevy or other engine integration is referenced only as an adapter concern, not core behavior.
-

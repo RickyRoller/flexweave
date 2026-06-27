@@ -97,4 +97,3 @@ Suggested table columns:
 - Retained event clone/allocation behavior is documented.
 - Generic payload clone costs are documented for ability/effect/signal paths.
 - Links from `core/README.md` and crate docs make the reference discoverable.
-

@@ -12,7 +12,8 @@ pub use application::{
     EffectSourcePolicy,
 };
 pub use definition::{
-    EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectKind, EffectRouting,
+    EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError,
+    EffectDefinitions, EffectKind, EffectRouting,
 };
 pub use events::{
     EffectAdvance, EffectAdvanceView, EffectExecution, EffectExecutionView, EffectInstance,

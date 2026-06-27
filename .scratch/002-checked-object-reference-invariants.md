@@ -117,4 +117,3 @@ EffectApplicationInput::from_active_ability(&active, target_id, tags, payload)
 - Tests allow `source_id: None` when the selected policy permits system/environment effects.
 - Tests cover a helper that derives effect source from an active ability.
 - Public docs route common examples through checked paths and label raw methods as unchecked.
-

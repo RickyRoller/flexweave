@@ -1,4 +1,6 @@
 use crate::clock::{Clock, ClockUnits};
+use crate::registry::{DefinitionRegistryEntry, RegistryEntry};
+use std::collections::BTreeMap;
 use std::fmt;
 
 /// Effect definition kind.
@@ -117,6 +119,42 @@ impl fmt::Display for EffectDefinitionError {
 }
 
 impl std::error::Error for EffectDefinitionError {}
+
+/// Validated effect definition registry failures.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EffectDefinitionRegistryError {
+    InvalidDefinition { error: EffectDefinitionError },
+    DuplicateKey { key: String },
+    MissingDefinition { key: String },
+}
+
+impl fmt::Display for EffectDefinitionRegistryError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidDefinition { error } => {
+                write!(formatter, "invalid effect definition: {error}")
+            }
+            Self::DuplicateKey { key } => {
+                write!(
+                    formatter,
+                    "effect definition `{key}` is defined more than once"
+                )
+            }
+            Self::MissingDefinition { key } => {
+                write!(formatter, "effect definition `{key}` is not registered")
+            }
+        }
+    }
+}
+
+impl std::error::Error for EffectDefinitionRegistryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidDefinition { error } => Some(error),
+            Self::DuplicateKey { .. } | Self::MissingDefinition { .. } => None,
+        }
+    }
+}
 
 impl<PayloadSchema> EffectDefinition<PayloadSchema> {
     /// Creates an instant effect definition with no routing.
@@ -325,5 +363,78 @@ impl<PayloadSchema> EffectDefinition<PayloadSchema> {
         } else {
             Ok(())
         }
+    }
+}
+
+impl<PayloadSchema> RegistryEntry for EffectDefinition<PayloadSchema> {
+    fn key(&self) -> &str {
+        &self.key
+    }
+}
+
+impl<PayloadSchema> DefinitionRegistryEntry for EffectDefinition<PayloadSchema>
+where
+    PayloadSchema: Clone,
+{
+    type Definition = Self;
+
+    fn build_definition(&self) -> Self::Definition {
+        self.clone()
+    }
+}
+
+/// Validated effect definitions in deterministic declaration order.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EffectDefinitions<PayloadSchema = ()> {
+    definitions: Vec<EffectDefinition<PayloadSchema>>,
+    indexes: BTreeMap<String, usize>,
+}
+
+impl<PayloadSchema> EffectDefinitions<PayloadSchema> {
+    /// Builds a validated definition collection and rejects duplicate keys.
+    pub fn new<I>(definitions: I) -> Result<Self, EffectDefinitionRegistryError>
+    where
+        I: IntoIterator<Item = EffectDefinition<PayloadSchema>>,
+    {
+        let mut collection = Self {
+            definitions: Vec::new(),
+            indexes: BTreeMap::new(),
+        };
+        for definition in definitions {
+            definition
+                .validate()
+                .map_err(|error| EffectDefinitionRegistryError::InvalidDefinition { error })?;
+            if collection.indexes.contains_key(&definition.key) {
+                return Err(EffectDefinitionRegistryError::DuplicateKey {
+                    key: definition.key,
+                });
+            }
+            let index = collection.definitions.len();
+            collection.indexes.insert(definition.key.clone(), index);
+            collection.definitions.push(definition);
+        }
+        Ok(collection)
+    }
+
+    #[must_use]
+    pub fn definitions(&self) -> &[EffectDefinition<PayloadSchema>] {
+        &self.definitions
+    }
+
+    #[must_use]
+    pub fn get(&self, key: &str) -> Option<&EffectDefinition<PayloadSchema>> {
+        self.indexes
+            .get(key)
+            .and_then(|index| self.definitions.get(*index))
+    }
+
+    pub fn require(
+        &self,
+        key: &str,
+    ) -> Result<&EffectDefinition<PayloadSchema>, EffectDefinitionRegistryError> {
+        self.get(key)
+            .ok_or_else(|| EffectDefinitionRegistryError::MissingDefinition {
+                key: key.to_owned(),
+            })
     }
 }

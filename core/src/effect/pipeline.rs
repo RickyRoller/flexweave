@@ -8,7 +8,10 @@ use super::application::{
     EffectApplicationDecision, EffectApplicationInput, EffectApplicationRejectionView,
     EffectApplicationView, EffectSourcePolicy,
 };
-use super::definition::{EffectDefinition, EffectDefinitionError, EffectKind};
+use super::definition::{
+    EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions,
+    EffectKind,
+};
 use super::events::{
     EffectAdvanceView, EffectExecutionView, EffectInstance, EffectInstanceView,
     EffectLifecycleEvent, EffectLifecycleEventView,
@@ -133,13 +136,67 @@ where
         &mut self,
         definition: &EffectDefinition<Schema>,
         input: EffectApplicationInput<Tags, Payload>,
-        mut on_event: F,
+        on_event: F,
     ) -> Result<Option<ActiveEffectId>, EffectDefinitionError>
     where
         F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
     {
         definition.validate()?;
+        Ok(self.apply_validated_with_borrowed_events(definition, input, on_event))
+    }
 
+    /// Applies an effect by looking up a previously validated definition key.
+    pub fn apply_registered<Schema>(
+        &mut self,
+        definitions: &EffectDefinitions<Schema>,
+        key: &str,
+        input: EffectApplicationInput<Tags, Payload>,
+    ) -> Result<Option<ActiveEffectId>, EffectDefinitionRegistryError> {
+        self.apply_registered_with_borrowed_events(definitions, key, input, |_| {})
+    }
+
+    /// Applies an effect by looking up a previously validated definition key and emits owned facts.
+    pub fn apply_registered_with_events<Schema, F>(
+        &mut self,
+        definitions: &EffectDefinitions<Schema>,
+        key: &str,
+        input: EffectApplicationInput<Tags, Payload>,
+        mut on_event: F,
+    ) -> Result<Option<ActiveEffectId>, EffectDefinitionRegistryError>
+    where
+        Tags: Clone,
+        Payload: Clone,
+        F: FnMut(EffectLifecycleEvent<Tags, Payload>),
+    {
+        self.apply_registered_with_borrowed_events(definitions, key, input, |event| {
+            on_event(event.to_owned_event());
+        })
+    }
+
+    /// Applies an effect by looking up a previously validated definition key and streams borrowed facts.
+    pub fn apply_registered_with_borrowed_events<Schema, F>(
+        &mut self,
+        definitions: &EffectDefinitions<Schema>,
+        key: &str,
+        input: EffectApplicationInput<Tags, Payload>,
+        on_event: F,
+    ) -> Result<Option<ActiveEffectId>, EffectDefinitionRegistryError>
+    where
+        F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
+    {
+        let definition = definitions.require(key)?;
+        Ok(self.apply_validated_with_borrowed_events(definition, input, on_event))
+    }
+
+    fn apply_validated_with_borrowed_events<Schema, F>(
+        &mut self,
+        definition: &EffectDefinition<Schema>,
+        input: EffectApplicationInput<Tags, Payload>,
+        mut on_event: F,
+    ) -> Option<ActiveEffectId>
+    where
+        F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
+    {
         let EffectApplicationInput {
             source_id,
             target_id,
@@ -149,6 +206,7 @@ where
         } = input;
 
         let application = EffectApplicationView {
+            definition_key: Some(definition.key.as_str()),
             source_id,
             target_id,
             tags: &tags,
@@ -163,7 +221,7 @@ where
                         reason: &reason,
                     },
                 ));
-                Ok(None)
+                None
             }
             EffectApplicationDecision::Accept => {
                 on_event(EffectLifecycleEventView::ApplicationAccepted(application));
@@ -171,19 +229,21 @@ where
                 if definition.kind == EffectKind::Instant {
                     on_event(EffectLifecycleEventView::Executed(EffectExecutionView {
                         active_effect_id: None,
+                        definition_key: Some(definition.key.as_str()),
                         source_id,
                         target_id,
                         tags: &tags,
                         payload: &payload,
                         elapsed_units: None,
                     }));
-                    return Ok(None);
+                    return None;
                 }
 
                 let id = self.next_id;
                 self.next_id = ActiveEffectId::new(self.next_id.get() + 1);
                 let effect = EffectInstance {
                     id,
+                    definition_key: Some(definition.key.clone()),
                     source_id,
                     target_id,
                     remaining_units: definition.duration.map(|duration| duration.units),
@@ -195,7 +255,7 @@ where
                 self.push_effect(effect);
                 let effect = self.effects.last().expect("effect was just pushed");
                 on_event(EffectLifecycleEventView::ActiveCreated(effect.into()));
-                Ok(Some(id))
+                Some(id)
             }
         }
     }
@@ -305,6 +365,7 @@ where
                     on_event(EffectLifecycleEventView::PeriodicExecuted(
                         EffectExecutionView {
                             active_effect_id: Some(effect.id),
+                            definition_key: effect.definition_key.as_deref(),
                             source_id: effect.source_id,
                             target_id: effect.target_id,
                             tags: &effect.tags,

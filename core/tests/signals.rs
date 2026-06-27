@@ -45,6 +45,10 @@ fn signal_projection_matches_tags_and_preserves_definition_order() {
     assert_eq!(facts[1].key, "second");
     assert_eq!(facts[0].signal_kind, SignalKind::ActiveStart);
     assert_eq!(facts[0].target_id, ObjectId::new(20));
+    assert_eq!(
+        facts[0].source_definition_key.as_deref(),
+        Some("effects/buff")
+    );
     assert_eq!(facts[0].source_payload, Some(SourcePayload::Buff));
 }
 
@@ -159,6 +163,7 @@ fn signal_projection_maps_effect_lifecycle_kinds() {
     .unwrap();
     let projection = SignalProjection::new(definitions);
     let accepted = EffectLifecycleEvent::ApplicationAccepted(EffectApplication {
+        definition_key: None,
         source_id: Some(ObjectId::new(10)),
         target_id: ObjectId::new(20),
         tags: TagSet::new([Tag::new([TestAtom::Category])]),
@@ -290,6 +295,7 @@ fn effect_instance_with(
 ) -> flexweave::EffectInstance<TagSet<TestAtom>, SourcePayload> {
     flexweave::EffectInstance {
         id,
+        definition_key: Some("effects/buff".to_owned()),
         source_id: Some(ObjectId::new(10)),
         target_id: ObjectId::new(20),
         remaining_units: Some(100),
@@ -313,6 +319,7 @@ fn effect_instance(
 fn effect_execution(payload: SourcePayload) -> EffectExecution<TagSet<TestAtom>, SourcePayload> {
     EffectExecution {
         active_effect_id: None,
+        definition_key: None,
         source_id: Some(ObjectId::new(10)),
         target_id: ObjectId::new(20),
         tags: TagSet::new([Tag::new([TestAtom::Category])]),

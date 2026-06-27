@@ -4,10 +4,11 @@ use common::TestAtom;
 use flexweave::{
     AbilityActivationError, AbilityActivationId, AbilityActivationMode,
     AbilityActivationRejectionReason, AbilityCancelPolicy, AbilityCommitTiming, AbilityDefinition,
-    AbilityDefinitionError, AbilityError, AbilityGrantError, AbilityHooks, AbilityId,
-    AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityStore, EventChannel,
-    EventChannelDefinition, EventRetention, Grant, GrantedAbility, INVALID_OBJECT_ID,
-    LifecycleEvent, LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet, ability,
+    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityError,
+    AbilityGrantError, AbilityHooks, AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView,
+    AbilityStore, EventChannel, EventChannelDefinition, EventRetention, Grant, GrantedAbility,
+    INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet,
+    ability,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -1088,6 +1089,123 @@ fn ability_definitions_validate_authoring_contracts_before_grant() {
         }
     );
     assert_eq!(abilities.count(), 0);
+}
+
+#[test]
+fn ability_definitions_validate_lookup_and_preserve_declaration_order() {
+    let channel = active_ability_definition(
+        "channel",
+        AbilityActivationMode::Active,
+        AbilityCommitTiming::OnEnd,
+        AbilityCancelPolicy::CanCancel,
+    );
+    let burst = active_ability_definition(
+        "burst",
+        AbilityActivationMode::Active,
+        AbilityCommitTiming::OnStart,
+        AbilityCancelPolicy::CanCancel,
+    );
+
+    let definitions = AbilityDefinitions::new([channel.clone(), burst.clone()]).unwrap();
+
+    assert_eq!(definitions.definitions()[0].key, "channel");
+    assert_eq!(definitions.definitions()[1].key, "burst");
+    assert_eq!(
+        definitions.require("burst").unwrap().commit_timing,
+        AbilityCommitTiming::OnStart
+    );
+    assert_eq!(
+        definitions.require("missing").unwrap_err(),
+        AbilityDefinitionRegistryError::MissingDefinition {
+            key: "missing".to_owned(),
+        }
+    );
+    assert_eq!(
+        AbilityDefinitions::new([channel.clone(), channel]).unwrap_err(),
+        AbilityDefinitionRegistryError::DuplicateKey {
+            key: "channel".to_owned(),
+        }
+    );
+    assert_eq!(
+        AbilityDefinitions::new([AbilityDefinition::instant("", "test/payload")]).unwrap_err(),
+        AbilityDefinitionRegistryError::InvalidDefinition {
+            error: AbilityDefinitionError::EmptyKey,
+        }
+    );
+    definitions
+        .validate_channels(&["abilities/lifecycle"])
+        .unwrap();
+}
+
+#[test]
+fn grant_registered_stores_definition_key_and_activation_uses_definition_timing() {
+    let definitions = AbilityDefinitions::new([active_ability_definition(
+        "channel",
+        AbilityActivationMode::Active,
+        AbilityCommitTiming::OnEnd,
+        AbilityCancelPolicy::CanCancel,
+    )])
+    .unwrap();
+    let mut abilities = ActiveAbilityStore::new();
+    let ability_id = abilities
+        .grant_registered(&definitions, "channel", active_grant(Some(250)))
+        .unwrap();
+    assert_eq!(
+        abilities.get(ability_id).unwrap().definition_key.as_deref(),
+        Some("channel")
+    );
+
+    let mut context = ActiveContext {
+        resource: 10,
+        events: Vec::new(),
+    };
+    let mut hooks = ActiveHooks { reject: false };
+    let mut events = Vec::new();
+
+    let activation_id = abilities
+        .begin_registered_activation_with_events(
+            &definitions,
+            ability_id,
+            &mut context,
+            &mut hooks,
+            |event| events.push(event),
+        )
+        .unwrap();
+
+    let active = abilities.get_active_activation(activation_id).unwrap();
+    assert_eq!(active.definition_key.as_deref(), Some("channel"));
+    assert_eq!(active.commit_timing, AbilityCommitTiming::OnEnd);
+    assert!(!active.committed);
+    assert_eq!(context.events, vec!["can_activate"]);
+    assert_eq!(abilities.cooldown_remaining(ability_id), Ok(0));
+    assert_eq!(
+        lifecycle_kinds(&events),
+        vec![
+            LifecycleEventKind::AbilityActivationAttempted,
+            LifecycleEventKind::AbilityActivationStarted,
+        ]
+    );
+    match &events[0] {
+        AbilityLifecycleEvent::Attempted(attempt) => {
+            assert_eq!(attempt.definition_key.as_deref(), Some("channel"));
+        }
+        event => panic!("expected attempt event, got {event:?}"),
+    }
+
+    let ended = abilities
+        .end_activation_with_events(activation_id, &mut context, &mut hooks, |event| {
+            events.push(event);
+        })
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(ended.definition_key.as_deref(), Some("channel"));
+    assert!(ended.committed);
+    assert_eq!(
+        context.events,
+        vec!["can_activate", "cooldown", "commit", "end"]
+    );
+    assert_eq!(abilities.cooldown_remaining(ability_id), Ok(250));
 }
 
 #[test]

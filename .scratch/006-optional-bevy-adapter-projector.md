@@ -89,4 +89,3 @@ Add a minimal example demonstrating:
 - Adapter can publish lifecycle facts and signal facts into Bevy runtime messages/events.
 - Example covers spawn mapping, effect application, ticking, projection, and consumption.
 - Tests or example checks prove projection order is deterministic.
-

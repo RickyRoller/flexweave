@@ -8,7 +8,7 @@ mod store;
 
 pub use definition::{
     AbilityActivationMode, AbilityCancelPolicy, AbilityCommitTiming, AbilityDefinition,
-    AbilityDefinitionError,
+    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions,
 };
 pub use events::{
     AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationCommit,
@@ -20,5 +20,5 @@ pub use hooks::AbilityHooks;
 pub use ids::{AbilityActivationId, AbilityId, CooldownUnits};
 pub use store::{
     AbilityActivationError, AbilityEndResult, AbilityError, AbilityGrantError, AbilityStore, Grant,
-    GrantedAbility, RevokedOwnerAbilities,
+    GrantedAbility, RegisteredAbilityActivationError, RevokedOwnerAbilities,
 };

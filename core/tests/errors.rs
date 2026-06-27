@@ -1,7 +1,8 @@
 use flexweave::{
-    AbilityActivationError, AbilityDefinitionError, AbilityError, AbilityGrantError,
-    AttributeDefinitionError, CoreError, EffectApplicationError, EffectDefinitionError,
-    EventChannelDefinitionError, EventChannelError, LifecycleEventKind, SignalDefinitionError,
+    AbilityActivationError, AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityError,
+    AbilityGrantError, AbilityId, AttributeDefinitionError, CoreError, EffectApplicationError,
+    EffectDefinitionError, EffectDefinitionRegistryError, EventChannelDefinitionError,
+    EventChannelError, LifecycleEventKind, RegisteredAbilityActivationError, SignalDefinitionError,
 };
 use std::fmt;
 
@@ -26,12 +27,15 @@ impl std::error::Error for HookError {}
 fn public_flexweave_errors_implement_std_error() {
     assert_error::<CoreError>();
     assert_error::<AbilityDefinitionError>();
+    assert_error::<AbilityDefinitionRegistryError>();
     assert_error::<AbilityError>();
     assert_error::<AbilityGrantError>();
     assert_error::<AbilityActivationError<HookError>>();
+    assert_error::<RegisteredAbilityActivationError<HookError>>();
     assert_error::<AttributeDefinitionError>();
     assert_error::<EffectApplicationError>();
     assert_error::<EffectDefinitionError>();
+    assert_error::<EffectDefinitionRegistryError>();
     assert_error::<EventChannelDefinitionError>();
     assert_error::<EventChannelError>();
     assert_error::<SignalDefinitionError>();
@@ -78,6 +82,20 @@ fn definition_errors_include_relevant_keys_in_display_messages() {
         .to_string(),
         "signal definition `burn-start` references unknown channel `missing-channel`"
     );
+    assert_eq!(
+        AbilityDefinitionRegistryError::DuplicateKey {
+            key: "dash".to_owned(),
+        }
+        .to_string(),
+        "ability definition `dash` is defined more than once"
+    );
+    assert_eq!(
+        EffectDefinitionRegistryError::MissingDefinition {
+            key: "burn".to_owned(),
+        }
+        .to_string(),
+        "effect definition `burn` is not registered"
+    );
 }
 
 #[test]
@@ -121,5 +139,12 @@ fn runtime_errors_have_contextual_display_messages_and_sources() {
         }
         .to_string(),
         "event channel `combat` does not accept payload kind AttributeChanged"
+    );
+    assert_eq!(
+        RegisteredAbilityActivationError::<HookError>::MissingGrantedDefinitionKey {
+            ability_id: AbilityId::new(7),
+        }
+        .to_string(),
+        "ability `7` was not granted from a registered definition"
     );
 }

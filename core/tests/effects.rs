@@ -4,9 +4,10 @@ use common::TestAtom;
 use flexweave::{
     AbilityActivationId, AbilityCommitTiming, AbilityId, ActiveAbility, ActiveEffectId,
     EffectApplicationDecision, EffectApplicationError, EffectApplicationInput, EffectClockPolicy,
-    EffectDefinition, EffectDefinitionError, EffectKind, EffectLifecycleEvent,
-    EffectLifecycleEventView, EffectPipeline, EffectRouting, EffectSourcePolicy, EventChannel,
-    EventChannelDefinition, EventRetention, LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet,
+    EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions,
+    EffectKind, EffectLifecycleEvent, EffectLifecycleEventView, EffectPipeline, EffectRouting,
+    EffectSourcePolicy, EventChannel, EventChannelDefinition, EventRetention, LifecycleEventKind,
+    ObjectId, ObjectStore, Tag, TagSet,
 };
 
 #[test]
@@ -400,6 +401,101 @@ fn effect_definitions_validate_authoring_shape() {
 }
 
 #[test]
+fn effect_definitions_validate_lookup_and_preserve_declaration_order() {
+    let short = effect_definition(
+        "short",
+        EffectKind::Duration,
+        Some(EffectClockPolicy { units: 100 }),
+        None,
+    );
+    let pulse = effect_definition(
+        "pulse",
+        EffectKind::Periodic,
+        Some(EffectClockPolicy { units: 300 }),
+        Some(EffectClockPolicy { units: 50 }),
+    );
+
+    let definitions = EffectDefinitions::new([short.clone(), pulse.clone()]).unwrap();
+
+    assert_eq!(definitions.definitions()[0].key, "short");
+    assert_eq!(definitions.definitions()[1].key, "pulse");
+    assert_eq!(
+        definitions.require("pulse").unwrap().period,
+        Some(EffectClockPolicy { units: 50 })
+    );
+    assert_eq!(
+        definitions.require("missing").unwrap_err(),
+        EffectDefinitionRegistryError::MissingDefinition {
+            key: "missing".to_owned(),
+        }
+    );
+    assert_eq!(
+        EffectDefinitions::new([short.clone(), short]).unwrap_err(),
+        EffectDefinitionRegistryError::DuplicateKey {
+            key: "short".to_owned(),
+        }
+    );
+    assert_eq!(
+        EffectDefinitions::new([effect_definition("", EffectKind::Instant, None, None)])
+            .unwrap_err(),
+        EffectDefinitionRegistryError::InvalidDefinition {
+            error: EffectDefinitionError::EmptyKey,
+        }
+    );
+}
+
+#[test]
+fn apply_registered_uses_definition_duration_and_carries_definition_key() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum Payload {
+        Buff,
+    }
+
+    let definitions =
+        EffectDefinitions::new([EffectDefinition::duration("buff", 200, ())]).unwrap();
+    let mut pipeline = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
+    let mut events = Vec::new();
+
+    let active_id = pipeline
+        .apply_registered_with_events(
+            &definitions,
+            "buff",
+            application(Payload::Buff, EffectApplicationDecision::Accept),
+            |event| events.push(event),
+        )
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        pipeline.get(active_id).unwrap().definition_key.as_deref(),
+        Some("buff")
+    );
+    assert_eq!(pipeline.get(active_id).unwrap().remaining_units, Some(200));
+    let [
+        EffectLifecycleEvent::ApplicationAccepted(accepted),
+        EffectLifecycleEvent::ActiveCreated(created),
+    ] = events.as_slice()
+    else {
+        panic!("registered duration effect should emit accepted and active-created events");
+    };
+    assert_eq!(accepted.definition_key.as_deref(), Some("buff"));
+    assert_eq!(created.definition_key.as_deref(), Some("buff"));
+    assert_eq!(
+        pipeline
+            .apply_registered_with_events(
+                &definitions,
+                "missing",
+                application(Payload::Buff, EffectApplicationDecision::Accept),
+                |_| {},
+            )
+            .unwrap_err(),
+        EffectDefinitionRegistryError::MissingDefinition {
+            key: "missing".to_owned(),
+        }
+    );
+}
+
+#[test]
 fn effect_definition_constructors_match_literals_and_validate() {
     assert_eq!(
         EffectDefinition::instant("instant", "payload/schema"),
@@ -683,6 +779,7 @@ fn effect_input_can_derive_source_from_active_ability() {
     let active = ActiveAbility {
         activation_id: AbilityActivationId::new(1),
         ability_id: AbilityId::new(1),
+        definition_key: None,
         owner_id: source,
         tags: TagSet::new([Tag::new([TestAtom::Ability])]),
         cost: None::<()>,

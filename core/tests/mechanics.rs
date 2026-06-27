@@ -963,6 +963,7 @@ where
     LocalLifecycleEvent::Effect(EffectLifecycleEvent::Advanced(flexweave::EffectAdvance {
         effect: flexweave::EffectInstance {
             id: ActiveEffectId::new(1),
+            definition_key: None,
             source_id: None,
             target_id: ObjectId::new(1),
             remaining_units: Some(remaining_units),

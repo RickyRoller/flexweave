@@ -21,6 +21,7 @@ where
     Tags: TagCollection,
 {
     pub ability_id: AbilityId,
+    pub definition_key: Option<String>,
     pub owner_id: ObjectId,
     pub tags: Tags,
     pub cost: Option<Cost>,
@@ -34,6 +35,7 @@ where
     Tags: TagCollection,
 {
     pub ability_id: AbilityId,
+    pub definition_key: Option<&'event str>,
     pub owner_id: ObjectId,
     pub tags: &'event Tags,
     pub cost: Option<&'event Cost>,
@@ -52,6 +54,7 @@ where
     {
         AbilityActivationAttempt {
             ability_id: self.ability_id,
+            definition_key: self.definition_key.map(str::to_owned),
             owner_id: self.owner_id,
             tags: self.tags.clone(),
             cost: self.cost.cloned(),
@@ -145,6 +148,7 @@ where
 {
     pub activation_id: AbilityActivationId,
     pub ability_id: AbilityId,
+    pub definition_key: Option<String>,
     pub owner_id: ObjectId,
     pub tags: Tags,
     pub cost: Option<Cost>,
@@ -172,6 +176,7 @@ where
 {
     pub activation_id: AbilityActivationId,
     pub ability_id: AbilityId,
+    pub definition_key: Option<&'event str>,
     pub owner_id: ObjectId,
     pub tags: &'event Tags,
     pub cost: Option<&'event Cost>,
@@ -193,6 +198,7 @@ where
         ActiveAbility {
             activation_id: self.activation_id,
             ability_id: self.ability_id,
+            definition_key: self.definition_key.map(str::to_owned),
             owner_id: self.owner_id,
             tags: self.tags.clone(),
             cost: self.cost.cloned(),
@@ -206,6 +212,7 @@ where
     pub fn attempt_view(&self) -> AbilityActivationAttemptView<'event, Tags, Cost, Payload> {
         AbilityActivationAttemptView {
             ability_id: self.ability_id,
+            definition_key: self.definition_key,
             owner_id: self.owner_id,
             tags: self.tags,
             cost: self.cost,
@@ -229,6 +236,7 @@ where
         Self {
             activation_id: value.activation_id,
             ability_id: value.ability_id,
+            definition_key: value.definition_key.as_deref(),
             owner_id: value.owner_id,
             tags: &value.tags,
             cost: value.cost.as_ref(),

@@ -76,4 +76,3 @@ Avoid indexing `TagSet` unless introduced as an opt-in specialized type. Existin
   - Effect application, explicit removal, and expiration.
   - Repeated deterministic iteration.
 - Existing tag tests pass without new `Hash`/`Ord` bounds.
-

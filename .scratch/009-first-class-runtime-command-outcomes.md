@@ -104,4 +104,3 @@ or introduce a caller-owned reason payload while preserving string convenience A
 - Existing lifecycle facts still emit in deterministic order.
 - Tests cover every new outcome variant.
 - Docs explain which APIs are convenience wrappers and which return full command outcomes.
-
