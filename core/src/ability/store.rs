@@ -16,9 +16,61 @@ use super::events::{
 use super::hooks::AbilityHooks;
 use super::ids::{AbilityActivationId, AbilityId, CooldownUnits};
 
-/// Result shape for active ability end operations.
-pub type AbilityEndResult<Tags, Cost, Payload, Error> =
-    Result<Option<ActiveAbility<Tags, Cost, Payload>>, AbilityActivationError<Error>>;
+/// Result shape for active ability end operations with explicit command outcomes.
+pub type AbilityEndOutcomeResult<Tags, Cost, Payload, Error> =
+    Result<AbilityEndOutcome<Tags, Cost, Payload>, AbilityActivationError<Error>>;
+
+/// Ability hook phase that produced a caller-owned hook error.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AbilityHookPhase {
+    CanActivate,
+    CooldownUnits,
+    Commit,
+    ExecuteInstant,
+    End,
+}
+
+impl fmt::Display for AbilityHookPhase {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let phase = match self {
+            Self::CanActivate => "can-activate",
+            Self::CooldownUnits => "cooldown-units",
+            Self::Commit => "commit",
+            Self::ExecuteInstant => "execute-instant",
+            Self::End => "end",
+        };
+        formatter.write_str(phase)
+    }
+}
+
+/// Outcome of a commit command for an active ability activation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AbilityCommitOutcome {
+    Committed {
+        cooldown_units: Option<CooldownUnits>,
+    },
+    AlreadyCommitted,
+}
+
+/// Outcome of an end command for an active ability activation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AbilityEndOutcome<Tags, Cost, Payload>
+where
+    Tags: TagCollection,
+{
+    Ended(ActiveAbility<Tags, Cost, Payload>),
+    MissingActivation,
+}
+
+/// Outcome of a cancel command for an active ability activation.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AbilityCancelOutcome<Tags, Cost, Payload>
+where
+    Tags: TagCollection,
+{
+    Canceled(ActiveAbility<Tags, Cost, Payload>),
+    MissingActivation,
+}
 
 /// Store-level ability errors.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -54,7 +106,14 @@ impl std::error::Error for AbilityError {}
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AbilityActivationError<E> {
     Ability(AbilityError),
-    Hook(E),
+    Hook { phase: AbilityHookPhase, error: E },
+}
+
+impl<E> AbilityActivationError<E> {
+    #[must_use]
+    pub fn hook(phase: AbilityHookPhase, error: E) -> Self {
+        Self::Hook { phase, error }
+    }
 }
 
 impl<E> fmt::Display for AbilityActivationError<E>
@@ -64,7 +123,12 @@ where
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ability(error) => write!(formatter, "ability activation failed: {error}"),
-            Self::Hook(error) => write!(formatter, "ability activation hook failed: {error}"),
+            Self::Hook { phase, error } => {
+                write!(
+                    formatter,
+                    "ability activation hook failed during {phase}: {error}"
+                )
+            }
         }
     }
 }
@@ -76,7 +140,7 @@ where
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Ability(error) => Some(error),
-            Self::Hook(error) => Some(error),
+            Self::Hook { error, .. } => Some(error),
         }
     }
 }
@@ -662,7 +726,10 @@ where
                     reason: AbilityActivationRejectionReason::Hook,
                 },
             ));
-            return Err(AbilityActivationError::Hook(error));
+            return Err(AbilityActivationError::hook(
+                AbilityHookPhase::CanActivate,
+                error,
+            ));
         }
 
         let seed = AbilityActivationSeed::from_ability(&self.abilities[ability_index]);
@@ -678,7 +745,9 @@ where
                         AbilityActivationError::Ability(_) => {
                             AbilityActivationRejectionReason::MissingAbility
                         }
-                        AbilityActivationError::Hook(_) => AbilityActivationRejectionReason::Hook,
+                        AbilityActivationError::Hook { .. } => {
+                            AbilityActivationRejectionReason::Hook
+                        }
                     };
                     emit(AbilityLifecycleEventView::Rejected(
                         AbilityActivationRejectionView {
@@ -904,7 +973,7 @@ where
         context: &mut Context,
         hooks: &mut Hooks,
         execute: Execute,
-    ) -> AbilityEndResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
     where
         Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
         Cost: Clone,
@@ -931,7 +1000,7 @@ where
         hooks: &mut Hooks,
         execute: Execute,
         mut emit: F,
-    ) -> AbilityEndResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
     where
         Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
         Cost: Clone,
@@ -959,7 +1028,7 @@ where
         hooks: &mut Hooks,
         execute: Execute,
         mut emit: F,
-    ) -> AbilityEndResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
     where
         Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
         Cost: Clone,
@@ -981,7 +1050,10 @@ where
 
         if let Err(error) = execute(context, &self.active_abilities[active_index]) {
             self.cancel_activation_with_borrowed_events(activation_id, &mut emit);
-            return Err(AbilityActivationError::Hook(error));
+            return Err(AbilityActivationError::hook(
+                AbilityHookPhase::ExecuteInstant,
+                error,
+            ));
         }
 
         let result =
@@ -998,7 +1070,7 @@ where
         activation_id: AbilityActivationId,
         context: &mut Context,
         hooks: &mut Hooks,
-    ) -> Result<bool, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityCommitOutcome, AbilityActivationError<Hooks::Error>>
     where
         Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
     {
@@ -1012,7 +1084,7 @@ where
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> Result<bool, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityCommitOutcome, AbilityActivationError<Hooks::Error>>
     where
         Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
         Cost: Clone,
@@ -1031,7 +1103,7 @@ where
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> Result<bool, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityCommitOutcome, AbilityActivationError<Hooks::Error>>
     where
         Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
@@ -1042,7 +1114,7 @@ where
                     AbilityError::MissingActivation,
                 ))?;
         if self.active_abilities[active_index].committed {
-            return Ok(false);
+            return Ok(AbilityCommitOutcome::AlreadyCommitted);
         }
 
         let ability_id = self.active_abilities[active_index].ability_id;
@@ -1060,7 +1132,7 @@ where
                 cooldown_units,
             },
         ));
-        Ok(true)
+        Ok(AbilityCommitOutcome::Committed { cooldown_units })
     }
 
     /// Ends an active activation without emitting lifecycle facts.
@@ -1069,7 +1141,7 @@ where
         activation_id: AbilityActivationId,
         context: &mut Context,
         hooks: &mut Hooks,
-    ) -> AbilityEndResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
     where
         Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
     {
@@ -1083,7 +1155,7 @@ where
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> AbilityEndResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
     where
         Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
         Cost: Clone,
@@ -1102,13 +1174,13 @@ where
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> AbilityEndResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
     where
         Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
     {
         let Some(active_index) = self.find_active_index(activation_id) else {
-            return Ok(None);
+            return Ok(AbilityEndOutcome::MissingActivation);
         };
         let needs_commit = self.active_abilities[active_index].commit_timing
             == AbilityCommitTiming::OnEnd
@@ -1118,7 +1190,7 @@ where
         }
 
         let Some(active_index) = self.find_active_index(activation_id) else {
-            return Ok(None);
+            return Ok(AbilityEndOutcome::MissingActivation);
         };
         let ability_id = self.active_abilities[active_index].ability_id;
         let ability_index = self
@@ -1128,20 +1200,22 @@ where
             ))?;
         hooks
             .end(context, &self.abilities[ability_index])
-            .map_err(AbilityActivationError::Hook)?;
+            .map_err(|error| AbilityActivationError::hook(AbilityHookPhase::End, error))?;
 
         let active = self.remove_active_at_index(active_index);
         emit(AbilityLifecycleEventView::Ended((&active).into()));
-        Ok(Some(active))
+        Ok(AbilityEndOutcome::Ended(active))
     }
 
     /// Cancels an active activation without emitting lifecycle facts.
     pub fn cancel_activation(
         &mut self,
         activation_id: AbilityActivationId,
-    ) -> Option<ActiveAbility<Tags, Cost, Payload>> {
-        let active_index = self.find_active_index(activation_id)?;
-        Some(self.remove_active_at_index(active_index))
+    ) -> AbilityCancelOutcome<Tags, Cost, Payload> {
+        let Some(active_index) = self.find_active_index(activation_id) else {
+            return AbilityCancelOutcome::MissingActivation;
+        };
+        AbilityCancelOutcome::Canceled(self.remove_active_at_index(active_index))
     }
 
     /// Cancels an active activation and emits a cancel fact.
@@ -1149,7 +1223,7 @@ where
         &mut self,
         activation_id: AbilityActivationId,
         mut emit: F,
-    ) -> Option<ActiveAbility<Tags, Cost, Payload>>
+    ) -> AbilityCancelOutcome<Tags, Cost, Payload>
     where
         Cost: Clone,
         Payload: Clone,
@@ -1165,13 +1239,15 @@ where
         &mut self,
         activation_id: AbilityActivationId,
         mut emit: F,
-    ) -> Option<ActiveAbility<Tags, Cost, Payload>>
+    ) -> AbilityCancelOutcome<Tags, Cost, Payload>
     where
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
     {
-        let active = self.cancel_activation(activation_id)?;
+        let AbilityCancelOutcome::Canceled(active) = self.cancel_activation(activation_id) else {
+            return AbilityCancelOutcome::MissingActivation;
+        };
         emit(AbilityLifecycleEventView::Canceled((&active).into()));
-        Some(active)
+        AbilityCancelOutcome::Canceled(active)
     }
 
     fn commit_ability_at_index<Context, Hooks>(
@@ -1190,12 +1266,12 @@ where
             ));
         }
 
-        let cooldown_units = hooks
-            .cooldown_units(context, ability)
-            .map_err(AbilityActivationError::Hook)?;
+        let cooldown_units = hooks.cooldown_units(context, ability).map_err(|error| {
+            AbilityActivationError::hook(AbilityHookPhase::CooldownUnits, error)
+        })?;
         hooks
             .commit(context, ability)
-            .map_err(AbilityActivationError::Hook)?;
+            .map_err(|error| AbilityActivationError::hook(AbilityHookPhase::Commit, error))?;
 
         if let Some(cooldown_units) = cooldown_units {
             ability.cooldown_remaining_units = cooldown_units;

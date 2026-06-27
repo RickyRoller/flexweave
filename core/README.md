@@ -38,6 +38,15 @@ explicit `EffectSourcePolicy` when an `ObjectStore` is available; the raw
 `apply_with_events` path is reserved for callers that intentionally manage
 object-reference validity themselves.
 
+State-changing runtime commands return explicit primitive outcomes. Ability
+commit, end, cancel, and instant activation distinguish committed from already
+committed, ended from missing activation, and canceled from missing activation.
+Effect application distinguishes rejected applications, accepted instant
+executions, and active effect creation. Ability hook failures include an
+`AbilityHookPhase` so caller-owned hook errors can be attributed to
+can-activate, cooldown calculation, commit, instant execution, or end without
+inspecting lifecycle events.
+
 Lifecycle events are raw mechanics facts emitted by attributes, derived
 attributes, abilities, effects, and mechanics ticking. They describe what the
 Flexweave primitive did. They are not application events, engine events, UI

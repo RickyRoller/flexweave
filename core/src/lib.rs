@@ -19,6 +19,10 @@
 #![doc = "and application methods are low-level paths that trust caller-managed"]
 #![doc = "object-reference invariants."]
 #![doc = ""]
+#![doc = "State-changing ability and effect commands return explicit primitive"]
+#![doc = "outcome enums so callers can distinguish command results without"]
+#![doc = "inspecting emitted lifecycle facts."]
+#![doc = ""]
 #![doc = "The crate is fully safe Rust. Caller-owned hooks and closures carry domain"]
 #![doc = "logic at the edges while Flexweave owns the reusable lifecycle shape."]
 #![doc = ""]
@@ -161,11 +165,13 @@ pub use ability::{
     AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationCommit,
     AbilityActivationCommitView, AbilityActivationError, AbilityActivationId,
     AbilityActivationMode, AbilityActivationRejection, AbilityActivationRejectionReason,
-    AbilityActivationRejectionView, AbilityCancelPolicy, AbilityCommitTiming, AbilityDefinition,
-    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndResult,
-    AbilityError, AbilityGrantError, AbilityHooks, AbilityId, AbilityLifecycleEvent,
-    AbilityLifecycleEventView, AbilityStore, ActiveAbility, ActiveAbilityView, CooldownUnits,
-    Grant, GrantedAbility, RegisteredAbilityActivationError, RevokedOwnerAbilities,
+    AbilityActivationRejectionView, AbilityCancelOutcome, AbilityCancelPolicy,
+    AbilityCommitOutcome, AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError,
+    AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndOutcome, AbilityEndOutcomeResult,
+    AbilityError, AbilityGrantError, AbilityHookPhase, AbilityHooks, AbilityId,
+    AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityStore, ActiveAbility,
+    ActiveAbilityView, CooldownUnits, Grant, GrantedAbility, RegisteredAbilityActivationError,
+    RevokedOwnerAbilities,
 };
 pub use attribute::{
     Attribute, AttributeChange, AttributeDefaultValue, AttributeDefinition,
@@ -179,11 +185,11 @@ pub use derived_attribute::{DerivedAttribute, DerivedChange};
 pub use effect::{
     ActiveEffectId, EffectAdvance, EffectAdvanceView, EffectApplication, EffectApplicationDecision,
     EffectApplicationError, EffectApplicationInput, EffectApplicationRejection,
-    EffectApplicationRejectionView, EffectApplicationView, EffectClockPolicy, EffectDefinition,
-    EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions, EffectExecution,
-    EffectExecutionView, EffectInstance, EffectInstanceView, EffectKind, EffectLifecycleEvent,
-    EffectLifecycleEventView, EffectObjectRemovalPolicy, EffectPipeline, EffectRouting,
-    EffectSourcePolicy,
+    EffectApplicationRejectionView, EffectApplicationView, EffectApplyOutcome, EffectClockPolicy,
+    EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions,
+    EffectExecution, EffectExecutionView, EffectInstance, EffectInstanceView, EffectKind,
+    EffectLifecycleEvent, EffectLifecycleEventView, EffectObjectRemovalPolicy, EffectPipeline,
+    EffectRouting, EffectSourcePolicy,
 };
 pub use errors::CoreError;
 pub use identity::{INVALID_OBJECT_ID, ObjectId, ObjectStore};

@@ -20,4 +20,6 @@ pub use events::{
     EffectInstanceView, EffectLifecycleEvent, EffectLifecycleEventView,
 };
 pub use ids::ActiveEffectId;
-pub use pipeline::{EffectApplicationError, EffectObjectRemovalPolicy, EffectPipeline};
+pub use pipeline::{
+    EffectApplicationError, EffectApplyOutcome, EffectObjectRemovalPolicy, EffectPipeline,
+};

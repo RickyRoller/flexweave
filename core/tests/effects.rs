@@ -3,11 +3,11 @@ mod common;
 use common::TestAtom;
 use flexweave::{
     AbilityActivationId, AbilityCommitTiming, AbilityId, ActiveAbility, ActiveEffectId,
-    EffectApplicationDecision, EffectApplicationError, EffectApplicationInput, EffectClockPolicy,
-    EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions,
-    EffectKind, EffectLifecycleEvent, EffectLifecycleEventView, EffectPipeline, EffectRouting,
-    EffectSourcePolicy, EventChannel, EventChannelDefinition, EventRetention, LifecycleEventKind,
-    ObjectId, ObjectStore, Tag, TagSet,
+    EffectApplicationDecision, EffectApplicationError, EffectApplicationInput, EffectApplyOutcome,
+    EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError,
+    EffectDefinitions, EffectKind, EffectLifecycleEvent, EffectLifecycleEventView, EffectPipeline,
+    EffectRouting, EffectSourcePolicy, EventChannel, EventChannelDefinition, EventRetention,
+    LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet,
 };
 
 #[test]
@@ -43,7 +43,8 @@ fn effect_pipeline_creates_advances_expires_and_visits_by_target() {
             |_| {},
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
     let second = effects
         .apply_with_events(
             &effect_definition(
@@ -62,7 +63,8 @@ fn effect_pipeline_creates_advances_expires_and_visits_by_target() {
             |_| {},
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
     let third = effects
         .apply_with_events(
             &effect_definition(
@@ -81,7 +83,8 @@ fn effect_pipeline_creates_advances_expires_and_visits_by_target() {
             |_| {},
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
 
     assert_eq!(
         (first, second, third),
@@ -161,7 +164,8 @@ fn effect_pipeline_removes_effects_with_distinct_lifecycle_fact() {
             |_| {},
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
     let mut events = Vec::new();
 
     let removed = effects
@@ -209,7 +213,8 @@ fn effect_indexes_survive_removal_expiration_and_keep_application_order() {
             |_| {},
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
     let second = effects
         .apply_with_events(
             &effect_definition(
@@ -227,7 +232,8 @@ fn effect_indexes_survive_removal_expiration_and_keep_application_order() {
             |_| {},
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
     let third = effects
         .apply_with_events(
             &effect_definition(
@@ -245,7 +251,8 @@ fn effect_indexes_survive_removal_expiration_and_keep_application_order() {
             |_| {},
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
     let fourth = effects
         .apply_with_events(
             &effect_definition(
@@ -263,7 +270,8 @@ fn effect_indexes_survive_removal_expiration_and_keep_application_order() {
             |_| {},
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
 
     let mut target_order = Vec::new();
     effects.visit_target(target, |effect| target_order.push(effect.id));
@@ -322,7 +330,8 @@ fn active_effect_ids_are_typed_value_objects_and_pipeline_uses_them() {
             |_| {},
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
 
     assert_eq!(effect_id, ActiveEffectId::new(1));
     assert_eq!(effect_id.get(), 1);
@@ -348,7 +357,8 @@ fn active_effect_ids_are_typed_value_objects_and_pipeline_uses_them() {
             |_| {},
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
 
     assert_eq!(default_effect_id, ActiveEffectId::new(1));
     assert_ne!(default_effect_id, ActiveEffectId::INVALID);
@@ -464,7 +474,8 @@ fn apply_registered_uses_definition_duration_and_carries_definition_key() {
             |event| events.push(event),
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("registered duration effect should create an active effect");
 
     assert_eq!(
         pipeline.get(active_id).unwrap().definition_key.as_deref(),
@@ -723,7 +734,7 @@ fn checked_effect_application_allows_system_source_when_policy_permits() {
     let mut pipeline = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     let mut events = Vec::new();
 
-    let active_id = pipeline
+    let outcome = pipeline
         .apply_checked_with_events(
             &objects,
             &effect_definition("hit", EffectKind::Instant, None, None),
@@ -738,7 +749,7 @@ fn checked_effect_application_allows_system_source_when_policy_permits() {
         )
         .unwrap();
 
-    assert_eq!(active_id, None);
+    assert_eq!(outcome, EffectApplyOutcome::ExecutedInstant);
     let [
         EffectLifecycleEvent::ApplicationAccepted(accepted),
         EffectLifecycleEvent::Executed(executed),
@@ -831,7 +842,7 @@ fn instant_effect_execution_emits_without_active_storage() {
     let mut pipeline = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     let mut events = Vec::new();
 
-    let active_id = pipeline
+    let outcome = pipeline
         .apply_with_events(
             &definition,
             application(Payload::Hit, EffectApplicationDecision::Accept),
@@ -839,7 +850,7 @@ fn instant_effect_execution_emits_without_active_storage() {
         )
         .unwrap();
 
-    assert_eq!(active_id, None);
+    assert_eq!(outcome, EffectApplyOutcome::ExecutedInstant);
     assert_eq!(pipeline.count(), 0);
     let [
         EffectLifecycleEvent::ApplicationAccepted(accepted),
@@ -870,7 +881,7 @@ fn rejected_effect_application_leaves_no_active_effect() {
     let mut pipeline = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     let mut events = Vec::new();
 
-    let active_id = pipeline
+    let outcome = pipeline
         .apply_with_events(
             &definition,
             application(
@@ -883,13 +894,69 @@ fn rejected_effect_application_leaves_no_active_effect() {
         )
         .unwrap();
 
-    assert_eq!(active_id, None);
+    assert_eq!(outcome, EffectApplyOutcome::Rejected);
     assert_eq!(pipeline.count(), 0);
     let [EffectLifecycleEvent::ApplicationRejected(rejected)] = events.as_slice() else {
         panic!("rejected application should emit only a rejection fact");
     };
     assert_eq!(rejected.reason, "blocked");
     assert_eq!(rejected.application.target_id, ObjectId::new(20));
+}
+
+#[test]
+fn effect_apply_outcomes_distinguish_rejected_instant_and_active_creation() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum Payload {
+        Hit,
+        Buff,
+    }
+
+    let instant = effect_definition("hit", EffectKind::Instant, None, None);
+    let duration = effect_definition(
+        "buff",
+        EffectKind::Duration,
+        Some(EffectClockPolicy { units: 100 }),
+        None,
+    );
+    let mut pipeline = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
+
+    assert_eq!(
+        pipeline
+            .apply(
+                &instant,
+                application(Payload::Hit, EffectApplicationDecision::Accept),
+            )
+            .unwrap(),
+        EffectApplyOutcome::ExecutedInstant
+    );
+    assert_eq!(pipeline.count(), 0);
+
+    assert_eq!(
+        pipeline
+            .apply(
+                &duration,
+                application(
+                    Payload::Buff,
+                    EffectApplicationDecision::Reject {
+                        reason: "blocked".to_owned(),
+                    },
+                ),
+            )
+            .unwrap(),
+        EffectApplyOutcome::Rejected
+    );
+    assert_eq!(pipeline.count(), 0);
+
+    assert_eq!(
+        pipeline
+            .apply(
+                &duration,
+                application(Payload::Buff, EffectApplicationDecision::Accept),
+            )
+            .unwrap(),
+        EffectApplyOutcome::ActiveCreated(ActiveEffectId::new(1))
+    );
+    assert_eq!(pipeline.count(), 1);
 }
 
 #[test]
@@ -914,7 +981,8 @@ fn duration_effects_advance_expire_and_remove_in_lifecycle_order() {
             |event| events.push(event),
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
     events.clear();
 
     pipeline.tick_with_events(40, |event| events.push(event));
@@ -947,7 +1015,8 @@ fn duration_effects_advance_expire_and_remove_in_lifecycle_order() {
             |_| {},
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
     pipeline.tick_with_events(100, |event| events.push(event));
     let [
         EffectLifecycleEvent::Advanced(expiring_advance),
@@ -1128,7 +1197,8 @@ fn borrowed_effect_lifecycle_accepts_non_clone_payloads() {
             },
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
 
     assert_eq!(
         application_kinds,
@@ -1180,7 +1250,8 @@ fn effect_no_event_paths_accept_non_clone_payloads() {
             application(Payload { amount: 11 }, EffectApplicationDecision::Accept),
         )
         .unwrap()
-        .unwrap();
+        .active_effect_id()
+        .expect("duration effect should create an active effect");
     pipeline.tick(1);
     let removed = pipeline.remove(active_id).unwrap();
 
@@ -1213,5 +1284,18 @@ fn application<Payload>(
         tags: TagSet::new([Tag::new([TestAtom::Category, TestAtom::Variant])]),
         payload,
         decision,
+    }
+}
+
+trait EffectApplyOutcomeTestExt {
+    fn active_effect_id(self) -> Option<ActiveEffectId>;
+}
+
+impl EffectApplyOutcomeTestExt for EffectApplyOutcome {
+    fn active_effect_id(self) -> Option<ActiveEffectId> {
+        match self {
+            EffectApplyOutcome::ActiveCreated(id) => Some(id),
+            EffectApplyOutcome::Rejected | EffectApplyOutcome::ExecutedInstant => None,
+        }
     }
 }

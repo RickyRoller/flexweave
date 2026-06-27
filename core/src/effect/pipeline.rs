@@ -47,6 +47,14 @@ pub enum EffectApplicationError {
     InvalidTarget { target_id: ObjectId },
 }
 
+/// Outcome of applying an effect definition.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EffectApplyOutcome {
+    Rejected,
+    ExecutedInstant,
+    ActiveCreated(ActiveEffectId),
+}
+
 impl fmt::Display for EffectApplicationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -101,7 +109,7 @@ where
         &mut self,
         definition: &EffectDefinition<Schema>,
         input: EffectApplicationInput<Tags, Payload>,
-    ) -> Result<Option<ActiveEffectId>, EffectDefinitionError> {
+    ) -> Result<EffectApplyOutcome, EffectDefinitionError> {
         self.apply_with_borrowed_events(definition, input, |_| {})
     }
 
@@ -116,7 +124,7 @@ where
         definition: &EffectDefinition<Schema>,
         input: EffectApplicationInput<Tags, Payload>,
         mut on_event: F,
-    ) -> Result<Option<ActiveEffectId>, EffectDefinitionError>
+    ) -> Result<EffectApplyOutcome, EffectDefinitionError>
     where
         Tags: Clone,
         Payload: Clone,
@@ -137,7 +145,7 @@ where
         definition: &EffectDefinition<Schema>,
         input: EffectApplicationInput<Tags, Payload>,
         on_event: F,
-    ) -> Result<Option<ActiveEffectId>, EffectDefinitionError>
+    ) -> Result<EffectApplyOutcome, EffectDefinitionError>
     where
         F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
     {
@@ -151,7 +159,7 @@ where
         definitions: &EffectDefinitions<Schema>,
         key: &str,
         input: EffectApplicationInput<Tags, Payload>,
-    ) -> Result<Option<ActiveEffectId>, EffectDefinitionRegistryError> {
+    ) -> Result<EffectApplyOutcome, EffectDefinitionRegistryError> {
         self.apply_registered_with_borrowed_events(definitions, key, input, |_| {})
     }
 
@@ -162,7 +170,7 @@ where
         key: &str,
         input: EffectApplicationInput<Tags, Payload>,
         mut on_event: F,
-    ) -> Result<Option<ActiveEffectId>, EffectDefinitionRegistryError>
+    ) -> Result<EffectApplyOutcome, EffectDefinitionRegistryError>
     where
         Tags: Clone,
         Payload: Clone,
@@ -180,7 +188,7 @@ where
         key: &str,
         input: EffectApplicationInput<Tags, Payload>,
         on_event: F,
-    ) -> Result<Option<ActiveEffectId>, EffectDefinitionRegistryError>
+    ) -> Result<EffectApplyOutcome, EffectDefinitionRegistryError>
     where
         F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
     {
@@ -193,7 +201,7 @@ where
         definition: &EffectDefinition<Schema>,
         input: EffectApplicationInput<Tags, Payload>,
         mut on_event: F,
-    ) -> Option<ActiveEffectId>
+    ) -> EffectApplyOutcome
     where
         F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
     {
@@ -221,7 +229,7 @@ where
                         reason: &reason,
                     },
                 ));
-                None
+                EffectApplyOutcome::Rejected
             }
             EffectApplicationDecision::Accept => {
                 on_event(EffectLifecycleEventView::ApplicationAccepted(application));
@@ -236,7 +244,7 @@ where
                         payload: &payload,
                         elapsed_units: None,
                     }));
-                    return None;
+                    return EffectApplyOutcome::ExecutedInstant;
                 }
 
                 let id = self.next_id;
@@ -255,7 +263,7 @@ where
                 self.push_effect(effect);
                 let effect = self.effects.last().expect("effect was just pushed");
                 on_event(EffectLifecycleEventView::ActiveCreated(effect.into()));
-                Some(id)
+                EffectApplyOutcome::ActiveCreated(id)
             }
         }
     }
@@ -267,7 +275,7 @@ where
         definition: &EffectDefinition<Schema>,
         input: EffectApplicationInput<Tags, Payload>,
         source_policy: EffectSourcePolicy,
-    ) -> Result<Option<ActiveEffectId>, EffectApplicationError> {
+    ) -> Result<EffectApplyOutcome, EffectApplicationError> {
         validate_application_references(objects, &input, source_policy)?;
         self.apply(definition, input)
             .map_err(EffectApplicationError::Definition)
@@ -281,13 +289,12 @@ where
         input: EffectApplicationInput<Tags, Payload>,
         source_policy: EffectSourcePolicy,
         mut on_event: F,
-    ) -> Result<Option<ActiveEffectId>, EffectApplicationError>
+    ) -> Result<EffectApplyOutcome, EffectApplicationError>
     where
         Tags: Clone,
         Payload: Clone,
         F: FnMut(EffectLifecycleEvent<Tags, Payload>),
     {
-        validate_application_references(objects, &input, source_policy)?;
         self.apply_checked_with_borrowed_events(
             objects,
             definition,
@@ -305,7 +312,7 @@ where
         input: EffectApplicationInput<Tags, Payload>,
         source_policy: EffectSourcePolicy,
         on_event: F,
-    ) -> Result<Option<ActiveEffectId>, EffectApplicationError>
+    ) -> Result<EffectApplyOutcome, EffectApplicationError>
     where
         F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
     {

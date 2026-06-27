@@ -3,12 +3,13 @@ mod common;
 use common::TestAtom;
 use flexweave::{
     AbilityActivationError, AbilityActivationId, AbilityActivationMode,
-    AbilityActivationRejectionReason, AbilityCancelPolicy, AbilityCommitTiming, AbilityDefinition,
-    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityError,
-    AbilityGrantError, AbilityHooks, AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView,
-    AbilityStore, EventChannel, EventChannelDefinition, EventRetention, Grant, GrantedAbility,
-    INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet,
-    ability,
+    AbilityActivationRejectionReason, AbilityCancelOutcome, AbilityCancelPolicy,
+    AbilityCommitOutcome, AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError,
+    AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndOutcome, AbilityError,
+    AbilityGrantError, AbilityHookPhase, AbilityHooks, AbilityId, AbilityLifecycleEvent,
+    AbilityLifecycleEventView, AbilityStore, EventChannel, EventChannelDefinition, EventRetention,
+    Grant, GrantedAbility, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId,
+    ObjectStore, Tag, TagSet, ability,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -240,7 +241,10 @@ fn val_core_012_failed_ability_hooks_do_not_apply_cooldown_or_later_hooks() {
             &mut context,
             &mut hooks,
         ),
-        Err(AbilityActivationError::Hook(HookError::Rejected))
+        Err(AbilityActivationError::Hook {
+            phase: AbilityHookPhase::CanActivate,
+            error: HookError::Rejected,
+        })
     );
     assert_eq!(context.events, vec!["can_activate"]);
     assert_eq!(abilities.cooldown_remaining(ability_id), Ok(0));
@@ -363,8 +367,10 @@ fn active_ability_end_on_end_commits_then_removes_state() {
         .end_activation_with_events(activation_id, &mut context, &mut hooks, |event| {
             events.push(event);
         })
-        .unwrap()
         .unwrap();
+    let AbilityEndOutcome::Ended(ended) = ended else {
+        panic!("active activation should end");
+    };
 
     assert_eq!(context.resource, 8);
     assert_eq!(
@@ -405,9 +411,11 @@ fn active_ability_cancel_removes_state_without_committing() {
             |event| events.push(event),
         )
         .unwrap();
-    let canceled = abilities
-        .cancel_activation_with_events(activation_id, |event| events.push(event))
-        .unwrap();
+    let canceled =
+        abilities.cancel_activation_with_events(activation_id, |event| events.push(event));
+    let AbilityCancelOutcome::Canceled(canceled) = canceled else {
+        panic!("active activation should cancel");
+    };
 
     assert_eq!(canceled.activation_id, activation_id);
     assert_eq!(context.resource, 10);
@@ -421,6 +429,76 @@ fn active_ability_cancel_removes_state_without_committing() {
             LifecycleEventKind::AbilityActivationStarted,
             LifecycleEventKind::AbilityActivationCanceled,
         ]
+    );
+}
+
+#[test]
+fn active_ability_commands_return_explicit_outcomes() {
+    let mut abilities = ActiveAbilityStore::new();
+    let ability_id = grant_active_ability(&mut abilities, Some(700));
+    let cancel_ability_id = grant_active_ability(&mut abilities, None);
+    let mut context = ActiveContext {
+        resource: 10,
+        events: Vec::new(),
+    };
+    let mut hooks = ActiveHooks { reject: false };
+
+    let activation_id = abilities
+        .begin_activation_with(
+            ability_id,
+            AbilityCommitTiming::Manual,
+            &mut context,
+            &mut hooks,
+        )
+        .unwrap();
+
+    assert_eq!(
+        abilities
+            .commit_activation_with(activation_id, &mut context, &mut hooks)
+            .unwrap(),
+        AbilityCommitOutcome::Committed {
+            cooldown_units: Some(700),
+        }
+    );
+    assert_eq!(
+        abilities
+            .commit_activation_with(activation_id, &mut context, &mut hooks)
+            .unwrap(),
+        AbilityCommitOutcome::AlreadyCommitted
+    );
+
+    let ended = abilities
+        .end_activation_with(activation_id, &mut context, &mut hooks)
+        .unwrap();
+    let AbilityEndOutcome::Ended(ended) = ended else {
+        panic!("active activation should end");
+    };
+    assert_eq!(ended.activation_id, activation_id);
+    assert!(ended.committed);
+    assert_eq!(
+        abilities
+            .end_activation_with(activation_id, &mut context, &mut hooks)
+            .unwrap(),
+        AbilityEndOutcome::MissingActivation
+    );
+
+    let cancel_activation_id = abilities
+        .begin_activation_with(
+            cancel_ability_id,
+            AbilityCommitTiming::Manual,
+            &mut context,
+            &mut hooks,
+        )
+        .unwrap();
+    let canceled = abilities.cancel_activation(cancel_activation_id);
+    let AbilityCancelOutcome::Canceled(canceled) = canceled else {
+        panic!("active activation should cancel");
+    };
+    assert_eq!(canceled.activation_id, cancel_activation_id);
+    assert!(!canceled.committed);
+    assert_eq!(
+        abilities.cancel_activation(cancel_activation_id),
+        AbilityCancelOutcome::MissingActivation
     );
 }
 
@@ -443,7 +521,10 @@ fn active_ability_rejection_leaves_no_active_state_or_cooldown() {
             &mut hooks,
             |event| events.push(event),
         ),
-        Err(AbilityActivationError::Hook(ActiveHookError::Rejected))
+        Err(AbilityActivationError::Hook {
+            phase: AbilityHookPhase::CanActivate,
+            error: ActiveHookError::Rejected,
+        })
     );
 
     assert_eq!(context.resource, 10);
@@ -464,6 +545,72 @@ fn active_ability_rejection_leaves_no_active_state_or_cooldown() {
         }
         event => panic!("expected rejection event, got {event:?}"),
     }
+}
+
+#[test]
+fn cooldown_hook_failure_reports_cooldown_units_phase() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum HookError {
+        Rejected,
+    }
+
+    struct RejectCooldown;
+
+    impl AbilityHooks<ActiveContext, TagSet<TestAtom>, ActiveCost, ActivePayload> for RejectCooldown {
+        type Error = HookError;
+
+        fn can_activate(
+            &mut self,
+            context: &mut ActiveContext,
+            _ability: &GrantedAbility<TagSet<TestAtom>, ActiveCost, ActivePayload>,
+        ) -> Result<(), Self::Error> {
+            context.events.push("can_activate");
+            Ok(())
+        }
+
+        fn cooldown_units(
+            &mut self,
+            context: &mut ActiveContext,
+            _ability: &GrantedAbility<TagSet<TestAtom>, ActiveCost, ActivePayload>,
+        ) -> Result<Option<u64>, Self::Error> {
+            context.events.push("cooldown");
+            Err(HookError::Rejected)
+        }
+    }
+
+    let mut abilities = ActiveAbilityStore::new();
+    let ability_id = grant_active_ability(&mut abilities, Some(500));
+    let mut context = ActiveContext {
+        resource: 10,
+        events: Vec::new(),
+    };
+    let mut hooks = RejectCooldown;
+    let mut events = Vec::new();
+
+    assert_eq!(
+        abilities.begin_activation_with_events(
+            ability_id,
+            AbilityCommitTiming::OnStart,
+            &mut context,
+            &mut hooks,
+            |event| events.push(event),
+        ),
+        Err(AbilityActivationError::Hook {
+            phase: AbilityHookPhase::CooldownUnits,
+            error: HookError::Rejected,
+        })
+    );
+
+    assert_eq!(context.events, vec!["can_activate", "cooldown"]);
+    assert_eq!(abilities.cooldown_remaining(ability_id), Ok(0));
+    assert_eq!(abilities.active_activation_count(), 0);
+    assert_eq!(
+        lifecycle_kinds(&events),
+        vec![
+            LifecycleEventKind::AbilityActivationAttempted,
+            LifecycleEventKind::AbilityActivationRejected,
+        ]
+    );
 }
 
 #[test]
@@ -546,8 +693,10 @@ fn instant_activation_success_emits_lifecycle_and_clears_active_state() {
             },
             |event| events.push(event),
         )
-        .unwrap()
         .unwrap();
+    let AbilityEndOutcome::Ended(ended) = ended else {
+        panic!("instant activation should end");
+    };
 
     assert_eq!(ended.activation_id, AbilityActivationId::new(1));
     assert!(ended.committed);
@@ -594,7 +743,10 @@ fn instant_activation_executor_failure_cancels_and_clears_active_state() {
             },
             |event| events.push(event),
         ),
-        Err(AbilityActivationError::Hook(ActiveHookError::Rejected))
+        Err(AbilityActivationError::Hook {
+            phase: AbilityHookPhase::ExecuteInstant,
+            error: ActiveHookError::Rejected,
+        })
     );
 
     assert_eq!(context.resource, 8);
@@ -643,9 +795,10 @@ fn instant_activation_end_hook_failure_cancels_and_clears_active_state() {
             },
             |event| events.push(event),
         ),
-        Err(AbilityActivationError::Hook(
-            FailingActiveHookError::EndRejected
-        ))
+        Err(AbilityActivationError::Hook {
+            phase: AbilityHookPhase::End,
+            error: FailingActiveHookError::EndRejected,
+        })
     );
 
     assert_eq!(context.resource, 8);
@@ -694,9 +847,10 @@ fn instant_activation_deferred_commit_failure_cancels_and_clears_active_state() 
             },
             |event| events.push(event),
         ),
-        Err(AbilityActivationError::Hook(
-            FailingActiveHookError::CommitRejected
-        ))
+        Err(AbilityActivationError::Hook {
+            phase: AbilityHookPhase::Commit,
+            error: FailingActiveHookError::CommitRejected,
+        })
     );
 
     assert_eq!(context.resource, 10);
@@ -741,7 +895,6 @@ fn instant_activation_cooldown_semantics_match_deferred_commit_end() {
             },
             |event| events.push(event),
         )
-        .unwrap()
         .unwrap();
 
     assert_eq!(context.resource, 8);
@@ -903,7 +1056,10 @@ fn ability_indexes_survive_grant_lookup_cancel_and_end() {
         vec![first_activation, second_activation]
     );
 
-    let canceled = abilities.cancel_activation(first_activation).unwrap();
+    let canceled = abilities.cancel_activation(first_activation);
+    let AbilityCancelOutcome::Canceled(canceled) = canceled else {
+        panic!("first activation should cancel");
+    };
     assert_eq!(canceled.activation_id, first_activation);
     assert!(abilities.get_active_activation(first_activation).is_none());
     assert_eq!(
@@ -924,8 +1080,10 @@ fn ability_indexes_survive_grant_lookup_cancel_and_end() {
 
     let ended = abilities
         .end_activation_with(second_activation, &mut context, &mut hooks)
-        .unwrap()
         .unwrap();
+    let AbilityEndOutcome::Ended(ended) = ended else {
+        panic!("second activation should end");
+    };
     assert_eq!(ended.activation_id, second_activation);
     assert_eq!(abilities.active_activation_count(), 0);
     assert!(abilities.get_active_activation(second_activation).is_none());
@@ -1196,8 +1354,10 @@ fn grant_registered_stores_definition_key_and_activation_uses_definition_timing(
         .end_activation_with_events(activation_id, &mut context, &mut hooks, |event| {
             events.push(event);
         })
-        .unwrap()
         .unwrap();
+    let AbilityEndOutcome::Ended(ended) = ended else {
+        panic!("registered activation should end");
+    };
 
     assert_eq!(ended.definition_key.as_deref(), Some("channel"));
     assert!(ended.committed);

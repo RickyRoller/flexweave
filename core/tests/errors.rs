@@ -1,8 +1,9 @@
 use flexweave::{
     AbilityActivationError, AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityError,
-    AbilityGrantError, AbilityId, AttributeDefinitionError, CoreError, EffectApplicationError,
-    EffectDefinitionError, EffectDefinitionRegistryError, EventChannelDefinitionError,
-    EventChannelError, LifecycleEventKind, RegisteredAbilityActivationError, SignalDefinitionError,
+    AbilityGrantError, AbilityHookPhase, AbilityId, AttributeDefinitionError, CoreError,
+    EffectApplicationError, EffectDefinitionError, EffectDefinitionRegistryError,
+    EventChannelDefinitionError, EventChannelError, LifecycleEventKind,
+    RegisteredAbilityActivationError, SignalDefinitionError,
 };
 use std::fmt;
 
@@ -112,10 +113,13 @@ fn runtime_errors_have_contextual_display_messages_and_sources() {
         "ability is on cooldown"
     );
 
-    let hook = AbilityActivationError::Hook(HookError);
+    let hook = AbilityActivationError::Hook {
+        phase: AbilityHookPhase::CanActivate,
+        error: HookError,
+    };
     assert_eq!(
         hook.to_string(),
-        "ability activation hook failed: hook denied activation"
+        "ability activation hook failed during can-activate: hook denied activation"
     );
     assert_eq!(
         std::error::Error::source(&hook)
