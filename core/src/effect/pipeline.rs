@@ -4,11 +4,14 @@ use crate::tag::TagCollection;
 use std::fmt;
 
 use super::application::{
-    EffectApplication, EffectApplicationDecision, EffectApplicationInput,
-    EffectApplicationRejection, EffectSourcePolicy,
+    EffectApplicationDecision, EffectApplicationInput, EffectApplicationRejectionView,
+    EffectApplicationView, EffectSourcePolicy,
 };
 use super::definition::{EffectDefinition, EffectDefinitionError, EffectKind};
-use super::events::{EffectAdvance, EffectExecution, EffectInstance, EffectLifecycleEvent};
+use super::events::{
+    EffectAdvanceView, EffectExecutionView, EffectInstance, EffectInstanceView,
+    EffectLifecycleEvent, EffectLifecycleEventView,
+};
 use super::ids::ActiveEffectId;
 
 /// Effect application and execution pipeline with caller-owned payloads.
@@ -85,6 +88,15 @@ where
         }
     }
 
+    /// Applies or executes an effect definition without constructing lifecycle events.
+    pub fn apply<Schema>(
+        &mut self,
+        definition: &EffectDefinition<Schema>,
+        input: EffectApplicationInput<Tags, Payload>,
+    ) -> Result<Option<ActiveEffectId>, EffectDefinitionError> {
+        self.apply_with_borrowed_events(definition, input, |_| {})
+    }
+
     /// Applies or executes an effect definition and emits lifecycle facts.
     ///
     /// This is the low-level unchecked path for object references:
@@ -102,37 +114,62 @@ where
         Payload: Clone,
         F: FnMut(EffectLifecycleEvent<Tags, Payload>),
     {
+        self.apply_with_borrowed_events(definition, input, |event| {
+            on_event(event.to_owned_event());
+        })
+    }
+
+    /// Applies or executes an effect definition and streams borrowed lifecycle facts.
+    ///
+    /// Borrowed facts are valid only for the duration of the callback. Use
+    /// `EffectLifecycleEventView::to_owned_event` when a caller needs retained
+    /// facts for diagnostics, replay, or tests.
+    pub fn apply_with_borrowed_events<Schema, F>(
+        &mut self,
+        definition: &EffectDefinition<Schema>,
+        input: EffectApplicationInput<Tags, Payload>,
+        mut on_event: F,
+    ) -> Result<Option<ActiveEffectId>, EffectDefinitionError>
+    where
+        F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
+    {
         definition.validate()?;
 
-        let application = EffectApplication {
-            source_id: input.source_id,
-            target_id: input.target_id,
-            tags: input.tags.clone(),
-            payload: input.payload.clone(),
+        let EffectApplicationInput {
+            source_id,
+            target_id,
+            tags,
+            payload,
+            decision,
+        } = input;
+
+        let application = EffectApplicationView {
+            source_id,
+            target_id,
+            tags: &tags,
+            payload: &payload,
         };
 
-        match input.decision {
+        match decision {
             EffectApplicationDecision::Reject { reason } => {
-                on_event(EffectLifecycleEvent::ApplicationRejected(
-                    EffectApplicationRejection {
+                on_event(EffectLifecycleEventView::ApplicationRejected(
+                    EffectApplicationRejectionView {
                         application,
-                        reason,
+                        reason: &reason,
                     },
                 ));
                 Ok(None)
             }
             EffectApplicationDecision::Accept => {
-                on_event(EffectLifecycleEvent::ApplicationAccepted(
-                    application.clone(),
-                ));
+                on_event(EffectLifecycleEventView::ApplicationAccepted(application));
 
                 if definition.kind == EffectKind::Instant {
-                    on_event(EffectLifecycleEvent::Executed(EffectExecution {
+                    on_event(EffectLifecycleEventView::Executed(EffectExecutionView {
                         active_effect_id: None,
-                        source_id: application.source_id,
-                        target_id: application.target_id,
-                        tags: application.tags,
-                        payload: application.payload,
+                        source_id,
+                        target_id,
+                        tags: &tags,
+                        payload: &payload,
                         elapsed_units: None,
                     }));
                     return Ok(None);
@@ -142,19 +179,33 @@ where
                 self.next_id = ActiveEffectId::new(self.next_id.get() + 1);
                 let effect = EffectInstance {
                     id,
-                    source_id: application.source_id,
-                    target_id: application.target_id,
+                    source_id,
+                    target_id,
                     remaining_units: definition.duration.map(|duration| duration.units),
                     period: definition.period,
                     period_elapsed_units: 0,
-                    tags: application.tags,
-                    payload: application.payload,
+                    tags,
+                    payload,
                 };
-                self.effects.push(effect.clone());
-                on_event(EffectLifecycleEvent::ActiveCreated(effect));
+                self.effects.push(effect);
+                let effect = self.effects.last().expect("effect was just pushed");
+                on_event(EffectLifecycleEventView::ActiveCreated(effect.into()));
                 Ok(Some(id))
             }
         }
+    }
+
+    /// Applies or executes an effect after validating source and target object references.
+    pub fn apply_checked<Schema>(
+        &mut self,
+        objects: &ObjectStore,
+        definition: &EffectDefinition<Schema>,
+        input: EffectApplicationInput<Tags, Payload>,
+        source_policy: EffectSourcePolicy,
+    ) -> Result<Option<ActiveEffectId>, EffectApplicationError> {
+        validate_application_references(objects, &input, source_policy)?;
+        self.apply(definition, input)
+            .map_err(EffectApplicationError::Definition)
     }
 
     /// Applies or executes an effect after validating source and target object references.
@@ -164,7 +215,7 @@ where
         definition: &EffectDefinition<Schema>,
         input: EffectApplicationInput<Tags, Payload>,
         source_policy: EffectSourcePolicy,
-        on_event: F,
+        mut on_event: F,
     ) -> Result<Option<ActiveEffectId>, EffectApplicationError>
     where
         Tags: Clone,
@@ -172,8 +223,35 @@ where
         F: FnMut(EffectLifecycleEvent<Tags, Payload>),
     {
         validate_application_references(objects, &input, source_policy)?;
-        self.apply_with_events(definition, input, on_event)
+        self.apply_checked_with_borrowed_events(
+            objects,
+            definition,
+            input,
+            source_policy,
+            |event| on_event(event.to_owned_event()),
+        )
+    }
+
+    /// Applies or executes an effect after validating references and streams borrowed lifecycle facts.
+    pub fn apply_checked_with_borrowed_events<Schema, F>(
+        &mut self,
+        objects: &ObjectStore,
+        definition: &EffectDefinition<Schema>,
+        input: EffectApplicationInput<Tags, Payload>,
+        source_policy: EffectSourcePolicy,
+        on_event: F,
+    ) -> Result<Option<ActiveEffectId>, EffectApplicationError>
+    where
+        F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
+    {
+        validate_application_references(objects, &input, source_policy)?;
+        self.apply_with_borrowed_events(definition, input, on_event)
             .map_err(EffectApplicationError::Definition)
+    }
+
+    /// Advances active effect instances without constructing lifecycle events.
+    pub fn tick(&mut self, elapsed_units: ClockUnits) {
+        self.tick_with_borrowed_events(elapsed_units, |_| {});
     }
 
     /// Advances active effect instances and emits advance, periodic execution,
@@ -183,6 +261,17 @@ where
         Tags: Clone,
         Payload: Clone,
         F: FnMut(EffectLifecycleEvent<Tags, Payload>),
+    {
+        self.tick_with_borrowed_events(elapsed_units, |event| {
+            on_event(event.to_owned_event());
+        });
+    }
+
+    /// Advances active effect instances and streams borrowed lifecycle facts in
+    /// deterministic instance order.
+    pub fn tick_with_borrowed_events<F>(&mut self, elapsed_units: ClockUnits, mut on_event: F)
+    where
+        F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
     {
         if elapsed_units == 0 {
             return;
@@ -196,8 +285,8 @@ where
                 .unwrap_or(elapsed_units);
             if let Some(previous) = previous_remaining_units {
                 self.effects[index].remaining_units = Some(previous.saturating_sub(elapsed_units));
-                on_event(EffectLifecycleEvent::Advanced(EffectAdvance {
-                    effect: self.effects[index].clone(),
+                on_event(EffectLifecycleEventView::Advanced(EffectAdvanceView {
+                    effect: (&self.effects[index]).into(),
                     elapsed_units: elapsed_for_effect,
                     previous_remaining_units,
                 }));
@@ -207,24 +296,36 @@ where
                 self.effects[index].period_elapsed_units += elapsed_for_effect;
                 while self.effects[index].period_elapsed_units >= period.units {
                     self.effects[index].period_elapsed_units -= period.units;
-                    let effect = self.effects[index].clone();
-                    on_event(EffectLifecycleEvent::PeriodicExecuted(EffectExecution {
-                        active_effect_id: Some(effect.id),
-                        source_id: effect.source_id,
-                        target_id: effect.target_id,
-                        tags: effect.tags,
-                        payload: effect.payload,
-                        elapsed_units: Some(period.units),
-                    }));
+                    let effect = &self.effects[index];
+                    on_event(EffectLifecycleEventView::PeriodicExecuted(
+                        EffectExecutionView {
+                            active_effect_id: Some(effect.id),
+                            source_id: effect.source_id,
+                            target_id: effect.target_id,
+                            tags: &effect.tags,
+                            payload: &effect.payload,
+                            elapsed_units: Some(period.units),
+                        },
+                    ));
                 }
             }
 
             if previous_remaining_units.is_some_and(|previous| elapsed_units >= previous) {
-                on_event(EffectLifecycleEvent::Expired(self.effects.remove(index)));
+                let expired = self.effects.remove(index);
+                on_event(EffectLifecycleEventView::Expired((&expired).into()));
             } else {
                 index += 1;
             }
         }
+    }
+
+    /// Removes an active effect instance by id without constructing lifecycle events.
+    pub fn remove(&mut self, effect_id: ActiveEffectId) -> Option<EffectInstance<Tags, Payload>> {
+        let index = self
+            .effects
+            .iter()
+            .position(|effect| effect.id == effect_id)?;
+        Some(self.effects.remove(index))
     }
 
     /// Removes an active effect instance by id and emits a removal lifecycle fact.
@@ -237,12 +338,24 @@ where
         Payload: Clone,
         F: FnMut(EffectLifecycleEvent<Tags, Payload>),
     {
-        let index = self
-            .effects
-            .iter()
-            .position(|effect| effect.id == effect_id)?;
-        let removed = self.effects.remove(index);
-        on_event(EffectLifecycleEvent::Removed(removed.clone()));
+        self.remove_with_borrowed_events(effect_id, |event| {
+            on_event(event.to_owned_event());
+        })
+    }
+
+    /// Removes an active effect instance by id and streams a borrowed removal fact.
+    pub fn remove_with_borrowed_events<F>(
+        &mut self,
+        effect_id: ActiveEffectId,
+        mut on_event: F,
+    ) -> Option<EffectInstance<Tags, Payload>>
+    where
+        F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
+    {
+        let removed = self.remove(effect_id)?;
+        on_event(EffectLifecycleEventView::Removed(EffectInstanceView::from(
+            &removed,
+        )));
         Some(removed)
     }
 
@@ -252,11 +365,17 @@ where
         &mut self,
         object_id: ObjectId,
         policy: EffectObjectRemovalPolicy,
-    ) -> Vec<EffectInstance<Tags, Payload>>
-    where
-        Payload: Clone,
-    {
-        self.remove_for_object_with_events(object_id, policy, |_| {})
+    ) -> Vec<EffectInstance<Tags, Payload>> {
+        let mut removed = Vec::new();
+        let mut index = 0;
+        while index < self.effects.len() {
+            if policy.matches(&self.effects[index], object_id) {
+                removed.push(self.effects.remove(index));
+            } else {
+                index += 1;
+            }
+        }
+        removed
     }
 
     /// Removes active effects that reference `object_id` and emits removal facts.
@@ -270,12 +389,27 @@ where
         Payload: Clone,
         F: FnMut(EffectLifecycleEvent<Tags, Payload>),
     {
+        self.remove_for_object_with_borrowed_events(object_id, policy, |event| {
+            on_event(event.to_owned_event());
+        })
+    }
+
+    /// Removes active effects that reference `object_id` and streams borrowed removal facts.
+    pub fn remove_for_object_with_borrowed_events<F>(
+        &mut self,
+        object_id: ObjectId,
+        policy: EffectObjectRemovalPolicy,
+        mut on_event: F,
+    ) -> Vec<EffectInstance<Tags, Payload>>
+    where
+        F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
+    {
         let mut removed = Vec::new();
         let mut index = 0;
         while index < self.effects.len() {
             if policy.matches(&self.effects[index], object_id) {
                 let effect = self.effects.remove(index);
-                on_event(EffectLifecycleEvent::Removed(effect.clone()));
+                on_event(EffectLifecycleEventView::Removed((&effect).into()));
                 removed.push(effect);
             } else {
                 index += 1;

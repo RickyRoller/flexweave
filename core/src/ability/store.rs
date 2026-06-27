@@ -5,8 +5,9 @@ use std::fmt;
 
 use super::definition::{AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError};
 use super::events::{
-    AbilityActivationAttempt, AbilityActivationCommit, AbilityActivationRejection,
-    AbilityActivationRejectionReason, AbilityLifecycleEvent, ActiveAbility,
+    AbilityActivationAttemptView, AbilityActivationCommitView, AbilityActivationRejectionReason,
+    AbilityActivationRejectionView, AbilityLifecycleEvent, AbilityLifecycleEventView,
+    ActiveAbility, ActiveAbilityView,
 };
 use super::hooks::AbilityHooks;
 use super::ids::{AbilityActivationId, AbilityId, CooldownUnits};
@@ -174,6 +175,64 @@ where
     }
 }
 
+struct AbilityActivationSeed<Tags, Cost, Payload>
+where
+    Tags: TagCollection,
+{
+    ability_id: AbilityId,
+    owner_id: ObjectId,
+    tags: Tags,
+    cost: Option<Cost>,
+    payload: Payload,
+}
+
+impl<Tags, Cost, Payload> AbilityActivationSeed<Tags, Cost, Payload>
+where
+    Tags: TagCollection,
+{
+    fn from_ability(ability: &GrantedAbility<Tags, Cost, Payload>) -> Self
+    where
+        Cost: Clone,
+        Payload: Clone,
+    {
+        Self {
+            ability_id: ability.id,
+            owner_id: ability.owner_id,
+            tags: ability.tags.clone(),
+            cost: ability.cost.clone(),
+            payload: ability.payload.clone(),
+        }
+    }
+
+    fn attempt_view(&self) -> AbilityActivationAttemptView<'_, Tags, Cost, Payload> {
+        AbilityActivationAttemptView {
+            ability_id: self.ability_id,
+            owner_id: self.owner_id,
+            tags: &self.tags,
+            cost: self.cost.as_ref(),
+            payload: &self.payload,
+        }
+    }
+
+    fn into_active(
+        self,
+        activation_id: AbilityActivationId,
+        commit_timing: AbilityCommitTiming,
+        committed: bool,
+    ) -> ActiveAbility<Tags, Cost, Payload> {
+        ActiveAbility {
+            activation_id,
+            ability_id: self.ability_id,
+            owner_id: self.owner_id,
+            tags: self.tags,
+            cost: self.cost,
+            payload: self.payload,
+            commit_timing,
+            committed,
+        }
+    }
+}
+
 impl<Tags, Cost, Payload> AbilityStore<Tags, Cost, Payload>
 where
     Tags: TagCollection,
@@ -239,15 +298,37 @@ where
 
     /// Revokes granted and active abilities owned by `owner_id`.
     #[must_use]
-    pub fn revoke_owner(&mut self, owner_id: ObjectId) -> RevokedOwnerAbilities<Tags, Cost, Payload>
-    where
-        Cost: Clone,
-        Payload: Clone,
-    {
-        self.revoke_owner_with_events(owner_id, |_| {})
+    pub fn revoke_owner(
+        &mut self,
+        owner_id: ObjectId,
+    ) -> RevokedOwnerAbilities<Tags, Cost, Payload> {
+        let mut active_abilities = Vec::new();
+        let mut active_index = 0;
+        while active_index < self.active_abilities.len() {
+            if self.active_abilities[active_index].owner_id == owner_id {
+                active_abilities.push(self.active_abilities.remove(active_index));
+            } else {
+                active_index += 1;
+            }
+        }
+
+        let mut grants = Vec::new();
+        let mut ability_index = 0;
+        while ability_index < self.abilities.len() {
+            if self.abilities[ability_index].owner_id == owner_id {
+                grants.push(self.abilities.remove(ability_index));
+            } else {
+                ability_index += 1;
+            }
+        }
+
+        RevokedOwnerAbilities {
+            grants,
+            active_abilities,
+        }
     }
 
-    /// Revokes granted abilities and cancels active abilities owned by `owner_id`.
+    /// Revokes granted abilities and emits owned cancellation facts for active abilities.
     pub fn revoke_owner_with_events<F>(
         &mut self,
         owner_id: ObjectId,
@@ -258,12 +339,26 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
     {
+        self.revoke_owner_with_borrowed_events(owner_id, |event| {
+            emit(event.to_owned_event());
+        })
+    }
+
+    /// Revokes granted abilities and streams borrowed cancellation facts for active abilities.
+    pub fn revoke_owner_with_borrowed_events<F>(
+        &mut self,
+        owner_id: ObjectId,
+        mut emit: F,
+    ) -> RevokedOwnerAbilities<Tags, Cost, Payload>
+    where
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+    {
         let mut active_abilities = Vec::new();
         let mut active_index = 0;
         while active_index < self.active_abilities.len() {
             if self.active_abilities[active_index].owner_id == owner_id {
                 let active = self.active_abilities.remove(active_index);
-                emit(AbilityLifecycleEvent::Canceled(active.clone()));
+                emit(AbilityLifecycleEventView::Canceled((&active).into()));
                 active_abilities.push(active);
             } else {
                 active_index += 1;
@@ -374,7 +469,13 @@ where
         Cost: Clone,
         Payload: Clone,
     {
-        self.begin_activation_with_events(ability_id, commit_timing, context, hooks, |_| {})
+        self.begin_activation_with_borrowed_events(
+            ability_id,
+            commit_timing,
+            context,
+            hooks,
+            |_| {},
+        )
     }
 
     /// Begins a non-instant activation for an expected owner.
@@ -394,7 +495,7 @@ where
         Cost: Clone,
         Payload: Clone,
     {
-        self.begin_activation_for_owner_with_events(
+        self.begin_activation_for_owner_with_borrowed_events(
             owner_id,
             ability_id,
             commit_timing,
@@ -404,7 +505,7 @@ where
         )
     }
 
-    /// Begins a non-instant activation and emits attempt, rejection, commit, and start facts.
+    /// Begins a non-instant activation and emits owned attempt, rejection, commit, and start facts.
     pub fn begin_activation_with_events<Context, Hooks, F>(
         &mut self,
         ability_id: AbilityId,
@@ -419,9 +520,37 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
     {
+        self.begin_activation_with_borrowed_events(
+            ability_id,
+            commit_timing,
+            context,
+            hooks,
+            |event| emit(event.to_owned_event()),
+        )
+    }
+
+    /// Begins a non-instant activation and streams borrowed lifecycle facts.
+    ///
+    /// Borrowed facts are valid only for the duration of the callback. Use
+    /// `AbilityLifecycleEventView::to_owned_event` when a caller needs retained
+    /// facts for diagnostics, replay, or tests.
+    pub fn begin_activation_with_borrowed_events<Context, Hooks, F>(
+        &mut self,
+        ability_id: AbilityId,
+        commit_timing: AbilityCommitTiming,
+        context: &mut Context,
+        hooks: &mut Hooks,
+        mut emit: F,
+    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error>>
+    where
+        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        Cost: Clone,
+        Payload: Clone,
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+    {
         let Some(ability_index) = self.find_index(ability_id) else {
-            emit(AbilityLifecycleEvent::Rejected(
-                AbilityActivationRejection {
+            emit(AbilityLifecycleEventView::Rejected(
+                AbilityActivationRejectionView {
                     attempt: None,
                     reason: AbilityActivationRejectionReason::MissingAbility,
                 },
@@ -431,13 +560,16 @@ where
             ));
         };
 
-        let attempt = Self::attempt_from_ability(&self.abilities[ability_index]);
-        emit(AbilityLifecycleEvent::Attempted(attempt.clone()));
+        emit(AbilityLifecycleEventView::Attempted(
+            Self::attempt_view_from_ability(&self.abilities[ability_index]),
+        ));
 
         if self.abilities[ability_index].cooldown_remaining_units > 0 {
-            emit(AbilityLifecycleEvent::Rejected(
-                AbilityActivationRejection {
-                    attempt: Some(attempt),
+            emit(AbilityLifecycleEventView::Rejected(
+                AbilityActivationRejectionView {
+                    attempt: Some(Self::attempt_view_from_ability(
+                        &self.abilities[ability_index],
+                    )),
                     reason: AbilityActivationRejectionReason::OnCooldown,
                 },
             ));
@@ -447,15 +579,18 @@ where
         }
 
         if let Err(error) = hooks.can_activate(context, &self.abilities[ability_index]) {
-            emit(AbilityLifecycleEvent::Rejected(
-                AbilityActivationRejection {
-                    attempt: Some(attempt),
+            emit(AbilityLifecycleEventView::Rejected(
+                AbilityActivationRejectionView {
+                    attempt: Some(Self::attempt_view_from_ability(
+                        &self.abilities[ability_index],
+                    )),
                     reason: AbilityActivationRejectionReason::Hook,
                 },
             ));
             return Err(AbilityActivationError::Hook(error));
         }
 
+        let seed = AbilityActivationSeed::from_ability(&self.abilities[ability_index]);
         let mut committed = false;
         if commit_timing == AbilityCommitTiming::OnStart {
             let cooldown_units = match self.commit_ability_at_index(ability_index, context, hooks) {
@@ -470,9 +605,9 @@ where
                         }
                         AbilityActivationError::Hook(_) => AbilityActivationRejectionReason::Hook,
                     };
-                    emit(AbilityLifecycleEvent::Rejected(
-                        AbilityActivationRejection {
-                            attempt: Some(attempt),
+                    emit(AbilityLifecycleEventView::Rejected(
+                        AbilityActivationRejectionView {
+                            attempt: Some(seed.attempt_view()),
                             reason,
                         },
                     ));
@@ -480,26 +615,23 @@ where
                 }
             };
             committed = true;
-            emit(AbilityLifecycleEvent::Committed(AbilityActivationCommit {
-                attempt: attempt.clone(),
-                cooldown_units,
-            }));
+            emit(AbilityLifecycleEventView::Committed(
+                AbilityActivationCommitView {
+                    attempt: seed.attempt_view(),
+                    cooldown_units,
+                },
+            ));
         }
 
         let activation_id = self.next_activation_id;
         self.next_activation_id = AbilityActivationId::new(self.next_activation_id.get() + 1);
-        let active = ActiveAbility {
-            activation_id,
-            ability_id: attempt.ability_id,
-            owner_id: attempt.owner_id,
-            tags: attempt.tags,
-            cost: attempt.cost,
-            payload: attempt.payload,
-            commit_timing,
-            committed,
-        };
-        self.active_abilities.push(active.clone());
-        emit(AbilityLifecycleEvent::Started(active));
+        let active = seed.into_active(activation_id, commit_timing, committed);
+        self.active_abilities.push(active);
+        let active = self
+            .active_abilities
+            .last()
+            .expect("activation was just pushed");
+        emit(AbilityLifecycleEventView::Started(active.into()));
         Ok(activation_id)
     }
 
@@ -507,7 +639,7 @@ where
     ///
     /// This checked wrapper rejects invalid expected owners and owner/ability
     /// mismatches before caller-owned hooks run. It otherwise delegates to
-    /// [`Self::begin_activation_with_events`].
+    /// [`Self::begin_activation_with_borrowed_events`].
     pub fn begin_activation_for_owner_with_events<Context, Hooks, F>(
         &mut self,
         owner_id: ObjectId,
@@ -523,9 +655,35 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
     {
+        self.begin_activation_for_owner_with_borrowed_events(
+            owner_id,
+            ability_id,
+            commit_timing,
+            context,
+            hooks,
+            |event| emit(event.to_owned_event()),
+        )
+    }
+
+    /// Begins a non-instant activation for an expected owner and streams borrowed lifecycle facts.
+    pub fn begin_activation_for_owner_with_borrowed_events<Context, Hooks, F>(
+        &mut self,
+        owner_id: ObjectId,
+        ability_id: AbilityId,
+        commit_timing: AbilityCommitTiming,
+        context: &mut Context,
+        hooks: &mut Hooks,
+        mut emit: F,
+    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error>>
+    where
+        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        Cost: Clone,
+        Payload: Clone,
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+    {
         if owner_id.is_invalid() {
-            emit(AbilityLifecycleEvent::Rejected(
-                AbilityActivationRejection {
+            emit(AbilityLifecycleEventView::Rejected(
+                AbilityActivationRejectionView {
                     attempt: None,
                     reason: AbilityActivationRejectionReason::InvalidOwner,
                 },
@@ -536,8 +694,8 @@ where
         }
 
         let Some(ability_index) = self.find_index(ability_id) else {
-            emit(AbilityLifecycleEvent::Rejected(
-                AbilityActivationRejection {
+            emit(AbilityLifecycleEventView::Rejected(
+                AbilityActivationRejectionView {
                     attempt: None,
                     reason: AbilityActivationRejectionReason::MissingAbility,
                 },
@@ -549,11 +707,13 @@ where
 
         let actual_owner_id = self.abilities[ability_index].owner_id;
         if actual_owner_id != owner_id {
-            let attempt = Self::attempt_from_ability(&self.abilities[ability_index]);
-            emit(AbilityLifecycleEvent::Attempted(attempt.clone()));
-            emit(AbilityLifecycleEvent::Rejected(
-                AbilityActivationRejection {
-                    attempt: Some(attempt),
+            let attempt = Self::attempt_view_from_ability(&self.abilities[ability_index]);
+            emit(AbilityLifecycleEventView::Attempted(attempt));
+            emit(AbilityLifecycleEventView::Rejected(
+                AbilityActivationRejectionView {
+                    attempt: Some(Self::attempt_view_from_ability(
+                        &self.abilities[ability_index],
+                    )),
                     reason: AbilityActivationRejectionReason::OwnerMismatch,
                 },
             ));
@@ -565,13 +725,13 @@ where
             ));
         }
 
-        self.begin_activation_with_events(ability_id, commit_timing, context, hooks, emit)
+        self.begin_activation_with_borrowed_events(ability_id, commit_timing, context, hooks, emit)
     }
 
     /// Runs an instant activation without emitting lifecycle facts.
     ///
     /// This performs the standard instant lifecycle: begin activation, run the
-    /// caller executor with a cloned active activation view, cancel on executor
+    /// caller executor with the active activation view, cancel on executor
     /// failure, and end the activation on success.
     pub fn activate_instant_with<Context, Hooks, Execute>(
         &mut self,
@@ -588,7 +748,7 @@ where
         Execute:
             FnOnce(&mut Context, &ActiveAbility<Tags, Cost, Payload>) -> Result<(), Hooks::Error>,
     {
-        self.activate_instant_with_events(
+        self.activate_instant_with_borrowed_events(
             ability_id,
             commit_timing,
             context,
@@ -598,12 +758,7 @@ where
         )
     }
 
-    /// Runs an instant activation and emits lifecycle facts.
-    ///
-    /// This performs the standard instant lifecycle: begin activation, emit
-    /// attempt/rejection/commit/start facts from begin, run the caller executor
-    /// with a cloned active activation view, cancel and emit a cancel fact when
-    /// execution or finishing fails, and end/emit end facts on success.
+    /// Runs an instant activation and emits owned lifecycle facts.
     pub fn activate_instant_with_events<Context, Hooks, Execute, F>(
         &mut self,
         ability_id: AbilityId,
@@ -621,26 +776,54 @@ where
             FnOnce(&mut Context, &ActiveAbility<Tags, Cost, Payload>) -> Result<(), Hooks::Error>,
         F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
     {
-        let activation_id = self.begin_activation_with_events(
+        self.activate_instant_with_borrowed_events(
+            ability_id,
+            commit_timing,
+            context,
+            hooks,
+            execute,
+            |event| emit(event.to_owned_event()),
+        )
+    }
+
+    /// Runs an instant activation and streams borrowed lifecycle facts.
+    pub fn activate_instant_with_borrowed_events<Context, Hooks, Execute, F>(
+        &mut self,
+        ability_id: AbilityId,
+        commit_timing: AbilityCommitTiming,
+        context: &mut Context,
+        hooks: &mut Hooks,
+        execute: Execute,
+        mut emit: F,
+    ) -> AbilityEndResult<Tags, Cost, Payload, Hooks::Error>
+    where
+        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        Cost: Clone,
+        Payload: Clone,
+        Execute:
+            FnOnce(&mut Context, &ActiveAbility<Tags, Cost, Payload>) -> Result<(), Hooks::Error>,
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+    {
+        let activation_id = self.begin_activation_with_borrowed_events(
             ability_id,
             commit_timing,
             context,
             hooks,
             &mut emit,
         )?;
-        let active = self
-            .get_active_activation(activation_id)
-            .expect("activation was just started")
-            .clone();
+        let active_index = self
+            .find_active_index(activation_id)
+            .expect("activation was just started");
 
-        if let Err(error) = execute(context, &active) {
-            self.cancel_activation_with_events(activation_id, &mut emit);
+        if let Err(error) = execute(context, &self.active_abilities[active_index]) {
+            self.cancel_activation_with_borrowed_events(activation_id, &mut emit);
             return Err(AbilityActivationError::Hook(error));
         }
 
-        let result = self.end_activation_with_events(activation_id, context, hooks, &mut emit);
+        let result =
+            self.end_activation_with_borrowed_events(activation_id, context, hooks, &mut emit);
         if result.is_err() {
-            self.cancel_activation_with_events(activation_id, &mut emit);
+            self.cancel_activation_with_borrowed_events(activation_id, &mut emit);
         }
         result
     }
@@ -654,13 +837,11 @@ where
     ) -> Result<bool, AbilityActivationError<Hooks::Error>>
     where
         Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
-        Payload: Clone,
     {
-        self.commit_activation_with_events(activation_id, context, hooks, |_| {})
+        self.commit_activation_with_borrowed_events(activation_id, context, hooks, |_| {})
     }
 
-    /// Commits an active activation and emits a commit fact when this call performs the commit.
+    /// Commits an active activation and emits an owned commit fact when this call performs the commit.
     pub fn commit_activation_with_events<Context, Hooks, F>(
         &mut self,
         activation_id: AbilityActivationId,
@@ -673,6 +854,23 @@ where
         Cost: Clone,
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+    {
+        self.commit_activation_with_borrowed_events(activation_id, context, hooks, |event| {
+            emit(event.to_owned_event());
+        })
+    }
+
+    /// Commits an active activation and streams a borrowed commit fact when this call performs the commit.
+    pub fn commit_activation_with_borrowed_events<Context, Hooks, F>(
+        &mut self,
+        activation_id: AbilityActivationId,
+        context: &mut Context,
+        hooks: &mut Hooks,
+        mut emit: F,
+    ) -> Result<bool, AbilityActivationError<Hooks::Error>>
+    where
+        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
     {
         let active_index =
             self.find_active_index(activation_id)
@@ -689,13 +887,15 @@ where
             .ok_or(AbilityActivationError::Ability(
                 AbilityError::MissingAbility,
             ))?;
-        let attempt = Self::attempt_from_active(&self.active_abilities[active_index]);
         let cooldown_units = self.commit_ability_at_index(ability_index, context, hooks)?;
         self.active_abilities[active_index].committed = true;
-        emit(AbilityLifecycleEvent::Committed(AbilityActivationCommit {
-            attempt,
-            cooldown_units,
-        }));
+        let active = ActiveAbilityView::from(&self.active_abilities[active_index]);
+        emit(AbilityLifecycleEventView::Committed(
+            AbilityActivationCommitView {
+                attempt: active.attempt_view(),
+                cooldown_units,
+            },
+        ));
         Ok(true)
     }
 
@@ -708,13 +908,11 @@ where
     ) -> AbilityEndResult<Tags, Cost, Payload, Hooks::Error>
     where
         Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
-        Payload: Clone,
     {
-        self.end_activation_with_events(activation_id, context, hooks, |_| {})
+        self.end_activation_with_borrowed_events(activation_id, context, hooks, |_| {})
     }
 
-    /// Ends an active activation and emits commit/end facts in deterministic order.
+    /// Ends an active activation and emits owned commit/end facts in deterministic order.
     pub fn end_activation_with_events<Context, Hooks, F>(
         &mut self,
         activation_id: AbilityActivationId,
@@ -728,6 +926,23 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
     {
+        self.end_activation_with_borrowed_events(activation_id, context, hooks, |event| {
+            emit(event.to_owned_event());
+        })
+    }
+
+    /// Ends an active activation and streams borrowed commit/end facts in deterministic order.
+    pub fn end_activation_with_borrowed_events<Context, Hooks, F>(
+        &mut self,
+        activation_id: AbilityActivationId,
+        context: &mut Context,
+        hooks: &mut Hooks,
+        mut emit: F,
+    ) -> AbilityEndResult<Tags, Cost, Payload, Hooks::Error>
+    where
+        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+    {
         let Some(active_index) = self.find_active_index(activation_id) else {
             return Ok(None);
         };
@@ -735,7 +950,7 @@ where
             == AbilityCommitTiming::OnEnd
             && !self.active_abilities[active_index].committed;
         if needs_commit {
-            self.commit_activation_with_events(activation_id, context, hooks, &mut emit)?;
+            self.commit_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)?;
         }
 
         let Some(active_index) = self.find_active_index(activation_id) else {
@@ -752,7 +967,7 @@ where
             .map_err(AbilityActivationError::Hook)?;
 
         let active = self.active_abilities.remove(active_index);
-        emit(AbilityLifecycleEvent::Ended(active.clone()));
+        emit(AbilityLifecycleEventView::Ended((&active).into()));
         Ok(Some(active))
     }
 
@@ -776,8 +991,22 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
     {
+        self.cancel_activation_with_borrowed_events(activation_id, |event| {
+            emit(event.to_owned_event());
+        })
+    }
+
+    /// Cancels an active activation and streams a borrowed cancel fact.
+    pub fn cancel_activation_with_borrowed_events<F>(
+        &mut self,
+        activation_id: AbilityActivationId,
+        mut emit: F,
+    ) -> Option<ActiveAbility<Tags, Cost, Payload>>
+    where
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+    {
         let active = self.cancel_activation(activation_id)?;
-        emit(AbilityLifecycleEvent::Canceled(active.clone()));
+        emit(AbilityLifecycleEventView::Canceled((&active).into()));
         Some(active)
     }
 
@@ -810,35 +1039,15 @@ where
         Ok(cooldown_units)
     }
 
-    fn attempt_from_ability(
+    fn attempt_view_from_ability(
         ability: &GrantedAbility<Tags, Cost, Payload>,
-    ) -> AbilityActivationAttempt<Tags, Cost, Payload>
-    where
-        Cost: Clone,
-        Payload: Clone,
-    {
-        AbilityActivationAttempt {
+    ) -> AbilityActivationAttemptView<'_, Tags, Cost, Payload> {
+        AbilityActivationAttemptView {
             ability_id: ability.id,
             owner_id: ability.owner_id,
-            tags: ability.tags.clone(),
-            cost: ability.cost.clone(),
-            payload: ability.payload.clone(),
-        }
-    }
-
-    fn attempt_from_active(
-        active: &ActiveAbility<Tags, Cost, Payload>,
-    ) -> AbilityActivationAttempt<Tags, Cost, Payload>
-    where
-        Cost: Clone,
-        Payload: Clone,
-    {
-        AbilityActivationAttempt {
-            ability_id: active.ability_id,
-            owner_id: active.owner_id,
-            tags: active.tags.clone(),
-            cost: active.cost.clone(),
-            payload: active.payload.clone(),
+            tags: &ability.tags,
+            cost: ability.cost.as_ref(),
+            payload: &ability.payload,
         }
     }
 

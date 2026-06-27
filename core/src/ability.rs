@@ -11,8 +11,10 @@ pub use definition::{
     AbilityDefinitionError,
 };
 pub use events::{
-    AbilityActivationAttempt, AbilityActivationCommit, AbilityActivationRejection,
-    AbilityActivationRejectionReason, AbilityLifecycleEvent, ActiveAbility,
+    AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationCommit,
+    AbilityActivationCommitView, AbilityActivationRejection, AbilityActivationRejectionReason,
+    AbilityActivationRejectionView, AbilityLifecycleEvent, AbilityLifecycleEventView,
+    ActiveAbility, ActiveAbilityView,
 };
 pub use hooks::AbilityHooks;
 pub use ids::{AbilityActivationId, AbilityId, CooldownUnits};

@@ -14,6 +14,36 @@ where
     pub payload: Payload,
 }
 
+/// Borrowed view of one effect application attempt.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EffectApplicationView<'event, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    pub source_id: Option<ObjectId>,
+    pub target_id: ObjectId,
+    pub tags: &'event Tags,
+    pub payload: &'event Payload,
+}
+
+impl<'event, Tags, Payload> EffectApplicationView<'event, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    #[must_use]
+    pub fn to_owned_application(&self) -> EffectApplication<Tags, Payload>
+    where
+        Payload: Clone,
+    {
+        EffectApplication {
+            source_id: self.source_id,
+            target_id: self.target_id,
+            tags: self.tags.clone(),
+            payload: self.payload.clone(),
+        }
+    }
+}
+
 /// Runtime application policy selected by the caller.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EffectApplicationDecision {
@@ -118,4 +148,30 @@ where
 {
     pub application: EffectApplication<Tags, Payload>,
     pub reason: String,
+}
+
+/// Borrowed rejected effect application fact for streaming emission.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EffectApplicationRejectionView<'event, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    pub application: EffectApplicationView<'event, Tags, Payload>,
+    pub reason: &'event str,
+}
+
+impl<'event, Tags, Payload> EffectApplicationRejectionView<'event, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    #[must_use]
+    pub fn to_owned_rejection(&self) -> EffectApplicationRejection<Tags, Payload>
+    where
+        Payload: Clone,
+    {
+        EffectApplicationRejection {
+            application: self.application.to_owned_application(),
+            reason: self.reason.to_owned(),
+        }
+    }
 }

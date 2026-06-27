@@ -41,6 +41,12 @@ object-reference validity themselves.
 Signals and event channels record lifecycle facts that callers can project into
 their own runtime model. Retention policies make the exported facts explicit.
 
+Lifecycle events have two runtime shapes. Borrowed event views stream through
+callbacks without cloning caller-owned payloads for publication. Owned lifecycle
+events remain available for retained facts, diagnostics, replay, tests, and any
+caller API that needs events to outlive the callback. Retained event channels
+store owned events; borrowed publication is limited to drop-only channels.
+
 Clock units are opaque `u64` mechanics units. Callers map their own clocks into
 those units through fixed-step or real-time adapters. `RealtimeClock` is a
 stateless flooring conversion for one-shot durations; use

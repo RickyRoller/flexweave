@@ -5,10 +5,12 @@ use flexweave::{
     AbilityActivationError, AbilityActivationId, AbilityActivationMode,
     AbilityActivationRejectionReason, AbilityCancelPolicy, AbilityCommitTiming, AbilityDefinition,
     AbilityDefinitionError, AbilityError, AbilityGrantError, AbilityHooks, AbilityId,
-    AbilityLifecycleEvent, AbilityStore, EventChannel, EventChannelDefinition, EventRetention,
-    Grant, GrantedAbility, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId,
-    ObjectStore, Tag, TagSet, ability,
+    AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityStore, EventChannel,
+    EventChannelDefinition, EventRetention, Grant, GrantedAbility, INVALID_OBJECT_ID,
+    LifecycleEvent, LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet, ability,
 };
+use std::cell::Cell;
+use std::rc::Rc;
 
 #[test]
 fn val_core_012_ability_activation_runs_hooks_and_cooldown_gates_reactivation() {
@@ -1054,6 +1056,89 @@ fn ability_lifecycle_events_route_through_named_channels() {
             LifecycleEventKind::AbilityActivationStarted,
         ]
     );
+}
+
+#[test]
+fn borrowed_ability_lifecycle_does_not_clone_payloads_for_event_publication() {
+    #[derive(Debug)]
+    struct Payload {
+        clone_count: Rc<Cell<usize>>,
+    }
+
+    impl Clone for Payload {
+        fn clone(&self) -> Self {
+            self.clone_count.set(self.clone_count.get() + 1);
+            Self {
+                clone_count: Rc::clone(&self.clone_count),
+            }
+        }
+    }
+
+    struct Hooks;
+
+    impl AbilityHooks<(), TagSet<TestAtom>, (), Payload> for Hooks {
+        type Error = ();
+    }
+
+    let clone_count = Rc::new(Cell::new(0));
+    let mut abilities = AbilityStore::<TagSet<TestAtom>, (), Payload>::new();
+    let ability_id = abilities.grant(Grant {
+        owner_id: ObjectId::new(9),
+        tags: TagSet::new([Tag::new([TestAtom::Ability])]),
+        cost: None,
+        cooldown_units: Some(10),
+        payload: Payload {
+            clone_count: Rc::clone(&clone_count),
+        },
+    });
+    let mut hooks = Hooks;
+    let mut context = ();
+    let mut kinds = Vec::new();
+
+    let activation_id = abilities
+        .begin_activation_with_borrowed_events(
+            ability_id,
+            AbilityCommitTiming::OnStart,
+            &mut context,
+            &mut hooks,
+            |event| {
+                match &event {
+                    AbilityLifecycleEventView::Attempted(attempt) => {
+                        assert_eq!(attempt.payload.clone_count.get(), 0);
+                    }
+                    AbilityLifecycleEventView::Committed(commit) => {
+                        assert_eq!(commit.attempt.payload.clone_count.get(), 1);
+                    }
+                    AbilityLifecycleEventView::Started(active) => {
+                        assert_eq!(active.payload.clone_count.get(), 1);
+                    }
+                    _ => panic!("unexpected borrowed ability event"),
+                }
+                kinds.push(event.lifecycle_event_kind());
+            },
+        )
+        .unwrap();
+
+    assert_eq!(clone_count.get(), 1);
+    assert_eq!(
+        kinds,
+        vec![
+            LifecycleEventKind::AbilityActivationAttempted,
+            LifecycleEventKind::AbilityActivationCommitted,
+            LifecycleEventKind::AbilityActivationStarted,
+        ]
+    );
+
+    abilities
+        .end_activation_with_borrowed_events(activation_id, &mut context, &mut hooks, |event| {
+            let AbilityLifecycleEventView::Ended(active) = event else {
+                panic!("end should emit an ended event");
+            };
+            assert_eq!(active.payload.clone_count.get(), 1);
+        })
+        .unwrap();
+
+    assert_eq!(clone_count.get(), 1);
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -22,6 +22,10 @@ pub enum EventChannelError {
         channel_name: String,
         kind: LifecycleEventKind,
     },
+    BorrowedRetention {
+        channel_name: String,
+        kind: LifecycleEventKind,
+    },
 }
 
 impl fmt::Display for EventChannelError {
@@ -30,6 +34,10 @@ impl fmt::Display for EventChannelError {
             Self::PayloadMismatch { channel_name, kind } => write!(
                 formatter,
                 "event channel `{channel_name}` does not accept payload kind {kind:?}"
+            ),
+            Self::BorrowedRetention { channel_name, kind } => write!(
+                formatter,
+                "event channel `{channel_name}` cannot retain borrowed payload kind {kind:?}"
             ),
         }
     }
@@ -180,32 +188,67 @@ impl<Event> EventChannel<Event> {
         self.listeners
             .retain(|listener| listener.handle.is_connected());
     }
+
+    fn validate_kind(&self, kind: LifecycleEventKind) -> Result<(), EventChannelError> {
+        if self.definition.accepts(kind) {
+            Ok(())
+        } else {
+            Err(EventChannelError::PayloadMismatch {
+                channel_name: self.name().to_owned(),
+                kind,
+            })
+        }
+    }
+
+    fn notify_listeners(&mut self, event: &Event) {
+        for listener in &mut self.listeners {
+            if listener.handle.is_connected() {
+                (listener.listener)(event);
+            }
+        }
+        self.compact_disconnected();
+    }
 }
 
 impl<Event> EventChannel<Event>
 where
-    Event: Clone + LifecycleEvent,
+    Event: LifecycleEvent,
 {
-    /// Publishes one event to retained batches and connected listeners.
+    /// Publishes one owned event to retained batches and connected listeners.
     pub fn publish(&mut self, event: Event) -> Result<(), EventChannelError> {
         let kind = event.lifecycle_event_kind();
-        if !self.definition.accepts(kind) {
-            return Err(EventChannelError::PayloadMismatch {
+        self.validate_kind(kind)?;
+
+        if self.retention == EventRetention::Retain {
+            self.retained.push(event);
+            let event = self.retained.last().expect("event was just retained");
+            for listener in &mut self.listeners {
+                if listener.handle.is_connected() {
+                    (listener.listener)(event);
+                }
+            }
+            self.compact_disconnected();
+        } else {
+            self.notify_listeners(&event);
+        }
+
+        Ok(())
+    }
+
+    /// Publishes one borrowed event to connected listeners without retaining it.
+    ///
+    /// Use `publish` with an owned event when this channel retains events.
+    pub fn publish_borrowed(&mut self, event: &Event) -> Result<(), EventChannelError> {
+        let kind = event.lifecycle_event_kind();
+        self.validate_kind(kind)?;
+        if self.retention == EventRetention::Retain {
+            return Err(EventChannelError::BorrowedRetention {
                 channel_name: self.name().to_owned(),
                 kind,
             });
         }
 
-        if self.retention == EventRetention::Retain {
-            self.retained.push(event.clone());
-        }
-
-        for listener in &mut self.listeners {
-            if listener.handle.is_connected() {
-                (listener.listener)(&event);
-            }
-        }
-        self.compact_disconnected();
+        self.notify_listeners(event);
         Ok(())
     }
 }

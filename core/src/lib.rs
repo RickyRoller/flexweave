@@ -40,11 +40,13 @@ pub mod signal;
 pub mod tag;
 
 pub use ability::{
-    AbilityActivationAttempt, AbilityActivationCommit, AbilityActivationError, AbilityActivationId,
+    AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationCommit,
+    AbilityActivationCommitView, AbilityActivationError, AbilityActivationId,
     AbilityActivationMode, AbilityActivationRejection, AbilityActivationRejectionReason,
-    AbilityCancelPolicy, AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError,
-    AbilityEndResult, AbilityError, AbilityGrantError, AbilityHooks, AbilityId,
-    AbilityLifecycleEvent, AbilityStore, ActiveAbility, CooldownUnits, Grant, GrantedAbility,
+    AbilityActivationRejectionView, AbilityCancelPolicy, AbilityCommitTiming, AbilityDefinition,
+    AbilityDefinitionError, AbilityEndResult, AbilityError, AbilityGrantError, AbilityHooks,
+    AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityStore, ActiveAbility,
+    ActiveAbilityView, CooldownUnits, Grant, GrantedAbility, RevokedOwnerAbilities,
 };
 pub use attribute::{
     Attribute, AttributeChange, AttributeDefaultValue, AttributeDefinition,
@@ -56,11 +58,12 @@ pub use clock::{Clock, ClockUnits, FixedStepClock, RealtimeClock, RealtimeClockA
 pub use data_store::DataStore;
 pub use derived_attribute::{DerivedAttribute, DerivedChange};
 pub use effect::{
-    ActiveEffectId, EffectAdvance, EffectApplication, EffectApplicationDecision,
-    EffectApplicationError, EffectApplicationInput, EffectApplicationRejection, EffectClockPolicy,
-    EffectDefinition, EffectDefinitionError, EffectExecution, EffectInstance, EffectKind,
-    EffectLifecycleEvent, EffectObjectRemovalPolicy, EffectPipeline, EffectRouting,
-    EffectSourcePolicy,
+    ActiveEffectId, EffectAdvance, EffectAdvanceView, EffectApplication, EffectApplicationDecision,
+    EffectApplicationError, EffectApplicationInput, EffectApplicationRejection,
+    EffectApplicationRejectionView, EffectApplicationView, EffectClockPolicy, EffectDefinition,
+    EffectDefinitionError, EffectExecution, EffectExecutionView, EffectInstance,
+    EffectInstanceView, EffectKind, EffectLifecycleEvent, EffectLifecycleEventView,
+    EffectObjectRemovalPolicy, EffectPipeline, EffectRouting, EffectSourcePolicy,
 };
 pub use errors::CoreError;
 pub use identity::{INVALID_OBJECT_ID, ObjectId, ObjectStore};

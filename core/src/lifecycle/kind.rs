@@ -1,7 +1,7 @@
-use crate::ability::AbilityLifecycleEvent;
+use crate::ability::{AbilityLifecycleEvent, AbilityLifecycleEventView};
 use crate::attribute::AttributeChange;
 use crate::derived_attribute::DerivedChange;
-use crate::effect::EffectLifecycleEvent;
+use crate::effect::{EffectLifecycleEvent, EffectLifecycleEventView};
 use crate::tag::TagCollection;
 
 /// Stable lifecycle fact kinds used by event channel payload contracts.
@@ -100,7 +100,41 @@ where
     }
 }
 
+impl<Tags, Payload> LifecycleEvent for EffectLifecycleEventView<'_, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    fn lifecycle_event_kind(&self) -> LifecycleEventKind {
+        match self {
+            Self::ApplicationAccepted(_) => LifecycleEventKind::EffectApplicationAccepted,
+            Self::ApplicationRejected(_) => LifecycleEventKind::EffectApplicationRejected,
+            Self::ActiveCreated(_) => LifecycleEventKind::EffectActiveCreated,
+            Self::Executed(_) => LifecycleEventKind::EffectExecuted,
+            Self::PeriodicExecuted(_) => LifecycleEventKind::EffectPeriodicExecuted,
+            Self::Advanced(_) => LifecycleEventKind::EffectAdvanced,
+            Self::Removed(_) => LifecycleEventKind::EffectRemoved,
+            Self::Expired(_) => LifecycleEventKind::EffectExpired,
+        }
+    }
+}
+
 impl<Tags, Cost, Payload> LifecycleEvent for AbilityLifecycleEvent<Tags, Cost, Payload>
+where
+    Tags: TagCollection,
+{
+    fn lifecycle_event_kind(&self) -> LifecycleEventKind {
+        match self {
+            Self::Attempted(_) => LifecycleEventKind::AbilityActivationAttempted,
+            Self::Rejected(_) => LifecycleEventKind::AbilityActivationRejected,
+            Self::Committed(_) => LifecycleEventKind::AbilityActivationCommitted,
+            Self::Started(_) => LifecycleEventKind::AbilityActivationStarted,
+            Self::Canceled(_) => LifecycleEventKind::AbilityActivationCanceled,
+            Self::Ended(_) => LifecycleEventKind::AbilityActivationEnded,
+        }
+    }
+}
+
+impl<Tags, Cost, Payload> LifecycleEvent for AbilityLifecycleEventView<'_, Tags, Cost, Payload>
 where
     Tags: TagCollection,
 {

@@ -4,9 +4,9 @@ use common::TestAtom;
 use flexweave::{
     AbilityActivationId, AbilityCommitTiming, AbilityId, ActiveAbility, ActiveEffectId,
     EffectApplicationDecision, EffectApplicationError, EffectApplicationInput, EffectClockPolicy,
-    EffectDefinition, EffectDefinitionError, EffectKind, EffectLifecycleEvent, EffectPipeline,
-    EffectRouting, EffectSourcePolicy, EventChannel, EventChannelDefinition, EventRetention,
-    LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet,
+    EffectDefinition, EffectDefinitionError, EffectKind, EffectLifecycleEvent,
+    EffectLifecycleEventView, EffectPipeline, EffectRouting, EffectSourcePolicy, EventChannel,
+    EventChannelDefinition, EventRetention, LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet,
 };
 
 #[test]
@@ -879,6 +879,100 @@ fn effect_lifecycle_events_route_through_named_channels() {
         EffectLifecycleEvent::ApplicationAccepted(_)
     ));
     assert!(matches!(retained[1], EffectLifecycleEvent::Executed(_)));
+}
+
+#[test]
+fn borrowed_effect_lifecycle_accepts_non_clone_payloads() {
+    #[derive(Debug, Eq, PartialEq)]
+    struct Payload {
+        amount: i32,
+    }
+
+    let definition = effect_definition(
+        "borrowed",
+        EffectKind::Duration,
+        Some(EffectClockPolicy { units: 10 }),
+        None,
+    );
+    let mut pipeline = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
+    let mut application_kinds = Vec::new();
+
+    let active_id = pipeline
+        .apply_with_borrowed_events(
+            &definition,
+            application(Payload { amount: 7 }, EffectApplicationDecision::Accept),
+            |event| {
+                application_kinds.push(match event {
+                    EffectLifecycleEventView::ApplicationAccepted(application) => {
+                        assert_eq!(application.payload.amount, 7);
+                        LifecycleEventKind::EffectApplicationAccepted
+                    }
+                    EffectLifecycleEventView::ActiveCreated(effect) => {
+                        assert_eq!(effect.payload.amount, 7);
+                        LifecycleEventKind::EffectActiveCreated
+                    }
+                    _ => panic!("unexpected borrowed application event"),
+                });
+            },
+        )
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(
+        application_kinds,
+        vec![
+            LifecycleEventKind::EffectApplicationAccepted,
+            LifecycleEventKind::EffectActiveCreated,
+        ]
+    );
+
+    let mut tick_kinds = Vec::new();
+    pipeline.tick_with_borrowed_events(5, |event| {
+        let EffectLifecycleEventView::Advanced(advanced) = event else {
+            panic!("partial tick should only advance");
+        };
+        assert_eq!(advanced.effect.payload.amount, 7);
+        tick_kinds.push(LifecycleEventKind::EffectAdvanced);
+    });
+    assert_eq!(tick_kinds, vec![LifecycleEventKind::EffectAdvanced]);
+
+    let removed = pipeline
+        .remove_with_borrowed_events(active_id, |event| {
+            let EffectLifecycleEventView::Removed(effect) = event else {
+                panic!("manual removal should emit removed");
+            };
+            assert_eq!(effect.payload.amount, 7);
+        })
+        .unwrap();
+    assert_eq!(removed.payload.amount, 7);
+}
+
+#[test]
+fn effect_no_event_paths_accept_non_clone_payloads() {
+    #[derive(Debug, Eq, PartialEq)]
+    struct Payload {
+        amount: i32,
+    }
+
+    let definition = effect_definition(
+        "no_events",
+        EffectKind::Duration,
+        Some(EffectClockPolicy { units: 3 }),
+        None,
+    );
+    let mut pipeline = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
+
+    let active_id = pipeline
+        .apply(
+            &definition,
+            application(Payload { amount: 11 }, EffectApplicationDecision::Accept),
+        )
+        .unwrap()
+        .unwrap();
+    pipeline.tick(1);
+    let removed = pipeline.remove(active_id).unwrap();
+
+    assert_eq!(removed.payload.amount, 11);
 }
 
 fn effect_definition(
