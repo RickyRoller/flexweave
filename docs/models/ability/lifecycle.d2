@@ -1,0 +1,158 @@
+# Ability activation lifecycle.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 20
+    theme-id: 200
+  }
+}
+
+direction: down
+
+classes: {
+  state
+  decision: {
+    shape: diamond
+  }
+  side_effect
+  failure
+  caller
+  async_edge: {
+    style: {
+      stroke-dash: 4
+    }
+  }
+}
+
+begin: Begin activation request
+begin.class: state
+
+owner_gate: Expected owner wrapper?
+owner_gate.class: decision
+
+invalid_owner: Reject InvalidOwner
+invalid_owner.class: failure
+
+missing_ability: Reject MissingAbility
+missing_ability.class: failure
+
+owner_mismatch: Reject OwnerMismatch
+owner_mismatch.class: failure
+
+attempted: Emit Attempted
+attempted.class: side_effect
+
+cooldown_gate: Cooldown remaining?
+cooldown_gate.class: decision
+
+cooldown_reject: Reject OnCooldown
+cooldown_reject.class: failure
+
+can_activate: hooks.can_activate
+can_activate.class: caller
+
+hook_reject: Reject Hook CanActivate
+hook_reject.class: failure
+
+commit_timing: Commit timing
+commit_timing.class: decision
+
+commit_now: Commit at start
+commit_now.class: side_effect
+
+commit_deferred: Defer commit
+commit_deferred.class: state
+
+active_state: Push ActiveAbility
+active_state.class: state
+
+started: Emit Started
+started.class: side_effect
+
+manual_command: Manual commit command
+manual_command.class: caller
+
+end_command: End command
+end_command.class: caller
+
+cancel_command: Cancel command
+cancel_command.class: caller
+
+revoke_owner: Revoke owner
+revoke_owner.class: caller
+
+already_committed: AlreadyCommitted outcome
+already_committed.class: state
+
+commit_late: Commit before end or manual commit
+commit_late.class: side_effect
+
+end_hook: hooks.end
+end_hook.class: caller
+
+ended: Remove active and emit Ended
+ended.class: side_effect
+
+canceled: Remove active and emit Canceled
+canceled.class: side_effect
+
+cooldown_tick: tick_cooldowns saturating subtract
+cooldown_tick.class: side_effect
+
+begin -> owner_gate: optional checked path
+owner_gate -> invalid_owner: invalid owner id
+owner_gate -> missing_ability: ability id not found
+owner_gate -> owner_mismatch: grant belongs to another owner
+owner_gate -> attempted: valid owner or unchecked path
+
+attempted -> cooldown_gate: inspect GrantedAbility
+cooldown_gate -> cooldown_reject: cooldown remaining nonzero
+cooldown_gate -> can_activate: ready
+can_activate -> hook_reject: hook error
+can_activate -> commit_timing: accepted
+
+commit_timing -> commit_now: OnStart
+commit_timing -> commit_deferred: OnEnd or Manual
+commit_now -> active_state: cooldown_units hook + commit hook + set cooldown
+commit_deferred -> active_state: no cooldown yet
+active_state -> started: assign AbilityActivationId
+
+started -> manual_command: active remains stored {class: async_edge}
+started -> end_command: active remains stored {class: async_edge}
+started -> cancel_command: active remains stored {class: async_edge}
+started -> revoke_owner: owner cleanup {class: async_edge}
+
+manual_command -> already_committed: active.committed is true
+manual_command -> commit_late: not committed
+
+end_command -> commit_late: OnEnd and not committed
+end_command -> end_hook: already committed or Manual
+commit_late -> end_hook: set committed and emit Committed
+end_hook -> ended: hook ok
+
+cancel_command -> canceled: no commit or end hook
+revoke_owner -> canceled: active activations for owner
+
+cooldown_tick -> cooldown_gate: future activation can retry
+
+instant: Instant helper overlay {
+  instant_begin: activate_instant_with
+  instant_begin.class: caller
+
+  instant_execute: caller executor
+  instant_execute.class: caller
+
+  instant_success_end: end active activation
+  instant_success_end.class: side_effect
+
+  instant_failure_cancel: cancel on execute or end failure
+  instant_failure_cancel.class: failure
+
+  instant_begin -> _.begin: delegates to begin_activation
+  _.started -> instant_execute: transient active state
+  instant_execute -> instant_failure_cancel: ExecuteInstant hook error
+  instant_execute -> instant_success_end: executor ok
+  instant_success_end -> _.ended: end ok
+  instant_success_end -> instant_failure_cancel: end or deferred commit fails
+}

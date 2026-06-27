@@ -1,0 +1,96 @@
+# Ability lifecycle fact publication model.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 20
+    theme-id: 200
+  }
+}
+
+direction: right
+
+classes: {
+  primitive: {
+    shape: class
+  }
+  data: {
+    shape: class
+  }
+  caller
+  metadata: {
+    shape: class
+  }
+  gap: {
+    shape: callout
+  }
+}
+
+store: AbilityStore activation APIs
+store.class: primitive
+
+borrowed: AbilityLifecycleEventView {
+  Attempted: AbilityActivationAttemptView
+  Rejected: AbilityActivationRejectionView
+  Committed: AbilityActivationCommitView
+  Started: ActiveAbilityView
+  Canceled: ActiveAbilityView
+  Ended: ActiveAbilityView
+}
+borrowed.class: primitive
+
+owned: AbilityLifecycleEvent {
+  Attempted: AbilityActivationAttempt
+  Rejected: AbilityActivationRejection
+  Committed: AbilityActivationCommit
+  Started: ActiveAbility
+  Canceled: ActiveAbility
+  Ended: ActiveAbility
+}
+owned.class: data
+
+kind: LifecycleEventKind {
+  AbilityActivationAttempted: enum variant
+  AbilityActivationRejected: enum variant
+  AbilityActivationCommitted: enum variant
+  AbilityActivationStarted: enum variant
+  AbilityActivationCanceled: enum variant
+  AbilityActivationEnded: enum variant
+}
+kind.class: metadata
+
+callback: caller callback
+callback.class: caller
+
+channel_definition: EventChannelDefinition
+channel_definition.class: caller
+
+event_channel: EventChannel
+event_channel.class: caller
+
+adapter: runtime adapter or diagnostics
+adapter.class: caller
+
+definition_metadata: AbilityDefinition emitted_channel_keys
+definition_metadata.class: metadata
+
+validation: validate_channels known keys
+validation.class: metadata
+
+no_auto_route: Channel keys are metadata.\nFlexweave does not auto-publish ability facts.
+no_auto_route.class: gap
+
+store -> borrowed: borrowed event methods stream facts
+borrowed -> callback: no payload clone during callback
+callback -> owned: to_owned_event when retention is needed
+owned -> event_channel: caller publishes retained facts
+borrowed -> adapter: caller can drop or forward immediately
+owned -> kind: lifecycle_event_kind maps event
+borrowed -> kind: lifecycle_event_kind maps view
+
+definition_metadata -> validation: validate against known channel keys
+validation -> channel_definition: caller-provided keys
+definition_metadata -> no_auto_route
+no_auto_route -> callback: caller wires publication explicitly
+
+event_channel -> adapter: deterministic listener notification or retained drain
