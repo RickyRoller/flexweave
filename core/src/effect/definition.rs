@@ -34,6 +34,10 @@ impl EffectClockPolicy {
 }
 
 /// Named lifecycle and Signal routing keys declared by an effect definition.
+///
+/// These keys are authoring metadata for validation and caller-owned adapter
+/// wiring. `EffectPipeline` emits lifecycle facts through callbacks; it does
+/// not publish to these channels or project Signal facts automatically.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct EffectRouting {
     pub requires_lifecycle_channel: bool,
@@ -182,7 +186,10 @@ impl<PayloadSchema> EffectDefinition<PayloadSchema> {
         self
     }
 
-    /// Requires lifecycle publication on `channel_key`.
+    /// Marks lifecycle publication as required on `channel_key` metadata.
+    ///
+    /// This validates that the definition names a lifecycle channel, but caller
+    /// code must still publish emitted lifecycle facts to that channel.
     #[must_use]
     pub fn requiring_lifecycle_channel(mut self, channel_key: impl Into<String>) -> Self {
         self.routing.requires_lifecycle_channel = true;

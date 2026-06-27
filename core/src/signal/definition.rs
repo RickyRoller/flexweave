@@ -13,6 +13,9 @@ pub enum SignalKind {
 }
 
 /// Signal retention metadata.
+///
+/// This is authoring/export metadata. It does not configure `EventChannel`
+/// retention unless caller code maps it to a channel.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SignalRetentionPolicy {
     Drop,
@@ -57,6 +60,10 @@ impl<Atom> SignalTagMatch<Atom> {
 }
 
 /// Authorable Signal definition data.
+///
+/// `channel_key` names the caller-owned channel or adapter target that should
+/// receive projected facts. The key is metadata and a validation hint; it does
+/// not cause automatic routing.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SignalDefinition<Atom, PayloadSchema = ()> {
     pub key: String,
@@ -204,6 +211,9 @@ impl<Atom, PayloadSchema> SignalDefinitions<Atom, PayloadSchema> {
     }
 
     /// Validates channel references against caller-provided channel keys.
+    ///
+    /// Validation proves the declared keys are known. Caller code still owns
+    /// projecting facts and publishing them into the matching channel or bus.
     pub fn validate_channels(&self, known_channels: &[&str]) -> Result<(), SignalDefinitionError> {
         for definition in &self.definitions {
             if !known_channels

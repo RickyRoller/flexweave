@@ -329,7 +329,7 @@ fn zero_elapsed_lifecycle_tick_emits_no_events() {
 }
 
 #[test]
-fn effect_lifecycle_events_route_through_named_retained_channel() {
+fn caller_publishes_effect_lifecycle_events_to_named_retained_channel() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     struct Payload {
         amount: i32,

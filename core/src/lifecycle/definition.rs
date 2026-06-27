@@ -64,6 +64,9 @@ impl fmt::Display for EventChannelDefinitionError {
 impl std::error::Error for EventChannelDefinitionError {}
 
 /// Named, typed routing target for lifecycle facts.
+///
+/// A definition describes the payload kinds a caller-owned channel accepts. It
+/// does not create a runtime channel or cause stores to publish matching facts.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventChannelDefinition {
     name: String,
@@ -131,6 +134,9 @@ impl EventChannelDefinition {
 }
 
 /// A validated collection of channel definitions.
+///
+/// Use this to validate caller-owned route metadata before wiring publication.
+/// The collection itself performs no runtime dispatch.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventChannelDefinitions {
     definitions: Vec<EventChannelDefinition>,
@@ -175,6 +181,9 @@ impl EventChannelDefinitions {
     }
 
     /// Validates one explicit source-to-channel route.
+    ///
+    /// Successful validation means the named channel can accept the lifecycle
+    /// kind. Caller code still owns the actual `EventChannel::publish` call.
     pub fn validate_route(
         &self,
         route: &EventChannelRouteDefinition,
@@ -189,6 +198,9 @@ impl EventChannelDefinitions {
 }
 
 /// One explicit lifecycle fact route into a named event channel.
+///
+/// This is route metadata for validation and adapter wiring. It is not an
+/// automatic subscription or dispatch rule.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct EventChannelRouteDefinition {
     channel_name: String,

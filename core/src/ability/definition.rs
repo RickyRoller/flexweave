@@ -23,6 +23,10 @@ pub enum AbilityCancelPolicy {
 }
 
 /// Authorable ability definition metadata.
+///
+/// `emitted_channel_keys` are metadata for validation and caller-owned adapter
+/// wiring. Ability activation APIs emit lifecycle facts through return values or
+/// callbacks; they do not publish to channels automatically.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AbilityDefinition<PayloadSchema = ()> {
     pub key: String,
@@ -160,7 +164,9 @@ impl<PayloadSchema> AbilityDefinition<PayloadSchema> {
         self
     }
 
-    /// Enables lifecycle publication and replaces emitted channel keys.
+    /// Enables lifecycle publication metadata and replaces emitted channel keys.
+    ///
+    /// Caller code still owns publishing emitted ability lifecycle facts.
     #[must_use]
     pub fn with_lifecycle_channels<I, K>(mut self, channel_keys: I) -> Self
     where
@@ -218,6 +224,8 @@ impl<PayloadSchema> AbilityDefinition<PayloadSchema> {
     }
 
     /// Validates emitted channel references against caller-provided channel keys.
+    ///
+    /// Validation does not wire automatic publication.
     pub fn validate_channels(&self, known_channels: &[&str]) -> Result<(), AbilityDefinitionError> {
         for channel_key in &self.emitted_channel_keys {
             if !known_channels.iter().any(|known| *known == channel_key) {
