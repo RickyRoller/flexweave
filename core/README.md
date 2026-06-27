@@ -42,7 +42,10 @@ Signals and event channels record lifecycle facts that callers can project into
 their own runtime model. Retention policies make the exported facts explicit.
 
 Clock units are opaque `u64` mechanics units. Callers map their own clocks into
-those units through fixed-step or real-time adapters.
+those units through fixed-step or real-time adapters. `RealtimeClock` is a
+stateless flooring conversion for one-shot durations; use
+`RealtimeClockAccumulator` when repeated frame deltas need to preserve
+fractional clock units across ticks.
 
 ## Determinism
 

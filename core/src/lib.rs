@@ -52,7 +52,7 @@ pub use attribute::{
     AttributeMutationHooks, AttributeMutationRejection, AttributeMutationRequest,
     AttributeMutationResult, AttributePolicyDefinition, AttributeValue,
 };
-pub use clock::{Clock, ClockUnits, FixedStepClock, RealtimeClock};
+pub use clock::{Clock, ClockUnits, FixedStepClock, RealtimeClock, RealtimeClockAccumulator};
 pub use data_store::DataStore;
 pub use derived_attribute::{DerivedAttribute, DerivedChange};
 pub use effect::{
