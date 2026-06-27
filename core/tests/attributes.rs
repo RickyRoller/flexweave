@@ -348,7 +348,7 @@ fn attribute_definition_and_policy_validation_reject_invalid_authoring_shapes() 
 }
 
 #[test]
-fn committed_attribute_mutation_routes_through_named_event_channel() {
+fn caller_publishes_committed_attribute_mutation_to_named_event_channel() {
     let mut store = ObjectStore::new();
     let mut attribute = Attribute::new();
     let target = store.create();
@@ -360,6 +360,7 @@ fn committed_attribute_mutation_routes_through_named_event_channel() {
         EventRetention::Retain,
     );
 
+    assert!(channel.retained().is_empty());
     let result = attribute.set_with_hooks_and_events(
         AttributeMutationRequest {
             id: target,

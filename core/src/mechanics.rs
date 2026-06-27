@@ -1,4 +1,9 @@
 //! Domain-neutral mechanics lifecycle driver.
+//!
+//! `MechanicsDriver` advances registered stores and returns or streams raw
+//! lifecycle facts. It does not project Signals, look up channel keys, or
+//! publish events. Caller-owned code can pass `tick_with` a closure that
+//! projects, publishes, exports, or adapts emitted facts.
 
 use crate::ability::AbilityStore;
 use crate::clock::{Clock, ClockUnits};
@@ -42,6 +47,8 @@ impl<'store, Event> MechanicsDriver<'store, Event> {
     }
 
     /// Advances registered stores and returns emitted lifecycle events.
+    ///
+    /// Returned facts are not projected or published to channels.
     #[must_use]
     pub fn tick(self, elapsed_units: ClockUnits) -> Vec<Event> {
         let mut events = Vec::new();
@@ -60,6 +67,9 @@ impl<'store, Event> MechanicsDriver<'store, Event> {
     }
 
     /// Advances registered stores and streams emitted lifecycle events.
+    ///
+    /// Use the callback to publish to `EventChannel`, project Signals, or adapt
+    /// facts to an external runtime.
     pub fn tick_with<F>(mut self, elapsed_units: ClockUnits, mut emit: F)
     where
         F: FnMut(Event),

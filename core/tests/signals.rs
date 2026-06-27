@@ -227,7 +227,7 @@ fn reinvoking_active_signals_emits_while_active_without_execution_duplicates() {
 }
 
 #[test]
-fn signal_facts_route_through_named_event_channels() {
+fn caller_projects_and_publishes_signal_facts_to_named_event_channels() {
     let definitions = SignalDefinitions::new([signal_definition(
         "impact",
         SignalKind::Executed,
@@ -244,6 +244,7 @@ fn signal_facts_route_through_named_event_channels() {
             .unwrap();
     let mut channel = EventChannel::with_retention(channel_definition, EventRetention::Retain);
 
+    assert!(channel.retained().is_empty());
     for fact in facts {
         channel.publish(fact).unwrap();
     }

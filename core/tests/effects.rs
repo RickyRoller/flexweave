@@ -660,7 +660,7 @@ fn periodic_effects_do_not_execute_past_their_lifetime() {
 }
 
 #[test]
-fn effect_lifecycle_events_route_through_named_channels() {
+fn caller_publishes_effect_lifecycle_events_to_named_channels() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     enum Payload {
         Hit,

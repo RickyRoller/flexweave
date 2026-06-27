@@ -5,6 +5,9 @@ use crate::effect::EffectLifecycleEvent;
 use crate::tag::TagCollection;
 
 /// Stable lifecycle fact kinds used by event channel payload contracts.
+///
+/// These kinds classify mechanics facts for validation and projection. They are
+/// deliberately lower-level than application, engine, UI, or network events.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum LifecycleEventKind {
     AttributeChanged,
@@ -26,7 +29,7 @@ pub enum LifecycleEventKind {
     AbilityActivationEnded,
 }
 
-/// A lifecycle fact that can be routed through a named event channel.
+/// A lifecycle fact that can be manually published through a named event channel.
 pub trait LifecycleEvent {
     fn lifecycle_event_kind(&self) -> LifecycleEventKind;
 }

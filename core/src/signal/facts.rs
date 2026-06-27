@@ -12,7 +12,12 @@ pub enum SignalRemovalReason {
     Expired,
 }
 
-/// Emitted Signal fact.
+/// Derived Signal fact emitted by `SignalProjection`.
+///
+/// `SignalFact` implements [`LifecycleEvent`] with its source lifecycle kind so
+/// caller-owned channels can validate the same source fact kind after
+/// projection. The `channel_key` is metadata copied from the matched definition;
+/// publishing remains caller-owned.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SignalFact<Atom, SignalPayload, SourcePayload> {
     pub key: String,

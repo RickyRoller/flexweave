@@ -57,6 +57,9 @@ pub enum AttributeDefaultValue {
 }
 
 /// Authorable Attribute channel metadata.
+///
+/// `emitted_channel_keys` are metadata for validation and adapter wiring. They
+/// do not cause automatic channel publication.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AttributeDefinition {
     pub key: String,
@@ -67,6 +70,10 @@ pub struct AttributeDefinition {
 }
 
 /// Authorable Attribute mutation policy metadata.
+///
+/// Lifecycle emission flags and channel keys describe what caller code may
+/// publish after mutation. Attribute stores do not publish to channels by
+/// themselves.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AttributePolicyDefinition {
     pub key: String,

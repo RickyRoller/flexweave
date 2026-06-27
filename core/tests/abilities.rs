@@ -920,7 +920,7 @@ fn ability_definitions_validate_authoring_contracts_before_grant() {
 }
 
 #[test]
-fn ability_lifecycle_events_route_through_named_channels() {
+fn caller_publishes_ability_lifecycle_events_to_named_channels() {
     let mut abilities = ActiveAbilityStore::new();
     let ability_id = grant_active_ability(&mut abilities, Some(250));
     let mut context = ActiveContext {
@@ -939,6 +939,7 @@ fn ability_lifecycle_events_route_through_named_channels() {
     .unwrap();
     let mut channel = EventChannel::with_retention(channel_definition, EventRetention::Retain);
 
+    assert!(channel.retained().is_empty());
     abilities
         .begin_activation_with_events(
             ability_id,

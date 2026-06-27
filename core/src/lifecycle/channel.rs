@@ -7,7 +7,7 @@ use std::sync::{
 use super::definition::EventChannelDefinition;
 use super::kind::{LifecycleEvent, LifecycleEventKind};
 
-/// Runtime retention behavior for an event channel.
+/// Runtime retention behavior for a caller-owned event channel.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum EventRetention {
     #[default]
@@ -89,6 +89,11 @@ struct EventListener<Event> {
 }
 
 /// Caller-owned event channel for one typed lifecycle event payload.
+///
+/// `EventChannel` validates payload kind, optionally retains published facts,
+/// and notifies listeners. It is not a global event bus and does not pull facts
+/// from stores, drivers, or definition channel keys. Publish lifecycle events or
+/// projected Signal facts from caller-owned hooks and adapters.
 pub struct EventChannel<Event> {
     definition: EventChannelDefinition,
     retention: EventRetention,
@@ -186,7 +191,7 @@ impl<Event> EventChannel<Event>
 where
     Event: Clone + LifecycleEvent,
 {
-    /// Publishes one event to retained batches and connected listeners.
+    /// Publishes one caller-supplied event to retained batches and connected listeners.
     pub fn publish(&mut self, event: Event) -> Result<(), EventChannelError> {
         let kind = event.lifecycle_event_kind();
         if !self.definition.accepts(kind) {

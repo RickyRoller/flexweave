@@ -7,6 +7,10 @@ use super::definition::{SignalDefinitions, SignalKind};
 use super::facts::{SignalFact, SignalRemovalReason};
 
 /// Signal projection engine over validated definitions.
+///
+/// Projection converts source lifecycle facts into derived [`SignalFact`]s.
+/// It does not publish those facts to `EventChannel`s or any external bus.
+/// Caller code owns publication after projection.
 pub struct SignalProjection<Atom, SignalPayload> {
     definitions: SignalDefinitions<Atom, SignalPayload>,
 }
@@ -24,6 +28,8 @@ where
     SignalPayload: Clone,
 {
     /// Projects an effect lifecycle event into matching Signal facts.
+    ///
+    /// The returned facts are inert until caller code publishes or exports them.
     #[must_use]
     pub fn project_effect_event<SourcePayload>(
         &self,
@@ -36,6 +42,8 @@ where
     }
 
     /// Reinvokes while-active Signal facts for currently active pipeline effects.
+    ///
+    /// The returned facts are not automatically routed.
     #[must_use]
     pub fn reinvoke_effect_instances<'a, SourcePayload, I>(
         &self,
