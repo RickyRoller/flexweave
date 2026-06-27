@@ -1,6 +1,7 @@
 //! Stable object identity primitive.
 
 use crate::errors::CoreError;
+use std::collections::HashMap;
 use std::fmt;
 
 /// Stable domain-neutral object handle.
@@ -55,6 +56,7 @@ pub const INVALID_OBJECT_ID: ObjectId = ObjectId::INVALID;
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ObjectStore {
     ids: Vec<ObjectId>,
+    index_by_id: HashMap<ObjectId, usize>,
     next_id: u64,
 }
 
@@ -64,6 +66,7 @@ impl ObjectStore {
     pub fn new() -> Self {
         Self {
             ids: Vec::new(),
+            index_by_id: HashMap::new(),
             next_id: 1,
         }
     }
@@ -71,6 +74,7 @@ impl ObjectStore {
     /// Allocates a new deterministic object handle.
     pub fn create(&mut self) -> ObjectId {
         let id = ObjectId::new(self.next_id);
+        self.index_by_id.insert(id, self.ids.len());
         self.ids.push(id);
         self.next_id += 1;
         id
@@ -85,6 +89,7 @@ impl ObjectStore {
             return Err(CoreError::ObjectIdAlreadyExists);
         }
 
+        self.index_by_id.insert(id, self.ids.len());
         self.ids.push(id);
         if id.get() >= self.next_id {
             self.next_id = id.get() + 1;
@@ -97,16 +102,18 @@ impl ObjectStore {
         if id.is_invalid() {
             return Err(CoreError::InvalidObjectId);
         }
-        let Some(index) = self.ids.iter().position(|existing_id| *existing_id == id) else {
+        let Some(index) = self.index_by_id.remove(&id) else {
             return Err(CoreError::InvalidObjectId);
         };
-        Ok(self.ids.remove(index))
+        let removed = self.ids.remove(index);
+        self.reindex_from(index);
+        Ok(removed)
     }
 
     /// Returns true when `id` is live in this store.
     #[must_use]
     pub fn exists(&self, id: ObjectId) -> bool {
-        !id.is_invalid() && self.ids.contains(&id)
+        !id.is_invalid() && self.index_by_id.contains_key(&id)
     }
 
     /// Iterates object ids in creation/registration order.
@@ -124,5 +131,11 @@ impl ObjectStore {
     #[must_use]
     pub fn is_empty(&self) -> bool {
         self.ids.is_empty()
+    }
+
+    fn reindex_from(&mut self, start: usize) {
+        for index in start..self.ids.len() {
+            self.index_by_id.insert(self.ids[index], index);
+        }
     }
 }

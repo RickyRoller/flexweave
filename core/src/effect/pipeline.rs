@@ -1,6 +1,7 @@
 use crate::clock::ClockUnits;
 use crate::identity::{ObjectId, ObjectStore};
 use crate::tag::TagCollection;
+use std::collections::HashMap;
 use std::fmt;
 
 use super::application::{
@@ -22,6 +23,8 @@ where
 {
     next_id: ActiveEffectId,
     effects: Vec<EffectInstance<Tags, Payload>>,
+    index_by_id: HashMap<ActiveEffectId, usize>,
+    effect_ids_by_target: HashMap<ObjectId, Vec<ActiveEffectId>>,
 }
 
 /// Which object references cause active effects to be removed during cleanup.
@@ -85,6 +88,8 @@ where
         Self {
             next_id: ActiveEffectId::new(1),
             effects: Vec::new(),
+            index_by_id: HashMap::new(),
+            effect_ids_by_target: HashMap::new(),
         }
     }
 
@@ -187,7 +192,7 @@ where
                     tags,
                     payload,
                 };
-                self.effects.push(effect);
+                self.push_effect(effect);
                 let effect = self.effects.last().expect("effect was just pushed");
                 on_event(EffectLifecycleEventView::ActiveCreated(effect.into()));
                 Ok(Some(id))
@@ -311,7 +316,7 @@ where
             }
 
             if previous_remaining_units.is_some_and(|previous| elapsed_units >= previous) {
-                let expired = self.effects.remove(index);
+                let expired = self.remove_effect_at_index(index);
                 on_event(EffectLifecycleEventView::Expired((&expired).into()));
             } else {
                 index += 1;
@@ -321,11 +326,8 @@ where
 
     /// Removes an active effect instance by id without constructing lifecycle events.
     pub fn remove(&mut self, effect_id: ActiveEffectId) -> Option<EffectInstance<Tags, Payload>> {
-        let index = self
-            .effects
-            .iter()
-            .position(|effect| effect.id == effect_id)?;
-        Some(self.effects.remove(index))
+        let index = self.find_index(effect_id)?;
+        Some(self.remove_effect_at_index(index))
     }
 
     /// Removes an active effect instance by id and emits a removal lifecycle fact.
@@ -370,7 +372,7 @@ where
         let mut index = 0;
         while index < self.effects.len() {
             if policy.matches(&self.effects[index], object_id) {
-                removed.push(self.effects.remove(index));
+                removed.push(self.remove_effect_at_index(index));
             } else {
                 index += 1;
             }
@@ -408,7 +410,7 @@ where
         let mut index = 0;
         while index < self.effects.len() {
             if policy.matches(&self.effects[index], object_id) {
-                let effect = self.effects.remove(index);
+                let effect = self.remove_effect_at_index(index);
                 on_event(EffectLifecycleEventView::Removed((&effect).into()));
                 removed.push(effect);
             } else {
@@ -425,14 +427,19 @@ where
 
     #[must_use]
     pub fn get(&self, effect_id: ActiveEffectId) -> Option<&EffectInstance<Tags, Payload>> {
-        self.effects.iter().find(|effect| effect.id == effect_id)
+        self.find_index(effect_id).map(|index| &self.effects[index])
     }
 
     #[must_use]
     pub fn has_tag(&self, target_id: ObjectId, tag: &Tags::Tag) -> bool {
-        self.effects
-            .iter()
-            .any(|effect| effect.target_id == target_id && effect.has_tag(tag))
+        self.effect_ids_by_target
+            .get(&target_id)
+            .is_some_and(|effect_ids| {
+                effect_ids.iter().any(|effect_id| {
+                    self.get(*effect_id)
+                        .is_some_and(|effect| effect.has_tag(tag))
+                })
+            })
     }
 
     /// Visits active effect instances for `target_id` in application order.
@@ -440,9 +447,12 @@ where
     where
         F: FnMut(&EffectInstance<Tags, Payload>),
     {
-        for effect in &self.effects {
-            if effect.target_id == target_id {
-                on_effect(effect);
+        if let Some(effect_ids) = self.effect_ids_by_target.get(&target_id) {
+            for effect_id in effect_ids {
+                if let Some(effect) = self.get(*effect_id) {
+                    debug_assert_eq!(effect.target_id, target_id);
+                    on_effect(effect);
+                }
             }
         }
     }
@@ -454,6 +464,49 @@ where
     {
         for effect in &self.effects {
             on_effect(effect);
+        }
+    }
+
+    fn find_index(&self, effect_id: ActiveEffectId) -> Option<usize> {
+        self.index_by_id.get(&effect_id).copied()
+    }
+
+    fn push_effect(&mut self, effect: EffectInstance<Tags, Payload>) {
+        self.index_by_id.insert(effect.id, self.effects.len());
+        self.effect_ids_by_target
+            .entry(effect.target_id)
+            .or_default()
+            .push(effect.id);
+        self.effects.push(effect);
+    }
+
+    fn remove_effect_at_index(&mut self, index: usize) -> EffectInstance<Tags, Payload> {
+        let removed = self.effects.remove(index);
+        self.index_by_id.remove(&removed.id);
+        self.remove_effect_from_target_index(removed.target_id, removed.id);
+        self.reindex_effects_from(index);
+        removed
+    }
+
+    fn remove_effect_from_target_index(&mut self, target_id: ObjectId, effect_id: ActiveEffectId) {
+        let should_remove_target =
+            if let Some(effect_ids) = self.effect_ids_by_target.get_mut(&target_id) {
+                if let Some(index) = effect_ids.iter().position(|id| *id == effect_id) {
+                    effect_ids.remove(index);
+                }
+                effect_ids.is_empty()
+            } else {
+                false
+            };
+
+        if should_remove_target {
+            self.effect_ids_by_target.remove(&target_id);
+        }
+    }
+
+    fn reindex_effects_from(&mut self, start: usize) {
+        for index in start..self.effects.len() {
+            self.index_by_id.insert(self.effects[index].id, index);
         }
     }
 }

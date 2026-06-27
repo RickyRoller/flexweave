@@ -176,6 +176,121 @@ fn effect_pipeline_removes_effects_with_distinct_lifecycle_fact() {
 }
 
 #[test]
+fn effect_indexes_survive_removal_expiration_and_keep_application_order() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum Payload {
+        First,
+        Second,
+        Third,
+        Fourth,
+    }
+
+    let target = ObjectId::new(42);
+    let other_target = ObjectId::new(77);
+    let enhancement = Tag::new([TestAtom::Category, TestAtom::Variant]);
+    let family = Tag::new([TestAtom::Category, TestAtom::Family]);
+    let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
+
+    let first = effects
+        .apply_with_events(
+            &effect_definition(
+                "first",
+                EffectKind::Duration,
+                Some(EffectClockPolicy { units: 100 }),
+                None,
+            ),
+            EffectApplicationInput::accept(
+                None,
+                target,
+                TagSet::new([enhancement.clone()]),
+                Payload::First,
+            ),
+            |_| {},
+        )
+        .unwrap()
+        .unwrap();
+    let second = effects
+        .apply_with_events(
+            &effect_definition(
+                "second",
+                EffectKind::Duration,
+                Some(EffectClockPolicy { units: 200 }),
+                None,
+            ),
+            EffectApplicationInput::accept(
+                None,
+                target,
+                TagSet::new([family.clone()]),
+                Payload::Second,
+            ),
+            |_| {},
+        )
+        .unwrap()
+        .unwrap();
+    let third = effects
+        .apply_with_events(
+            &effect_definition(
+                "third",
+                EffectKind::Duration,
+                Some(EffectClockPolicy { units: 300 }),
+                None,
+            ),
+            EffectApplicationInput::accept(
+                None,
+                other_target,
+                TagSet::new([enhancement.clone()]),
+                Payload::Third,
+            ),
+            |_| {},
+        )
+        .unwrap()
+        .unwrap();
+    let fourth = effects
+        .apply_with_events(
+            &effect_definition(
+                "fourth",
+                EffectKind::Duration,
+                Some(EffectClockPolicy { units: 400 }),
+                None,
+            ),
+            EffectApplicationInput::accept(
+                None,
+                target,
+                TagSet::new([enhancement.clone()]),
+                Payload::Fourth,
+            ),
+            |_| {},
+        )
+        .unwrap()
+        .unwrap();
+
+    let mut target_order = Vec::new();
+    effects.visit_target(target, |effect| target_order.push(effect.id));
+    assert_eq!(target_order, vec![first, second, fourth]);
+
+    let removed = effects.remove_with_events(second, |_| {}).unwrap();
+    assert_eq!(removed.id, second);
+    assert!(effects.get(second).is_none());
+    assert_eq!(effects.get(third).unwrap().id, third);
+    assert_eq!(effects.get(fourth).unwrap().id, fourth);
+
+    target_order.clear();
+    effects.visit_target(target, |effect| target_order.push(effect.id));
+    assert_eq!(target_order, vec![first, fourth]);
+    assert!(effects.has_tag(target, &enhancement));
+    assert!(!effects.has_tag(target, &family));
+
+    effects.tick_with_events(100, |_| {});
+    assert!(effects.get(first).is_none());
+    assert_eq!(effects.get(third).unwrap().id, third);
+    assert_eq!(effects.get(fourth).unwrap().id, fourth);
+
+    target_order.clear();
+    effects.visit_target(target, |effect| target_order.push(effect.id));
+    assert_eq!(target_order, vec![fourth]);
+}
+
+#[test]
 fn active_effect_ids_are_typed_value_objects_and_pipeline_uses_them() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     enum Payload {

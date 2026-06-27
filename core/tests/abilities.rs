@@ -858,6 +858,79 @@ fn ability_ids_are_typed_value_objects_and_store_uses_them() {
 }
 
 #[test]
+fn ability_indexes_survive_grant_lookup_cancel_and_end() {
+    let mut abilities = ActiveAbilityStore::new();
+    let first_ability = grant_active_ability(&mut abilities, None);
+    let second_ability = grant_active_ability(&mut abilities, None);
+    let tag = active_tag();
+
+    assert_eq!(abilities.get(first_ability).unwrap().id, first_ability);
+    assert_eq!(abilities.get(second_ability).unwrap().id, second_ability);
+    assert_eq!(
+        abilities.ids_with_tag(ObjectId::new(9), &tag),
+        vec![first_ability, second_ability]
+    );
+
+    let mut context = ActiveContext {
+        resource: 10,
+        events: Vec::new(),
+    };
+    let mut hooks = ActiveHooks { reject: false };
+    let first_activation = abilities
+        .begin_activation_with(
+            first_ability,
+            AbilityCommitTiming::Manual,
+            &mut context,
+            &mut hooks,
+        )
+        .unwrap();
+    let second_activation = abilities
+        .begin_activation_with(
+            second_ability,
+            AbilityCommitTiming::Manual,
+            &mut context,
+            &mut hooks,
+        )
+        .unwrap();
+
+    assert_eq!(
+        abilities
+            .active_activations()
+            .iter()
+            .map(|active| active.activation_id)
+            .collect::<Vec<_>>(),
+        vec![first_activation, second_activation]
+    );
+
+    let canceled = abilities.cancel_activation(first_activation).unwrap();
+    assert_eq!(canceled.activation_id, first_activation);
+    assert!(abilities.get_active_activation(first_activation).is_none());
+    assert_eq!(
+        abilities
+            .get_active_activation(second_activation)
+            .unwrap()
+            .ability_id,
+        second_ability
+    );
+    assert_eq!(
+        abilities
+            .active_activations()
+            .iter()
+            .map(|active| active.activation_id)
+            .collect::<Vec<_>>(),
+        vec![second_activation]
+    );
+
+    let ended = abilities
+        .end_activation_with(second_activation, &mut context, &mut hooks)
+        .unwrap()
+        .unwrap();
+    assert_eq!(ended.activation_id, second_activation);
+    assert_eq!(abilities.active_activation_count(), 0);
+    assert!(abilities.get_active_activation(second_activation).is_none());
+}
+
+#[test]
 fn ability_definition_constructors_match_literals_and_validate() {
     assert_eq!(
         AbilityDefinition::instant("instant", "payload/schema"),

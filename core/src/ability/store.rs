@@ -1,6 +1,7 @@
 use crate::clock::ClockUnits;
 use crate::identity::{ObjectId, ObjectStore};
 use crate::tag::TagCollection;
+use std::collections::HashMap;
 use std::fmt;
 
 use super::definition::{AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError};
@@ -137,7 +138,9 @@ where
     next_id: AbilityId,
     next_activation_id: AbilityActivationId,
     abilities: Vec<GrantedAbility<Tags, Cost, Payload>>,
+    ability_index_by_id: HashMap<AbilityId, usize>,
     active_abilities: Vec<ActiveAbility<Tags, Cost, Payload>>,
+    active_index_by_activation_id: HashMap<AbilityActivationId, usize>,
 }
 
 /// Stored ability record.
@@ -243,7 +246,9 @@ where
             next_id: AbilityId::new(1),
             next_activation_id: AbilityActivationId::new(1),
             abilities: Vec::new(),
+            ability_index_by_id: HashMap::new(),
             active_abilities: Vec::new(),
+            active_index_by_activation_id: HashMap::new(),
         }
     }
 
@@ -254,6 +259,7 @@ where
     pub fn grant(&mut self, input: Grant<Tags, Cost, Payload>) -> AbilityId {
         let id = self.next_id;
         self.next_id = AbilityId::new(self.next_id.get() + 1);
+        self.ability_index_by_id.insert(id, self.abilities.len());
         self.abilities.push(GrantedAbility {
             id,
             owner_id: input.owner_id,
@@ -306,7 +312,7 @@ where
         let mut active_index = 0;
         while active_index < self.active_abilities.len() {
             if self.active_abilities[active_index].owner_id == owner_id {
-                active_abilities.push(self.active_abilities.remove(active_index));
+                active_abilities.push(self.remove_active_at_index(active_index));
             } else {
                 active_index += 1;
             }
@@ -316,7 +322,7 @@ where
         let mut ability_index = 0;
         while ability_index < self.abilities.len() {
             if self.abilities[ability_index].owner_id == owner_id {
-                grants.push(self.abilities.remove(ability_index));
+                grants.push(self.remove_ability_at_index(ability_index));
             } else {
                 ability_index += 1;
             }
@@ -357,7 +363,7 @@ where
         let mut active_index = 0;
         while active_index < self.active_abilities.len() {
             if self.active_abilities[active_index].owner_id == owner_id {
-                let active = self.active_abilities.remove(active_index);
+                let active = self.remove_active_at_index(active_index);
                 emit(AbilityLifecycleEventView::Canceled((&active).into()));
                 active_abilities.push(active);
             } else {
@@ -369,7 +375,7 @@ where
         let mut ability_index = 0;
         while ability_index < self.abilities.len() {
             if self.abilities[ability_index].owner_id == owner_id {
-                grants.push(self.abilities.remove(ability_index));
+                grants.push(self.remove_ability_at_index(ability_index));
             } else {
                 ability_index += 1;
             }
@@ -626,7 +632,7 @@ where
         let activation_id = self.next_activation_id;
         self.next_activation_id = AbilityActivationId::new(self.next_activation_id.get() + 1);
         let active = seed.into_active(activation_id, commit_timing, committed);
-        self.active_abilities.push(active);
+        self.push_active_ability(active);
         let active = self
             .active_abilities
             .last()
@@ -966,7 +972,7 @@ where
             .end(context, &self.abilities[ability_index])
             .map_err(AbilityActivationError::Hook)?;
 
-        let active = self.active_abilities.remove(active_index);
+        let active = self.remove_active_at_index(active_index);
         emit(AbilityLifecycleEventView::Ended((&active).into()));
         Ok(Some(active))
     }
@@ -977,7 +983,7 @@ where
         activation_id: AbilityActivationId,
     ) -> Option<ActiveAbility<Tags, Cost, Payload>> {
         let active_index = self.find_active_index(activation_id)?;
-        Some(self.active_abilities.remove(active_index))
+        Some(self.remove_active_at_index(active_index))
     }
 
     /// Cancels an active activation and emits a cancel fact.
@@ -1052,39 +1058,75 @@ where
     }
 
     fn find_index(&self, ability_id: AbilityId) -> Option<usize> {
-        self.abilities
-            .iter()
-            .position(|ability| ability.id == ability_id)
+        self.ability_index_by_id.get(&ability_id).copied()
     }
 
     fn find(&self, ability_id: AbilityId) -> Option<&GrantedAbility<Tags, Cost, Payload>> {
-        self.abilities
-            .iter()
-            .find(|ability| ability.id == ability_id)
+        self.find_index(ability_id)
+            .map(|index| &self.abilities[index])
     }
 
     fn find_mut(
         &mut self,
         ability_id: AbilityId,
     ) -> Option<&mut GrantedAbility<Tags, Cost, Payload>> {
-        self.abilities
-            .iter_mut()
-            .find(|ability| ability.id == ability_id)
+        let index = self.find_index(ability_id)?;
+        Some(&mut self.abilities[index])
     }
 
     fn find_active(
         &self,
         activation_id: AbilityActivationId,
     ) -> Option<&ActiveAbility<Tags, Cost, Payload>> {
-        self.active_abilities
-            .iter()
-            .find(|active| active.activation_id == activation_id)
+        self.find_active_index(activation_id)
+            .map(|index| &self.active_abilities[index])
     }
 
     fn find_active_index(&self, activation_id: AbilityActivationId) -> Option<usize> {
-        self.active_abilities
-            .iter()
-            .position(|active| active.activation_id == activation_id)
+        self.active_index_by_activation_id
+            .get(&activation_id)
+            .copied()
+    }
+
+    fn remove_ability_at_index(
+        &mut self,
+        ability_index: usize,
+    ) -> GrantedAbility<Tags, Cost, Payload> {
+        let removed = self.abilities.remove(ability_index);
+        self.ability_index_by_id.remove(&removed.id);
+        self.reindex_abilities_from(ability_index);
+        removed
+    }
+
+    fn reindex_abilities_from(&mut self, start: usize) {
+        for index in start..self.abilities.len() {
+            self.ability_index_by_id
+                .insert(self.abilities[index].id, index);
+        }
+    }
+
+    fn push_active_ability(&mut self, active: ActiveAbility<Tags, Cost, Payload>) {
+        self.active_index_by_activation_id
+            .insert(active.activation_id, self.active_abilities.len());
+        self.active_abilities.push(active);
+    }
+
+    fn remove_active_at_index(
+        &mut self,
+        active_index: usize,
+    ) -> ActiveAbility<Tags, Cost, Payload> {
+        let removed = self.active_abilities.remove(active_index);
+        self.active_index_by_activation_id
+            .remove(&removed.activation_id);
+        self.reindex_active_from(active_index);
+        removed
+    }
+
+    fn reindex_active_from(&mut self, start: usize) {
+        for index in start..self.active_abilities.len() {
+            self.active_index_by_activation_id
+                .insert(self.active_abilities[index].activation_id, index);
+        }
     }
 }
 
