@@ -1,0 +1,217 @@
+# Effects runtime lifecycle.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 20
+    theme-id: 200
+  }
+}
+
+direction: down
+
+classes: {
+  state
+  decision: {
+    shape: diamond
+  }
+  side_effect
+  failure
+  caller
+  note: {
+    shape: callout
+  }
+  async_edge: {
+    style: {
+      stroke-dash: 4
+    }
+  }
+}
+
+apply: Apply effect request
+apply.class: state
+
+registered_lookup: Registered key lookup?
+registered_lookup.class: decision
+
+missing_definition: Reject MissingDefinition
+missing_definition.class: failure
+
+checked_path: Checked object references?
+checked_path.class: decision
+
+source_policy: EffectSourcePolicy
+source_policy.class: caller
+
+missing_source: Error MissingSource
+missing_source.class: failure
+
+invalid_source: Error InvalidSource
+invalid_source.class: failure
+
+invalid_target: Error InvalidTarget
+invalid_target.class: failure
+
+validate_definition: Validate EffectDefinition
+validate_definition.class: state
+
+invalid_definition: Error EffectDefinitionError
+invalid_definition.class: failure
+
+decision_gate: ApplicationDecision
+decision_gate.class: decision
+
+emit_rejected: Emit ApplicationRejected
+emit_rejected.class: side_effect
+
+outcome_rejected: Return Rejected
+outcome_rejected.class: state
+
+emit_accepted: Emit ApplicationAccepted
+emit_accepted.class: side_effect
+
+kind_gate: EffectKind
+kind_gate.class: decision
+
+execute_instant: Emit Executed
+execute_instant.class: side_effect
+
+outcome_instant: Return ExecutedInstant
+outcome_instant.class: state
+
+create_active: Allocate ActiveEffectId and EffectInstance
+create_active.class: side_effect
+
+index_active: Push effects index_by_id and effect_ids_by_target
+index_active.class: side_effect
+
+emit_created: Emit ActiveCreated
+emit_created.class: side_effect
+
+active_state: Active effect stored
+active_state.class: state
+
+tick: tick_with_events elapsed_units
+tick.class: caller
+
+zero_elapsed: Elapsed is zero?
+zero_elapsed.class: decision
+
+no_op_tick: Return without events
+no_op_tick.class: state
+
+visit_next: Visit active effect in application order
+visit_next.class: state
+
+duration_gate: Has remaining_units?
+duration_gate.class: decision
+
+advance_duration: Saturating subtract remaining_units
+advance_duration.class: side_effect
+
+emit_advanced: Emit Advanced
+emit_advanced.class: side_effect
+
+period_gate: Has period?
+period_gate.class: decision
+
+accumulate_period: Add elapsed_for_effect to period_elapsed_units
+accumulate_period.class: side_effect
+
+period_ready: period_elapsed_units >= period.units?
+period_ready.class: decision
+
+emit_periodic: Emit PeriodicExecuted
+emit_periodic.class: side_effect
+
+expire_gate: elapsed_units >= previous_remaining_units?
+expire_gate.class: decision
+
+remove_expired: Remove from effects and indexes
+remove_expired.class: side_effect
+
+emit_expired: Emit Expired
+emit_expired.class: side_effect
+
+manual_remove: remove_with_events ActiveEffectId
+manual_remove.class: caller
+
+found_effect: Effect id found?
+found_effect.class: decision
+
+remove_manual: Remove from effects and indexes
+remove_manual.class: side_effect
+
+emit_removed: Emit Removed
+emit_removed.class: side_effect
+
+object_cleanup: remove_for_object_with_events
+object_cleanup.class: caller
+
+policy_match: Source Target or SourceOrTarget match?
+policy_match.class: decision
+
+remove_cleanup: Remove each matching instance
+remove_cleanup.class: side_effect
+
+object_driver: ObjectDestructionDriver cleanup store
+object_driver.class: caller
+
+apply -> registered_lookup: optional registered helper
+registered_lookup -> missing_definition: key absent
+registered_lookup -> checked_path: definition found or raw definition supplied
+
+checked_path -> source_policy: checked apply
+source_policy -> missing_source: RequireLiveSource and source_id None
+source_policy -> invalid_source: explicit source_id is not live
+source_policy -> invalid_target: target_id is not live
+checked_path -> validate_definition: unchecked apply
+source_policy -> validate_definition: source and target valid
+
+validate_definition -> invalid_definition: invalid kind duration period or routing
+validate_definition -> decision_gate: valid definition
+
+decision_gate -> emit_rejected: Reject reason
+emit_rejected -> outcome_rejected: no active storage
+decision_gate -> emit_accepted: Accept
+
+emit_accepted -> kind_gate: inspect EffectKind
+kind_gate -> execute_instant: Instant
+execute_instant -> outcome_instant: active_effect_id None
+kind_gate -> create_active: Duration Periodic or Indefinite
+create_active -> index_active: assign next_id copy runtime payload
+index_active -> emit_created: active state stored
+emit_created -> active_state: Return ActiveCreated id
+
+active_state -> tick: caller advances clock {class: async_edge}
+tick -> zero_elapsed: first guard
+zero_elapsed -> no_op_tick: yes
+zero_elapsed -> visit_next: no
+visit_next -> duration_gate: one active instance
+duration_gate -> advance_duration: finite duration
+duration_gate -> period_gate: indefinite
+advance_duration -> emit_advanced: elapsed_for_effect is min elapsed and previous remaining
+emit_advanced -> period_gate: continue tick
+period_gate -> accumulate_period: periodic
+period_gate -> expire_gate: non-periodic
+accumulate_period -> period_ready: after accumulation
+period_ready -> emit_periodic: ready
+emit_periodic -> period_ready: subtract period and loop
+period_ready -> expire_gate: not ready
+expire_gate -> remove_expired: natural timeout
+remove_expired -> emit_expired: after removal
+expire_gate -> visit_next: still active
+emit_expired -> visit_next: next remaining instance
+
+active_state -> manual_remove: caller removes id {class: async_edge}
+manual_remove -> found_effect: lookup index_by_id
+found_effect -> remove_manual: yes
+found_effect -> active_state: no result
+remove_manual -> emit_removed: manual removal fact
+
+active_state -> object_cleanup: object destruction or caller cleanup {class: async_edge}
+object_driver -> object_cleanup: SourceOrTarget cleanup
+object_cleanup -> policy_match: inspect active instances
+policy_match -> remove_cleanup: match
+policy_match -> active_state: no match
+remove_cleanup -> emit_removed: cleanup removal fact

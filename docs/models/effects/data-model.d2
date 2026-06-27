@@ -1,0 +1,207 @@
+# Effects system static model.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 20
+    theme-id: 200
+  }
+}
+
+direction: right
+
+classes: {
+  artifact: {
+    shape: class
+  }
+  store: {
+    shape: class
+  }
+  boundary
+  note: {
+    shape: callout
+  }
+}
+
+authoring: Authoring model {
+  kind: EffectKind {
+    Instant: enum variant
+    Duration: enum variant
+    Periodic: enum variant
+    Indefinite: enum variant
+  }
+  kind.class: artifact
+
+  clock_policy: EffectClockPolicy {
+    units: ClockUnits
+  }
+  clock_policy.class: artifact
+
+  routing: EffectRouting {
+    requires_lifecycle_channel: bool
+    lifecycle_channel_keys: "Vec<String>"
+    signal_channel_keys: "Vec<String>"
+  }
+  routing.class: artifact
+
+  definition: EffectDefinition {
+    key: String
+    kind: EffectKind
+    duration: "Option<EffectClockPolicy>"
+    period: "Option<EffectClockPolicy>"
+    routing: EffectRouting
+    payload_schema: PayloadSchema
+  }
+  definition.class: artifact
+
+  definitions: EffectDefinitions {
+    definitions: "Vec<EffectDefinition>"
+    indexes: "BTreeMap<String, usize>"
+  }
+  definitions.class: store
+
+  definition_errors: EffectDefinitionError {
+    EmptyKey: variant
+    DurationRequired: key
+    DurationNotAllowed: key
+    PeriodRequired: key
+    PeriodNotAllowed: key
+    InvalidDuration: key
+    InvalidPeriod: key
+    MissingLifecycleChannelKey: key
+    EmptyLifecycleChannelKey: key
+    EmptySignalChannelKey: key
+  }
+  definition_errors.class: artifact
+
+  registry_errors: EffectDefinitionRegistryError {
+    InvalidDefinition: EffectDefinitionError
+    DuplicateKey: key
+    MissingDefinition: key
+  }
+  registry_errors.class: artifact
+
+  kind -> definition: selects duration and period contract
+  clock_policy -> definition: supplies duration or period units
+  routing -> definition: declares channel metadata
+  definition -> definitions: validate and insert
+  definitions -> registry_errors: reject invalid bundle
+  definition -> definition_errors: invalid authoring shape
+}
+
+runtime: Runtime pipeline {
+  decision: EffectApplicationDecision {
+    Accept: variant
+    Reject: reason String
+  }
+  decision.class: artifact
+
+  input: EffectApplicationInput {
+    source_id: "Option<ObjectId>"
+    target_id: ObjectId
+    tags: Tags
+    payload: Payload
+    decision: EffectApplicationDecision
+  }
+  input.class: artifact
+
+  application: EffectApplication {
+    definition_key: "Option<String>"
+    source_id: "Option<ObjectId>"
+    target_id: ObjectId
+    tags: Tags
+    payload: Payload
+  }
+  application.class: artifact
+
+  instance: EffectInstance {
+    id: ActiveEffectId
+    definition_key: "Option<String>"
+    source_id: "Option<ObjectId>"
+    target_id: ObjectId
+    remaining_units: "Option<ClockUnits>"
+    period: "Option<EffectClockPolicy>"
+    period_elapsed_units: ClockUnits
+    tags: Tags
+    payload: Payload
+  }
+  instance.class: artifact
+
+  pipeline: EffectPipeline {
+    next_id: ActiveEffectId
+    effects: "Vec<EffectInstance>"
+    index_by_id: "HashMap<ActiveEffectId, usize>"
+    effect_ids_by_target: "HashMap<ObjectId, Vec<ActiveEffectId>>"
+  }
+  pipeline.class: store
+
+  source_policy: EffectSourcePolicy {
+    AllowSystemSource: variant
+    RequireLiveSource: variant
+  }
+  source_policy.class: artifact
+
+  removal_policy: EffectObjectRemovalPolicy {
+    Source: variant
+    Target: variant
+    SourceOrTarget: variant
+  }
+  removal_policy.class: artifact
+
+  outcome: EffectApplyOutcome {
+    Rejected: variant
+    ExecutedInstant: variant
+    ActiveCreated: ActiveEffectId
+  }
+  outcome.class: artifact
+
+  decision -> input: caller supplies runtime decision
+  input -> application: application fact view
+  input -> instance: accepted non-instant seed
+  pipeline -> instance: active storage and indexes
+  source_policy -> input: checked path source rules
+  removal_policy -> pipeline: object-keyed cleanup rules
+  pipeline -> outcome: explicit primitive result
+}
+
+events: EffectLifecycleEvent {
+  ApplicationAccepted: EffectApplication
+  ApplicationRejected: EffectApplicationRejection
+  ActiveCreated: EffectInstance
+  Executed: EffectExecution
+  PeriodicExecuted: EffectExecution
+  Advanced: EffectAdvance
+  Removed: EffectInstance
+  Expired: EffectInstance
+}
+events.class: artifact
+
+caller: Caller boundary {
+  objects: ObjectStore
+  objects.class: boundary
+
+  active_ability: ActiveAbility
+  active_ability.class: boundary
+
+  event_channel: EventChannel
+  event_channel.class: boundary
+
+  signal_projection: SignalProjection
+  signal_projection.class: boundary
+}
+
+authoring.definitions -> runtime.input: apply_registered requires key
+authoring.definition -> runtime.input: raw and checked apply use definition
+caller.objects -> runtime.input: apply_checked validates source and target
+caller.active_ability -> runtime.input: accept_from_active_ability copies source_id
+runtime.pipeline -> events: emits borrowed or owned lifecycle facts
+events -> caller.event_channel: caller publishes lifecycle facts
+events -> caller.signal_projection: caller may project signal facts
+
+unchecked_note: Raw apply paths copy object references as-is.\nUse checked paths when ObjectStore is available.
+unchecked_note.class: note
+runtime.input -> unchecked_note
+
+routing_note: EffectRouting keys are metadata.\nPipeline does not auto-publish lifecycle events or signals.
+routing_note.class: note
+authoring.routing -> routing_note

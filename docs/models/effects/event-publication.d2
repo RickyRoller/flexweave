@@ -1,0 +1,134 @@
+# Effects lifecycle publication and signal projection.
+
+vars: {
+  d2-config: {
+    layout-engine: elk
+    pad: 20
+    theme-id: 200
+  }
+}
+
+direction: right
+
+classes: {
+  artifact: {
+    shape: class
+  }
+  boundary
+  note: {
+    shape: callout
+  }
+}
+
+pipeline: EffectPipeline event APIs
+pipeline.class: boundary
+
+borrowed: EffectLifecycleEventView {
+  ApplicationAccepted: EffectApplicationView
+  ApplicationRejected: EffectApplicationRejectionView
+  ActiveCreated: EffectInstanceView
+  Executed: EffectExecutionView
+  PeriodicExecuted: EffectExecutionView
+  Advanced: EffectAdvanceView
+  Removed: EffectInstanceView
+  Expired: EffectInstanceView
+}
+borrowed.class: artifact
+
+owned: EffectLifecycleEvent {
+  ApplicationAccepted: EffectApplication
+  ApplicationRejected: EffectApplicationRejection
+  ActiveCreated: EffectInstance
+  Executed: EffectExecution
+  PeriodicExecuted: EffectExecution
+  Advanced: EffectAdvance
+  Removed: EffectInstance
+  Expired: EffectInstance
+}
+owned.class: artifact
+
+kind: LifecycleEventKind {
+  EffectApplicationAccepted: enum variant
+  EffectApplicationRejected: enum variant
+  EffectActiveCreated: enum variant
+  EffectExecuted: enum variant
+  EffectPeriodicExecuted: enum variant
+  EffectAdvanced: enum variant
+  EffectRemoved: enum variant
+  EffectExpired: enum variant
+  SignalReinvoked: enum variant
+}
+kind.class: artifact
+
+callback: caller callback
+callback.class: boundary
+
+lifecycle_channel: EventChannel for lifecycle facts
+lifecycle_channel.class: boundary
+
+routing: EffectRouting {
+  requires_lifecycle_channel: bool
+  lifecycle_channel_keys: "Vec<String>"
+  signal_channel_keys: "Vec<String>"
+}
+routing.class: artifact
+
+signal_definitions: SignalDefinitions {
+  definitions: "Vec<SignalDefinition>"
+  indexes: "BTreeMap<String, usize>"
+}
+signal_definitions.class: artifact
+
+projection: SignalProjection {
+  definitions: SignalDefinitions
+}
+projection.class: artifact
+
+signal_fact: SignalFact {
+  key: String
+  signal_kind: SignalKind
+  channel_key: String
+  source_lifecycle_event_kind: LifecycleEventKind
+  source_definition_key: "Option<String>"
+  source_id: "Option<ObjectId>"
+  target_id: ObjectId
+  active_effect_id: "Option<ActiveEffectId>"
+  clock_units: "Option<u64>"
+  removal_reason: "Option<SignalRemovalReason>"
+  tags: TagSet
+  source_payload: "Option<SourcePayload>"
+}
+signal_fact.class: artifact
+
+signal_channel: EventChannel for signal facts
+signal_channel.class: boundary
+
+active_instances: active EffectInstance iterator
+active_instances.class: boundary
+
+no_auto_route: Effect routing and signal channel keys are metadata.\nCaller code explicitly publishes lifecycle events and projected Signal facts.
+no_auto_route.class: note
+
+borrowed_path_note: Borrowed views avoid payload clones.\nOwned events are used for retention replay diagnostics and tests.
+borrowed_path_note.class: note
+
+pipeline -> borrowed: borrowed event callbacks
+borrowed -> callback: stream during apply tick or remove
+callback -> owned: to_owned_event when retention is needed
+borrowed -> kind: lifecycle_event_kind maps view
+owned -> kind: lifecycle_event_kind maps event
+owned -> lifecycle_channel: caller publishes retained or routed facts
+borrowed -> borrowed_path_note
+owned -> borrowed_path_note
+
+routing -> no_auto_route
+no_auto_route -> callback: caller wires selected channel
+routing -> lifecycle_channel: caller-selected lifecycle keys
+routing -> signal_channel: caller-selected signal keys
+
+signal_definitions -> projection: validated definition order
+owned -> projection: project_effect_event
+active_instances -> projection: reinvoke_effect_instances emits WhileActive
+projection -> signal_fact: match lifecycle kind and tags
+signal_fact -> signal_channel: caller publishes facts
+signal_fact -> kind: source_lifecycle_event_kind
