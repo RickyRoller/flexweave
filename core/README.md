@@ -28,8 +28,8 @@ selection order.
 Abilities describe activation lifecycle, cooldown units, commit timing, grants,
 and cancellation policy. Caller-owned hooks decide whether an activation is
 accepted and what payload is committed. Use `grant_checked` and
-`begin_activation_for_with_events` in common runtime flows so ability owners are
-validated against live objects and expected owners before hooks run.
+`begin_activation_for_owner_with_events` in common runtime flows so ability
+owners are validated against live objects and expected owners before hooks run.
 
 Effects describe application, execution, active lifetime, advancement,
 removal, and expiration. Active effect instances carry runtime effect state for

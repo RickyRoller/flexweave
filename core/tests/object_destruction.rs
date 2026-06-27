@@ -97,7 +97,7 @@ fn ability_owner_cleanup_revokes_grants_and_cancels_active_abilities() {
     let mut context = ();
     let mut hooks = Hooks;
     let owned_activation = abilities
-        .begin_activation_for_with(
+        .begin_activation_for_owner_with(
             owner,
             owned,
             AbilityCommitTiming::OnStart,
@@ -106,7 +106,7 @@ fn ability_owner_cleanup_revokes_grants_and_cancels_active_abilities() {
         )
         .unwrap();
     let retained_activation = abilities
-        .begin_activation_for_with(
+        .begin_activation_for_owner_with(
             other_owner,
             retained,
             AbilityCommitTiming::OnStart,

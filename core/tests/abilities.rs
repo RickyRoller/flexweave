@@ -476,7 +476,7 @@ fn checked_activation_rejects_owner_mismatch_before_hooks() {
     let expected_owner_id = ObjectId::new(10);
 
     assert_eq!(
-        abilities.begin_activation_for_with_events(
+        abilities.begin_activation_for_owner_with_events(
             expected_owner_id,
             ability_id,
             AbilityCommitTiming::OnStart,

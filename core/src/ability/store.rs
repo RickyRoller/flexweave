@@ -381,7 +381,7 @@ where
     ///
     /// This checked wrapper rejects invalid expected owners and owner/ability
     /// mismatches before caller-owned hooks run.
-    pub fn begin_activation_for_with<Context, Hooks>(
+    pub fn begin_activation_for_owner_with<Context, Hooks>(
         &mut self,
         owner_id: ObjectId,
         ability_id: AbilityId,
@@ -394,7 +394,7 @@ where
         Cost: Clone,
         Payload: Clone,
     {
-        self.begin_activation_for_with_events(
+        self.begin_activation_for_owner_with_events(
             owner_id,
             ability_id,
             commit_timing,
@@ -508,7 +508,7 @@ where
     /// This checked wrapper rejects invalid expected owners and owner/ability
     /// mismatches before caller-owned hooks run. It otherwise delegates to
     /// [`Self::begin_activation_with_events`].
-    pub fn begin_activation_for_with_events<Context, Hooks, F>(
+    pub fn begin_activation_for_owner_with_events<Context, Hooks, F>(
         &mut self,
         owner_id: ObjectId,
         ability_id: AbilityId,

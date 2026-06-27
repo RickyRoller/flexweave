@@ -14,7 +14,7 @@
 #![doc = "Stores and queries preserve deterministic iteration where ordering is part"]
 #![doc = "of the public contract."]
 #![doc = "When an `ObjectStore` is available, prefer checked runtime paths such as"]
-#![doc = "`AbilityStore::grant_checked`, `AbilityStore::begin_activation_for_with_events`,"]
+#![doc = "`AbilityStore::grant_checked`, `AbilityStore::begin_activation_for_owner_with_events`,"]
 #![doc = "and `EffectPipeline::apply_checked_with_events`; the raw grant, activation,"]
 #![doc = "and application methods are low-level paths that trust caller-managed"]
 #![doc = "object-reference invariants."]
