@@ -1,6 +1,6 @@
 mod common;
 
-use common::TestAtom;
+use common::{TestAtom, block_on};
 use flexweave::{
     AbilityCommitTiming, AbilityGrantError, AbilityHooks, AbilityLifecycleEvent, AbilityStore,
     Attribute, CoreError, DataStore, DerivedAttribute, EffectApplicationError,
@@ -70,14 +70,15 @@ fn ability_owner_cleanup_revokes_grants_and_cancels_active_abilities() {
 
     struct Hooks;
 
-    impl AbilityHooks<(), TagSet<TestAtom>, (), Payload> for Hooks {
+    impl AbilityHooks<(), TagSet<TestAtom>, Payload> for Hooks {
         type Error = ();
+        type BlockReason = ();
     }
 
     let mut objects = ObjectStore::new();
     let owner = objects.create();
     let other_owner = objects.create();
-    let mut abilities = AbilityStore::<TagSet<TestAtom>, (), Payload>::new();
+    let mut abilities = AbilityStore::<TagSet<TestAtom>, Payload>::new();
     let owned = abilities
         .grant_checked(
             &objects,
@@ -96,25 +97,23 @@ fn ability_owner_cleanup_revokes_grants_and_cancels_active_abilities() {
         .unwrap();
     let mut context = ();
     let mut hooks = Hooks;
-    let owned_activation = abilities
-        .begin_activation_for_owner_with(
-            owner,
-            owned,
-            AbilityCommitTiming::OnStart,
-            &mut context,
-            &mut hooks,
-        )
-        .unwrap();
-    let retained_activation = abilities
-        .begin_activation_for_owner_with(
-            other_owner,
-            retained,
-            AbilityCommitTiming::OnStart,
-            &mut context,
-            &mut hooks,
-        )
-        .unwrap();
-    let mut events: Vec<AbilityLifecycleEvent<TagSet<TestAtom>, (), Payload>> = Vec::new();
+    let owned_activation = block_on(abilities.begin_activation_for_owner_with(
+        owner,
+        owned,
+        AbilityCommitTiming::OnStart,
+        &mut context,
+        &mut hooks,
+    ))
+    .unwrap();
+    let retained_activation = block_on(abilities.begin_activation_for_owner_with(
+        other_owner,
+        retained,
+        AbilityCommitTiming::OnStart,
+        &mut context,
+        &mut hooks,
+    ))
+    .unwrap();
+    let mut events: Vec<AbilityLifecycleEvent<TagSet<TestAtom>, Payload>> = Vec::new();
 
     let revoked = abilities.revoke_owner_with_events(owner, |event| events.push(event));
 
@@ -155,7 +154,7 @@ fn effect_object_cleanup_removes_source_and_target_matches_with_events() {
         payload_schema: (),
     };
     effects
-        .apply_checked_with_events(
+        .apply_checked(
             &objects,
             &definition,
             EffectApplicationInput::accept(
@@ -165,11 +164,10 @@ fn effect_object_cleanup_removes_source_and_target_matches_with_events() {
                 Payload,
             ),
             EffectSourcePolicy::RequireLiveSource,
-            |_| {},
         )
         .unwrap();
     effects
-        .apply_checked_with_events(
+        .apply_checked(
             &objects,
             &definition,
             EffectApplicationInput::accept(
@@ -179,7 +177,6 @@ fn effect_object_cleanup_removes_source_and_target_matches_with_events() {
                 Payload,
             ),
             EffectSourcePolicy::AllowSystemSource,
-            |_| {},
         )
         .unwrap();
     let mut events = Vec::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new();
@@ -197,7 +194,7 @@ fn effect_object_cleanup_removes_source_and_target_matches_with_events() {
 
     events.clear();
     effects
-        .apply_checked_with_events(
+        .apply_checked(
             &objects,
             &definition,
             EffectApplicationInput::accept(
@@ -207,7 +204,6 @@ fn effect_object_cleanup_removes_source_and_target_matches_with_events() {
                 Payload,
             ),
             EffectSourcePolicy::RequireLiveSource,
-            |_| {},
         )
         .unwrap();
 
@@ -233,7 +229,7 @@ fn destroyed_objects_are_rejected_by_checked_runtime_paths() {
     let live = objects.create();
     assert_eq!(objects.destroy(destroyed), Ok(destroyed));
 
-    let mut abilities = AbilityStore::<TagSet<TestAtom>, (), Payload>::new();
+    let mut abilities = AbilityStore::<TagSet<TestAtom>, Payload>::new();
     assert_eq!(
         abilities.grant_checked(
             &objects,
@@ -251,7 +247,7 @@ fn destroyed_objects_are_rejected_by_checked_runtime_paths() {
     let definition = EffectDefinition::instant("instant", ());
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     assert_eq!(
-        effects.apply_checked_with_events(
+        effects.apply_checked(
             &objects,
             &definition,
             EffectApplicationInput::accept(
@@ -261,14 +257,13 @@ fn destroyed_objects_are_rejected_by_checked_runtime_paths() {
                 Payload,
             ),
             EffectSourcePolicy::RequireLiveSource,
-            |_| {},
         ),
         Err(EffectApplicationError::InvalidTarget {
             target_id: destroyed,
         })
     );
     assert_eq!(
-        effects.apply_checked_with_events(
+        effects.apply_checked(
             &objects,
             &definition,
             EffectApplicationInput::accept(
@@ -278,7 +273,6 @@ fn destroyed_objects_are_rejected_by_checked_runtime_paths() {
                 Payload,
             ),
             EffectSourcePolicy::RequireLiveSource,
-            |_| {},
         ),
         Err(EffectApplicationError::InvalidSource {
             source_id: destroyed,

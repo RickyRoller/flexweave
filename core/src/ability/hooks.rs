@@ -1,43 +1,63 @@
 use crate::tag::TagCollection;
 
-use super::ids::CooldownUnits;
-use super::store::GrantedAbility;
+use super::events::{AbilityActivationAttemptView, ActiveAbilityView};
 
-/// Hook interface for caller-owned activation behavior.
-pub trait AbilityHooks<Context, Tags, Cost, Payload>
+/// Caller-owned decision returned by an ability blocking query.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AbilityActivationDecision<BlockReason> {
+    Allow,
+    Block(BlockReason),
+}
+
+/// Async hook interface for caller-owned ability orchestration.
+///
+/// Flexweave owns the domain-neutral lifecycle state. Callers own activation
+/// blocking, animation work, costs, cooldown effects, attribute mutations, and
+/// other domain behavior at these hook points.
+#[allow(async_fn_in_trait)]
+pub trait AbilityHooks<Context, Tags, Payload>
 where
     Tags: TagCollection,
 {
     type Error;
+    type BlockReason;
 
-    fn can_activate(
+    async fn can_activate(
         &mut self,
         _context: &mut Context,
-        _ability: &GrantedAbility<Tags, Cost, Payload>,
+        _attempt: AbilityActivationAttemptView<'_, Tags, Payload>,
+    ) -> Result<AbilityActivationDecision<Self::BlockReason>, Self::Error> {
+        Ok(AbilityActivationDecision::Allow)
+    }
+
+    async fn on_start(
+        &mut self,
+        _context: &mut Context,
+        _active: ActiveAbilityView<'_, Tags, Payload>,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn commit(
+    async fn on_commit(
         &mut self,
         _context: &mut Context,
-        _ability: &GrantedAbility<Tags, Cost, Payload>,
+        _active: ActiveAbilityView<'_, Tags, Payload>,
     ) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn cooldown_units(
+    async fn on_end(
         &mut self,
         _context: &mut Context,
-        ability: &GrantedAbility<Tags, Cost, Payload>,
-    ) -> Result<Option<CooldownUnits>, Self::Error> {
-        Ok(ability.cooldown_units)
+        _active: ActiveAbilityView<'_, Tags, Payload>,
+    ) -> Result<(), Self::Error> {
+        Ok(())
     }
 
-    fn end(
+    async fn on_cancel(
         &mut self,
         _context: &mut Context,
-        _ability: &GrantedAbility<Tags, Cost, Payload>,
+        _active: ActiveAbilityView<'_, Tags, Payload>,
     ) -> Result<(), Self::Error> {
         Ok(())
     }

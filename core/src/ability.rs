@@ -16,8 +16,8 @@ pub use events::{
     AbilityActivationRejectionView, AbilityLifecycleEvent, AbilityLifecycleEventView,
     ActiveAbility, ActiveAbilityView,
 };
-pub use hooks::AbilityHooks;
-pub use ids::{AbilityActivationId, AbilityId, CooldownUnits};
+pub use hooks::{AbilityActivationDecision, AbilityHooks};
+pub use ids::{AbilityActivationId, AbilityId};
 pub use store::{
     AbilityActivationError, AbilityCancelOutcome, AbilityCommitOutcome, AbilityEndOutcome,
     AbilityEndOutcomeResult, AbilityError, AbilityGrantError, AbilityHookPhase, AbilityStore,

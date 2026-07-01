@@ -10,7 +10,7 @@ pub enum AbilityActivationMode {
     Active,
 }
 
-/// When cooldown or caller-owned commit policy should be applied.
+/// When the ability lifecycle should run its commit phase automatically.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AbilityCommitTiming {
     OnStart,
@@ -52,8 +52,6 @@ pub enum AbilityDefinitionError {
     UnknownEmittedChannelKey { key: String, channel_key: String },
     EmptyTagRequirementKey { key: String },
     EmptyActivationTagKey { key: String },
-    InstantCannotBeCanceled { key: String },
-    InstantCannotCommitOnEnd { key: String },
 }
 
 impl fmt::Display for AbilityDefinitionError {
@@ -79,16 +77,6 @@ impl fmt::Display for AbilityDefinitionError {
             Self::EmptyActivationTagKey { key } => write!(
                 formatter,
                 "ability definition `{key}` has an empty activation tag key"
-            ),
-            Self::InstantCannotBeCanceled { key } => {
-                write!(
-                    formatter,
-                    "instant ability definition `{key}` cannot be canceled"
-                )
-            }
-            Self::InstantCannotCommitOnEnd { key } => write!(
-                formatter,
-                "instant ability definition `{key}` cannot commit on end"
             ),
         }
     }
@@ -242,20 +230,6 @@ impl<PayloadSchema> AbilityDefinition<PayloadSchema> {
         }
         if self.activation_tag_keys.iter().any(|key| key.is_empty()) {
             return Err(AbilityDefinitionError::EmptyActivationTagKey {
-                key: self.key.clone(),
-            });
-        }
-        if self.activation_mode == AbilityActivationMode::Instant
-            && self.cancel_policy == AbilityCancelPolicy::CanCancel
-        {
-            return Err(AbilityDefinitionError::InstantCannotBeCanceled {
-                key: self.key.clone(),
-            });
-        }
-        if self.activation_mode == AbilityActivationMode::Instant
-            && self.commit_timing == AbilityCommitTiming::OnEnd
-        {
-            return Err(AbilityDefinitionError::InstantCannotCommitOnEnd {
                 key: self.key.clone(),
             });
         }

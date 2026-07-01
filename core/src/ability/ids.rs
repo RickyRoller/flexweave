@@ -1,8 +1,4 @@
-use crate::clock::ClockUnits;
 use std::fmt;
-
-/// Cooldown duration in clock units.
-pub type CooldownUnits = ClockUnits;
 
 /// Granted ability id assigned by `AbilityStore`.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]

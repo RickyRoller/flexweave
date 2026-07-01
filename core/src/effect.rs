@@ -7,9 +7,9 @@ mod ids;
 mod pipeline;
 
 pub use application::{
-    EffectApplication, EffectApplicationDecision, EffectApplicationInput,
+    EffectApplication, EffectApplicationDecision, EffectApplicationDraft, EffectApplicationInput,
     EffectApplicationRejection, EffectApplicationRejectionView, EffectApplicationView,
-    EffectSourcePolicy,
+    EffectInitializer, EffectSourcePolicy, NoopEffectInitializer,
 };
 pub use definition::{
     EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError,
@@ -21,5 +21,6 @@ pub use events::{
 };
 pub use ids::ActiveEffectId;
 pub use pipeline::{
-    EffectApplicationError, EffectApplyOutcome, EffectObjectRemovalPolicy, EffectPipeline,
+    EffectApplicationError, EffectApplyOutcome, EffectInitializationError,
+    EffectObjectRemovalPolicy, EffectPipeline,
 };

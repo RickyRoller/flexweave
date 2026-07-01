@@ -1,16 +1,15 @@
 mod common;
 
-use common::TestAtom;
+use common::{TestAtom, block_on};
 use flexweave::{
-    AbilityCommitTiming, AbilityHooks, AbilityStore, ActiveEffectId, Clock, ClockUnits,
-    CooldownUnits, DefinitionRegistryEntry, EffectApplicationDecision, EffectApplicationInput,
+    AbilityCommitTiming, AbilityHooks, AbilityStore, ActiveAbilityView, ActiveEffectId, Clock,
+    ClockUnits, DefinitionRegistryEntry, EffectApplicationDecision, EffectApplicationInput,
     EffectClockPolicy, EffectDefinition as FlexEffectDefinition, EffectKind, EffectLifecycleEvent,
     EffectPipeline, EffectRouting, EventChannel, EventChannelDefinition,
     EventChannelDefinitionError, EventChannelDefinitions, EventChannelError,
     EventChannelRouteDefinition, EventConnectionHandle, EventRetention, FixedStepClock, Grant,
-    GrantedAbility, LifecycleEvent, LifecycleEventKind, LocalLifecycleEvent, MechanicsDriver,
-    ObjectId, ObjectStore, RealtimeClock, RealtimeClockAccumulator, Registry, RegistryEntry, Tag,
-    TagSet,
+    LifecycleEvent, LifecycleEventKind, LocalLifecycleEvent, MechanicsDriver, ObjectId,
+    ObjectStore, RealtimeClock, RealtimeClockAccumulator, Registry, RegistryEntry, Tag, TagSet,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -21,7 +20,7 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
     struct AbilityDefinition {
         key: &'static str,
         effect_key: &'static str,
-        cooldown_units: CooldownUnits,
+        cooldown_units: ClockUnits,
     }
 
     impl RegistryEntry for AbilityDefinition {
@@ -95,6 +94,7 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
     struct Runtime {
         target_id: ObjectId,
         effects: EffectPipeline<TagSet<TestAtom>, EffectPayload>,
+        cooldowns: EffectPipeline<TagSet<TestAtom>, EffectPayload>,
         application_events: Vec<EffectLifecycleEvent<TagSet<TestAtom>, EffectPayload>>,
     }
 
@@ -103,19 +103,33 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
         effects: Registry<'static, EffectDefinition>,
     }
 
-    impl AbilityHooks<Runtime, TagSet<TestAtom>, (), AbilityPayload> for Hooks {
+    impl AbilityHooks<Runtime, TagSet<TestAtom>, AbilityPayload> for Hooks {
         type Error = HookError;
+        type BlockReason = ();
 
-        fn cooldown_units(
+        async fn on_commit(
             &mut self,
-            _context: &mut Runtime,
-            ability: &GrantedAbility<TagSet<TestAtom>, (), AbilityPayload>,
-        ) -> Result<Option<CooldownUnits>, Self::Error> {
+            context: &mut Runtime,
+            active: ActiveAbilityView<'_, TagSet<TestAtom>, AbilityPayload>,
+        ) -> Result<(), Self::Error> {
             let definition = self
                 .abilities
-                .definition(ability.payload.definition_key)
+                .definition(active.payload.definition_key)
                 .ok_or(HookError::MissingAbilityDefinition)?;
-            Ok(Some(definition.cooldown_units))
+            context
+                .cooldowns
+                .apply(
+                    &duration_effect_definition("spark_cooldown", definition.cooldown_units),
+                    EffectApplicationInput {
+                        source_id: Some(active.source_id()),
+                        target_id: active.owner_id,
+                        tags: TagSet::new([cooldown_tag()]),
+                        payload: EffectPayload { amount: 0 },
+                        decision: EffectApplicationDecision::Accept,
+                    },
+                )
+                .map_err(|_| HookError::MissingEffectDefinition)?;
+            Ok(())
         }
     }
 
@@ -123,18 +137,17 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
     let source = objects.create();
     let target = objects.create();
     let mut abilities = AbilityStore::new();
-    let ability_id = abilities.grant(Grant {
-        owner_id: source,
-        tags: TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Burst])]),
-        cost: None,
-        cooldown_units: None,
-        payload: AbilityPayload {
+    let ability_id = abilities.grant(Grant::new(
+        source,
+        TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Burst])]),
+        AbilityPayload {
             definition_key: "spark",
         },
-    });
+    ));
     let mut runtime = Runtime {
         target_id: target,
         effects: EffectPipeline::new(),
+        cooldowns: EffectPipeline::new(),
         application_events: Vec::new(),
     };
     let mut hooks = Hooks {
@@ -142,14 +155,13 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
         effects: Registry::new(EFFECT_DEFINITIONS),
     };
 
-    let activation_id = abilities
-        .begin_activation_with(
-            ability_id,
-            AbilityCommitTiming::OnStart,
-            &mut runtime,
-            &mut hooks,
-        )
-        .unwrap();
+    let activation_id = block_on(abilities.begin_activation_with(
+        ability_id,
+        AbilityCommitTiming::OnStart,
+        &mut runtime,
+        &mut hooks,
+    ))
+    .unwrap();
     let active = abilities
         .get_active_activation(activation_id)
         .unwrap()
@@ -178,12 +190,11 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
             |event| runtime.application_events.push(event),
         )
         .unwrap();
-    abilities
-        .end_activation_with(activation_id, &mut runtime, &mut hooks)
-        .unwrap();
+    block_on(abilities.end_activation_with(activation_id, &mut runtime, &mut hooks)).unwrap();
 
-    assert_eq!(abilities.cooldown_remaining(ability_id), Ok(1000));
     assert_eq!(runtime.effects.count(), 1);
+    assert_eq!(runtime.cooldowns.count(), 1);
+    assert!(runtime.cooldowns.has_tag(source, &cooldown_tag()));
     let [
         EffectLifecycleEvent::ApplicationAccepted(accepted),
         EffectLifecycleEvent::ActiveCreated(created),
@@ -201,33 +212,41 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
 
     let ticked_events =
         MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, EffectPayload>>::new()
-            .with_store(&mut abilities)
+            .with_store(&mut runtime.cooldowns)
             .with_store(&mut runtime.effects)
             .tick(400);
 
-    assert_eq!(abilities.cooldown_remaining(ability_id), Ok(600));
-    let [EffectLifecycleEvent::Advanced(advanced)] = ticked_events.as_slice() else {
-        panic!("partial advancement should emit one advanced event");
+    let [
+        EffectLifecycleEvent::Advanced(cooldown_advanced),
+        EffectLifecycleEvent::Advanced(advanced),
+    ] = ticked_events.as_slice()
+    else {
+        panic!("partial advancement should emit cooldown and effect advanced events");
     };
+    assert_eq!(cooldown_advanced.effect.remaining_units, Some(600));
     assert_eq!(advanced.elapsed_units, 400);
     assert_eq!(advanced.previous_remaining_units, Some(1000));
     assert_eq!(advanced.effect.remaining_units, Some(600));
 
     let expired_events =
         MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, EffectPayload>>::new()
-            .with_store(&mut abilities)
+            .with_store(&mut runtime.cooldowns)
             .with_store(&mut runtime.effects)
             .tick(600);
 
-    assert_eq!(abilities.cooldown_remaining(ability_id), Ok(0));
+    assert_eq!(runtime.cooldowns.count(), 0);
     assert_eq!(runtime.effects.count(), 0);
     let [
+        EffectLifecycleEvent::Advanced(cooldown_expiring_advance),
+        EffectLifecycleEvent::Expired(cooldown_expired),
         EffectLifecycleEvent::Advanced(expiring_advance),
         EffectLifecycleEvent::Expired(expired),
     ] = expired_events.as_slice()
     else {
-        panic!("final advancement should emit advanced and expired events");
+        panic!("final advancement should emit cooldown and effect expiration events");
     };
+    assert_eq!(cooldown_expiring_advance.elapsed_units, 600);
+    assert_eq!(cooldown_expired.target_id, source);
     assert_eq!(expiring_advance.elapsed_units, 600);
     assert_eq!(expired.source_id, Some(source));
     assert_eq!(expired.target_id, target);
@@ -247,7 +266,7 @@ fn lifecycle_events_emit_in_registration_order_through_mechanics_driver() {
     let mut first = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     let mut second = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     first
-        .apply_with_events(
+        .apply(
             &duration_effect_definition("first", 100),
             EffectApplicationInput {
                 source_id: Some(ObjectId::new(1)),
@@ -256,11 +275,10 @@ fn lifecycle_events_emit_in_registration_order_through_mechanics_driver() {
                 payload: Payload::First,
                 decision: EffectApplicationDecision::Accept,
             },
-            |_| {},
         )
         .unwrap();
     second
-        .apply_with_events(
+        .apply(
             &duration_effect_definition("second", 100),
             EffectApplicationInput {
                 source_id: Some(ObjectId::new(3)),
@@ -269,7 +287,6 @@ fn lifecycle_events_emit_in_registration_order_through_mechanics_driver() {
                 payload: Payload::Second,
                 decision: EffectApplicationDecision::Accept,
             },
-            |_| {},
         )
         .unwrap();
 
@@ -302,7 +319,7 @@ fn zero_elapsed_lifecycle_tick_emits_no_events() {
 
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     effects
-        .apply_with_events(
+        .apply(
             &duration_effect_definition("timed", 100),
             EffectApplicationInput {
                 source_id: None,
@@ -311,7 +328,6 @@ fn zero_elapsed_lifecycle_tick_emits_no_events() {
                 payload: Payload::Timed,
                 decision: EffectApplicationDecision::Accept,
             },
-            |_| {},
         )
         .unwrap();
 
@@ -456,7 +472,7 @@ fn event_channel_disconnects_handles_during_emission_without_reordering() {
 
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     effects
-        .apply_with_events(
+        .apply(
             &duration_effect_definition("tick", 10),
             EffectApplicationInput {
                 source_id: None,
@@ -465,7 +481,6 @@ fn event_channel_disconnects_handles_during_emission_without_reordering() {
                 payload: Payload::Tick,
                 decision: EffectApplicationDecision::Accept,
             },
-            |_| {},
         )
         .unwrap();
     let mut events = MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
@@ -605,7 +620,7 @@ fn event_channel_validation_rejects_invalid_definitions_and_routes() {
 }
 
 #[test]
-fn turn_based_clock_advances_cooldowns_and_effect_lifetimes_in_turns() {
+fn turn_based_clock_advances_effect_lifetimes_in_turns() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     enum Payload {
         Shield,
@@ -614,28 +629,9 @@ fn turn_based_clock_advances_cooldowns_and_effect_lifetimes_in_turns() {
     let turn_clock = FixedStepClock::new(1);
     let source = ObjectId::new(1);
     let target = ObjectId::new(2);
-    let mut abilities = AbilityStore::<TagSet<TestAtom>, (), Payload>::new();
-    let ability_id = abilities.grant(Grant {
-        owner_id: source,
-        tags: TagSet::new([Tag::new([TestAtom::Ability])]),
-        cost: None,
-        cooldown_units: Some(turn_clock.units_for(2)),
-        payload: Payload::Shield,
-    });
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
-    let mut hooks = NoopHooks;
-    let mut context = ();
-
-    abilities
-        .begin_activation_with(
-            ability_id,
-            AbilityCommitTiming::OnStart,
-            &mut context,
-            &mut hooks,
-        )
-        .unwrap();
     effects
-        .apply_with_events(
+        .apply(
             &FlexEffectDefinition {
                 key: "turn_shield".to_owned(),
                 kind: EffectKind::Periodic,
@@ -651,16 +647,13 @@ fn turn_based_clock_advances_cooldowns_and_effect_lifetimes_in_turns() {
                 payload: Payload::Shield,
                 decision: EffectApplicationDecision::Accept,
             },
-            |_| {},
         )
         .unwrap();
 
     let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut abilities)
         .with_store(&mut effects)
         .tick_clock(&turn_clock, 1);
 
-    assert_eq!(abilities.cooldown_remaining(ability_id), Ok(1));
     let [
         EffectLifecycleEvent::Advanced(advanced),
         EffectLifecycleEvent::PeriodicExecuted(pulse),
@@ -673,11 +666,9 @@ fn turn_based_clock_advances_cooldowns_and_effect_lifetimes_in_turns() {
     assert_eq!(pulse.elapsed_units, Some(1));
 
     let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut abilities)
         .with_store(&mut effects)
         .tick_clock(&turn_clock, 2);
 
-    assert_eq!(abilities.cooldown_remaining(ability_id), Ok(0));
     let [
         EffectLifecycleEvent::Advanced(expiring_advance),
         EffectLifecycleEvent::PeriodicExecuted(_),
@@ -702,7 +693,7 @@ fn realtime_clock_lets_callers_choose_duration_to_unit_scale() {
     let realtime = RealtimeClock::new(1000);
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     effects
-        .apply_with_events(
+        .apply(
             &FlexEffectDefinition {
                 key: "realtime_pulse".to_owned(),
                 kind: EffectKind::Periodic,
@@ -724,7 +715,6 @@ fn realtime_clock_lets_callers_choose_duration_to_unit_scale() {
                 payload: Payload::Pulse,
                 decision: EffectApplicationDecision::Accept,
             },
-            |_| {},
         )
         .unwrap();
 
@@ -789,48 +779,6 @@ fn realtime_accumulator_matches_aggregate_elapsed_time_for_fractional_frames() {
 }
 
 #[test]
-fn realtime_accumulator_advances_cooldowns_from_repeated_sub_unit_deltas() {
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    enum Payload {
-        Spark,
-    }
-
-    let mut abilities = AbilityStore::<TagSet<TestAtom>, (), Payload>::new();
-    let ability_id = abilities.grant(Grant {
-        owner_id: ObjectId::new(1),
-        tags: TagSet::new([Tag::new([TestAtom::Ability])]),
-        cost: None,
-        cooldown_units: Some(1),
-        payload: Payload::Spark,
-    });
-    let mut hooks = NoopHooks;
-    let mut context = ();
-    abilities
-        .begin_activation_with(
-            ability_id,
-            AbilityCommitTiming::OnStart,
-            &mut context,
-            &mut hooks,
-        )
-        .unwrap();
-
-    let mut accumulator = RealtimeClockAccumulator::new(60);
-    let frame = Duration::from_millis(16);
-
-    let events = MechanicsDriver::<()>::new()
-        .with_store(&mut abilities)
-        .tick(accumulator.advance(frame));
-    assert!(events.is_empty());
-    assert_eq!(abilities.cooldown_remaining(ability_id), Ok(1));
-
-    let events = MechanicsDriver::<()>::new()
-        .with_store(&mut abilities)
-        .tick(accumulator.advance(frame));
-    assert!(events.is_empty());
-    assert_eq!(abilities.cooldown_remaining(ability_id), Ok(0));
-}
-
-#[test]
 fn realtime_accumulator_expires_effect_duration_from_repeated_sub_unit_deltas() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     enum Payload {
@@ -839,7 +787,7 @@ fn realtime_accumulator_expires_effect_duration_from_repeated_sub_unit_deltas() 
 
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     effects
-        .apply_with_events(
+        .apply(
             &duration_effect_definition("brief", 1),
             EffectApplicationInput {
                 source_id: None,
@@ -848,7 +796,6 @@ fn realtime_accumulator_expires_effect_duration_from_repeated_sub_unit_deltas() 
                 payload: Payload::Brief,
                 decision: EffectApplicationDecision::Accept,
             },
-            |_| {},
         )
         .unwrap();
 
@@ -886,7 +833,7 @@ fn realtime_accumulator_executes_periodic_effects_from_repeated_sub_unit_deltas(
 
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     effects
-        .apply_with_events(
+        .apply(
             &FlexEffectDefinition {
                 key: "pulse".to_owned(),
                 kind: EffectKind::Periodic,
@@ -902,7 +849,6 @@ fn realtime_accumulator_executes_periodic_effects_from_repeated_sub_unit_deltas(
                 payload: Payload::Pulse,
                 decision: EffectApplicationDecision::Accept,
             },
-            |_| {},
         )
         .unwrap();
 
@@ -930,13 +876,8 @@ fn realtime_accumulator_executes_periodic_effects_from_repeated_sub_unit_deltas(
     assert_eq!(effects.count(), 1);
 }
 
-struct NoopHooks;
-
-impl<Tags, Cost, Payload> AbilityHooks<(), Tags, Cost, Payload> for NoopHooks
-where
-    Tags: flexweave::TagCollection,
-{
-    type Error = ();
+fn cooldown_tag() -> Tag<TestAtom> {
+    Tag::new([TestAtom::Ability, TestAtom::Variant])
 }
 
 fn duration_effect_definition(key: &str, duration_units: ClockUnits) -> FlexEffectDefinition {

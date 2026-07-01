@@ -1,6 +1,9 @@
 use crate::ability::ActiveAbility;
+use crate::clock::ClockUnits;
 use crate::identity::ObjectId;
 use crate::tag::TagCollection;
+
+use super::definition::EffectClockPolicy;
 
 /// One effect application attempt.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -76,6 +79,60 @@ where
     pub decision: EffectApplicationDecision,
 }
 
+/// Mutable effect application draft exposed to caller-owned initialization logic.
+pub struct EffectApplicationDraft<'draft, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    pub definition_key: &'draft str,
+    pub source_id: Option<ObjectId>,
+    pub target_id: ObjectId,
+    pub tags: &'draft Tags,
+    pub payload: &'draft mut Payload,
+    pub duration: &'draft mut Option<EffectClockPolicy>,
+    pub period: &'draft mut Option<EffectClockPolicy>,
+}
+
+impl<Tags, Payload> EffectApplicationDraft<'_, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    pub fn set_duration_units(&mut self, units: impl Into<Option<ClockUnits>>) {
+        *self.duration = units.into().map(EffectClockPolicy::new);
+    }
+
+    pub fn set_period_units(&mut self, units: impl Into<Option<ClockUnits>>) {
+        *self.period = units.into().map(EffectClockPolicy::new);
+    }
+}
+
+/// Caller-owned effect application initializer.
+pub trait EffectInitializer<Context, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    type Error;
+
+    fn initialize(
+        &mut self,
+        _context: &mut Context,
+        _draft: EffectApplicationDraft<'_, Tags, Payload>,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+/// No-op effect initializer for pipelines that do not need context.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct NoopEffectInitializer;
+
+impl<Context, Tags, Payload> EffectInitializer<Context, Tags, Payload> for NoopEffectInitializer
+where
+    Tags: TagCollection,
+{
+    type Error = std::convert::Infallible;
+}
+
 impl<Tags, Payload> EffectApplicationInput<Tags, Payload>
 where
     Tags: TagCollection,
@@ -116,8 +173,8 @@ where
     }
 
     #[must_use]
-    pub fn accept_from_active_ability<AbilityTags, Cost, AbilityPayload>(
-        active: &ActiveAbility<AbilityTags, Cost, AbilityPayload>,
+    pub fn accept_from_active_ability<AbilityTags, AbilityPayload>(
+        active: &ActiveAbility<AbilityTags, AbilityPayload>,
         target_id: ObjectId,
         tags: Tags,
         payload: Payload,
@@ -129,8 +186,8 @@ where
     }
 
     #[must_use]
-    pub fn reject_from_active_ability<AbilityTags, Cost, AbilityPayload>(
-        active: &ActiveAbility<AbilityTags, Cost, AbilityPayload>,
+    pub fn reject_from_active_ability<AbilityTags, AbilityPayload>(
+        active: &ActiveAbility<AbilityTags, AbilityPayload>,
         target_id: ObjectId,
         tags: Tags,
         payload: Payload,

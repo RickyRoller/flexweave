@@ -101,19 +101,26 @@ fn definition_errors_include_relevant_keys_in_display_messages() {
 
 #[test]
 fn runtime_errors_have_contextual_display_messages_and_sources() {
-    let ability = AbilityActivationError::<HookError>::Ability(AbilityError::AbilityOnCooldown);
+    let ability = AbilityActivationError::<HookError>::Ability(AbilityError::MissingActivation);
     assert_eq!(
         ability.to_string(),
-        "ability activation failed: ability is on cooldown"
+        "ability activation failed: missing ability activation"
     );
     assert_eq!(
         std::error::Error::source(&ability)
             .expect("ability error should be exposed as source")
             .to_string(),
-        "ability is on cooldown"
+        "missing ability activation"
     );
 
-    let hook = AbilityActivationError::Hook {
+    let blocked = AbilityActivationError::<HookError, &str>::Blocked("cooldown");
+    assert_eq!(
+        blocked.to_string(),
+        "ability activation blocked: \"cooldown\""
+    );
+    assert!(std::error::Error::source(&blocked).is_none());
+
+    let hook = AbilityActivationError::<HookError>::Hook {
         phase: AbilityHookPhase::CanActivate,
         error: HookError,
     };

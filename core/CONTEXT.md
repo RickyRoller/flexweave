@@ -30,6 +30,11 @@ channel.
 An attribute value calculated from caller-owned runtime state rather than
 stored as source data.
 
+**Attribute model**:
+A caller-owned mechanics model that groups stored and derived attributes behind
+higher-level attribute behavior.
+_Avoid_: Attribute bundle
+
 **Attribute change**:
 A reported transition from a previous attribute value to a current value.
 
@@ -39,11 +44,11 @@ selection.
 
 **Ability lifecycle**:
 The domain-neutral sequence of ability grant, activation attempt, activation
-decision, commit, cooldown, cancellation, and completion.
+decision, start, commit, cancellation, and completion.
 
 **Clock unit**:
-A caller-defined mechanics time unit used to advance cooldowns, effect
-lifetimes, periodic effects, and other lifecycle primitives.
+A caller-defined mechanics time unit used to advance effect lifetimes, periodic
+effects, effect-backed cooldowns, and other lifecycle primitives.
 
 **Effect lifecycle**:
 The domain-neutral sequence of effect application, execution, active lifetime,

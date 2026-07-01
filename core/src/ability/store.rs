@@ -1,4 +1,3 @@
-use crate::clock::ClockUnits;
 use crate::identity::{ObjectId, ObjectStore};
 use crate::tag::TagCollection;
 use std::collections::HashMap;
@@ -13,31 +12,33 @@ use super::events::{
     AbilityActivationRejectionView, AbilityLifecycleEvent, AbilityLifecycleEventView,
     ActiveAbility, ActiveAbilityView,
 };
-use super::hooks::AbilityHooks;
-use super::ids::{AbilityActivationId, AbilityId, CooldownUnits};
+use super::hooks::{AbilityActivationDecision, AbilityHooks};
+use super::ids::{AbilityActivationId, AbilityId};
 
 /// Result shape for active ability end operations with explicit command outcomes.
-pub type AbilityEndOutcomeResult<Tags, Cost, Payload, Error> =
-    Result<AbilityEndOutcome<Tags, Cost, Payload>, AbilityActivationError<Error>>;
+pub type AbilityEndOutcomeResult<Tags, Payload, Error, BlockReason = ()> =
+    Result<AbilityEndOutcome<Tags, Payload>, AbilityActivationError<Error, BlockReason>>;
 
 /// Ability hook phase that produced a caller-owned hook error.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AbilityHookPhase {
     CanActivate,
-    CooldownUnits,
+    Start,
     Commit,
     ExecuteInstant,
     End,
+    Cancel,
 }
 
 impl fmt::Display for AbilityHookPhase {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let phase = match self {
             Self::CanActivate => "can-activate",
-            Self::CooldownUnits => "cooldown-units",
+            Self::Start => "start",
             Self::Commit => "commit",
             Self::ExecuteInstant => "execute-instant",
             Self::End => "end",
+            Self::Cancel => "cancel",
         };
         formatter.write_str(phase)
     }
@@ -46,29 +47,27 @@ impl fmt::Display for AbilityHookPhase {
 /// Outcome of a commit command for an active ability activation.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AbilityCommitOutcome {
-    Committed {
-        cooldown_units: Option<CooldownUnits>,
-    },
+    Committed,
     AlreadyCommitted,
 }
 
 /// Outcome of an end command for an active ability activation.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AbilityEndOutcome<Tags, Cost, Payload>
+pub enum AbilityEndOutcome<Tags, Payload>
 where
     Tags: TagCollection,
 {
-    Ended(ActiveAbility<Tags, Cost, Payload>),
+    Ended(ActiveAbility<Tags, Payload>),
     MissingActivation,
 }
 
 /// Outcome of a cancel command for an active ability activation.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AbilityCancelOutcome<Tags, Cost, Payload>
+pub enum AbilityCancelOutcome<Tags, Payload>
 where
     Tags: TagCollection,
 {
-    Canceled(ActiveAbility<Tags, Cost, Payload>),
+    Canceled(ActiveAbility<Tags, Payload>),
     MissingActivation,
 }
 
@@ -84,7 +83,6 @@ pub enum AbilityError {
         expected_owner_id: ObjectId,
         actual_owner_id: ObjectId,
     },
-    AbilityOnCooldown,
 }
 
 impl fmt::Display for AbilityError {
@@ -94,7 +92,6 @@ impl fmt::Display for AbilityError {
             Self::MissingActivation => "missing ability activation",
             Self::InvalidOwner { .. } => "invalid ability owner",
             Self::OwnerMismatch { .. } => "ability owner mismatch",
-            Self::AbilityOnCooldown => "ability is on cooldown",
         };
         formatter.write_str(message)
     }
@@ -102,27 +99,30 @@ impl fmt::Display for AbilityError {
 
 impl std::error::Error for AbilityError {}
 
-/// Ability activation errors, including caller-owned hook failures.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AbilityActivationError<E> {
+/// Ability activation errors, including caller-owned blocking and hook failures.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AbilityActivationError<E, BlockReason = ()> {
     Ability(AbilityError),
+    Blocked(BlockReason),
     Hook { phase: AbilityHookPhase, error: E },
 }
 
-impl<E> AbilityActivationError<E> {
+impl<E, BlockReason> AbilityActivationError<E, BlockReason> {
     #[must_use]
     pub fn hook(phase: AbilityHookPhase, error: E) -> Self {
         Self::Hook { phase, error }
     }
 }
 
-impl<E> fmt::Display for AbilityActivationError<E>
+impl<E, BlockReason> fmt::Display for AbilityActivationError<E, BlockReason>
 where
     E: fmt::Display,
+    BlockReason: fmt::Debug,
 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Ability(error) => write!(formatter, "ability activation failed: {error}"),
+            Self::Blocked(reason) => write!(formatter, "ability activation blocked: {reason:?}"),
             Self::Hook { phase, error } => {
                 write!(
                     formatter,
@@ -133,13 +133,15 @@ where
     }
 }
 
-impl<E> std::error::Error for AbilityActivationError<E>
+impl<E, BlockReason> std::error::Error for AbilityActivationError<E, BlockReason>
 where
     E: std::error::Error + 'static,
+    BlockReason: fmt::Debug + 'static,
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Ability(error) => Some(error),
+            Self::Blocked(_) => None,
             Self::Hook { error, .. } => Some(error),
         }
     }
@@ -163,15 +165,16 @@ impl std::error::Error for AbilityGrantError {}
 
 /// Registered activation errors for key-aware ability workflows.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum RegisteredAbilityActivationError<E> {
+pub enum RegisteredAbilityActivationError<E, BlockReason = ()> {
     MissingGrantedDefinitionKey { ability_id: AbilityId },
     Definition(AbilityDefinitionRegistryError),
-    Activation(AbilityActivationError<E>),
+    Activation(AbilityActivationError<E, BlockReason>),
 }
 
-impl<E> fmt::Display for RegisteredAbilityActivationError<E>
+impl<E, BlockReason> fmt::Display for RegisteredAbilityActivationError<E, BlockReason>
 where
     E: fmt::Display,
+    BlockReason: fmt::Debug,
 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
@@ -189,9 +192,10 @@ where
     }
 }
 
-impl<E> std::error::Error for RegisteredAbilityActivationError<E>
+impl<E, BlockReason> std::error::Error for RegisteredAbilityActivationError<E, BlockReason>
 where
     E: std::error::Error + 'static,
+    BlockReason: fmt::Debug + 'static,
 {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
@@ -204,56 +208,40 @@ where
 
 /// Grant input for `AbilityStore`.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Grant<Tags, Cost, Payload> {
+pub struct Grant<Tags, Payload> {
     pub owner_id: ObjectId,
     pub tags: Tags,
-    pub cost: Option<Cost>,
-    pub cooldown_units: Option<CooldownUnits>,
     pub payload: Payload,
 }
 
-impl<Tags, Cost, Payload> Grant<Tags, Cost, Payload> {
+impl<Tags, Payload> Grant<Tags, Payload> {
     #[must_use]
     pub fn new(owner_id: ObjectId, tags: Tags, payload: Payload) -> Self {
         Self {
             owner_id,
             tags,
-            cost: None,
-            cooldown_units: None,
             payload,
         }
     }
-
-    #[must_use]
-    pub fn with_cost(mut self, cost: Cost) -> Self {
-        self.cost = Some(cost);
-        self
-    }
-
-    #[must_use]
-    pub fn with_cooldown(mut self, units: CooldownUnits) -> Self {
-        self.cooldown_units = Some(units);
-        self
-    }
 }
 
-/// Granted ability storage with cooldown lifecycle.
+/// Granted ability storage with lifecycle orchestration only.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AbilityStore<Tags, Cost, Payload>
+pub struct AbilityStore<Tags, Payload>
 where
     Tags: TagCollection,
 {
     next_id: AbilityId,
     next_activation_id: AbilityActivationId,
-    abilities: Vec<GrantedAbility<Tags, Cost, Payload>>,
+    abilities: Vec<GrantedAbility<Tags, Payload>>,
     ability_index_by_id: HashMap<AbilityId, usize>,
-    active_abilities: Vec<ActiveAbility<Tags, Cost, Payload>>,
+    active_abilities: Vec<ActiveAbility<Tags, Payload>>,
     active_index_by_activation_id: HashMap<AbilityActivationId, usize>,
 }
 
 /// Stored ability record.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct GrantedAbility<Tags, Cost, Payload>
+pub struct GrantedAbility<Tags, Payload>
 where
     Tags: TagCollection,
 {
@@ -261,23 +249,20 @@ where
     pub definition_key: Option<String>,
     pub owner_id: ObjectId,
     pub tags: Tags,
-    pub cost: Option<Cost>,
-    pub cooldown_units: Option<CooldownUnits>,
-    pub cooldown_remaining_units: CooldownUnits,
     pub payload: Payload,
 }
 
 /// Grants and active executions removed while cleaning up one owner object.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct RevokedOwnerAbilities<Tags, Cost, Payload>
+pub struct RevokedOwnerAbilities<Tags, Payload>
 where
     Tags: TagCollection,
 {
-    pub grants: Vec<GrantedAbility<Tags, Cost, Payload>>,
-    pub active_abilities: Vec<ActiveAbility<Tags, Cost, Payload>>,
+    pub grants: Vec<GrantedAbility<Tags, Payload>>,
+    pub active_abilities: Vec<ActiveAbility<Tags, Payload>>,
 }
 
-impl<Tags, Cost, Payload> GrantedAbility<Tags, Cost, Payload>
+impl<Tags, Payload> GrantedAbility<Tags, Payload>
 where
     Tags: TagCollection,
 {
@@ -287,7 +272,7 @@ where
     }
 }
 
-struct AbilityActivationSeed<Tags, Cost, Payload>
+struct AbilityActivationSeed<Tags, Payload>
 where
     Tags: TagCollection,
 {
@@ -295,17 +280,15 @@ where
     definition_key: Option<String>,
     owner_id: ObjectId,
     tags: Tags,
-    cost: Option<Cost>,
     payload: Payload,
 }
 
-impl<Tags, Cost, Payload> AbilityActivationSeed<Tags, Cost, Payload>
+impl<Tags, Payload> AbilityActivationSeed<Tags, Payload>
 where
     Tags: TagCollection,
 {
-    fn from_ability(ability: &GrantedAbility<Tags, Cost, Payload>) -> Self
+    fn from_ability(ability: &GrantedAbility<Tags, Payload>) -> Self
     where
-        Cost: Clone,
         Payload: Clone,
     {
         Self {
@@ -313,18 +296,16 @@ where
             definition_key: ability.definition_key.clone(),
             owner_id: ability.owner_id,
             tags: ability.tags.clone(),
-            cost: ability.cost.clone(),
             payload: ability.payload.clone(),
         }
     }
 
-    fn attempt_view(&self) -> AbilityActivationAttemptView<'_, Tags, Cost, Payload> {
+    fn attempt_view(&self) -> AbilityActivationAttemptView<'_, Tags, Payload> {
         AbilityActivationAttemptView {
             ability_id: self.ability_id,
             definition_key: self.definition_key.as_deref(),
             owner_id: self.owner_id,
             tags: &self.tags,
-            cost: self.cost.as_ref(),
             payload: &self.payload,
         }
     }
@@ -334,14 +315,13 @@ where
         activation_id: AbilityActivationId,
         commit_timing: AbilityCommitTiming,
         committed: bool,
-    ) -> ActiveAbility<Tags, Cost, Payload> {
+    ) -> ActiveAbility<Tags, Payload> {
         ActiveAbility {
             activation_id,
             ability_id: self.ability_id,
             definition_key: self.definition_key,
             owner_id: self.owner_id,
             tags: self.tags,
-            cost: self.cost,
             payload: self.payload,
             commit_timing,
             committed,
@@ -349,7 +329,7 @@ where
     }
 }
 
-impl<Tags, Cost, Payload> AbilityStore<Tags, Cost, Payload>
+impl<Tags, Payload> AbilityStore<Tags, Payload>
 where
     Tags: TagCollection,
 {
@@ -369,14 +349,14 @@ where
     ///
     /// This is the low-level unchecked path: `input.owner_id` is copied as-is.
     /// Prefer [`Self::grant_checked`] when an `ObjectStore` is available.
-    pub fn grant(&mut self, input: Grant<Tags, Cost, Payload>) -> AbilityId {
+    pub fn grant(&mut self, input: Grant<Tags, Payload>) -> AbilityId {
         self.grant_with_definition_key(None, input)
     }
 
     fn grant_with_definition_key(
         &mut self,
         definition_key: Option<String>,
-        input: Grant<Tags, Cost, Payload>,
+        input: Grant<Tags, Payload>,
     ) -> AbilityId {
         let id = self.next_id;
         self.next_id = AbilityId::new(self.next_id.get() + 1);
@@ -386,9 +366,6 @@ where
             definition_key,
             owner_id: input.owner_id,
             tags: input.tags,
-            cost: input.cost,
-            cooldown_units: input.cooldown_units,
-            cooldown_remaining_units: 0,
             payload: input.payload,
         });
         id
@@ -398,7 +375,7 @@ where
     pub fn grant_checked(
         &mut self,
         objects: &ObjectStore,
-        input: Grant<Tags, Cost, Payload>,
+        input: Grant<Tags, Payload>,
     ) -> Result<AbilityId, AbilityGrantError> {
         if !objects.exists(input.owner_id) {
             return Err(AbilityGrantError::InvalidOwner {
@@ -410,15 +387,10 @@ where
     }
 
     /// Validates an authorable definition before granting a runtime ability.
-    ///
-    /// This is the low-level unchecked grant path for object references: it
-    /// validates authoring metadata but copies `input.owner_id` as-is.
-    /// Prefer [`Self::grant_checked`] plus definition validation for common
-    /// runtime flows.
     pub fn grant_with_definition<PayloadSchema>(
         &mut self,
         definition: &AbilityDefinition<PayloadSchema>,
-        input: Grant<Tags, Cost, Payload>,
+        input: Grant<Tags, Payload>,
     ) -> Result<AbilityId, AbilityDefinitionError> {
         definition.validate()?;
         Ok(self.grant_with_definition_key(Some(definition.key.clone()), input))
@@ -429,7 +401,7 @@ where
         &mut self,
         definitions: &AbilityDefinitions<PayloadSchema>,
         key: &str,
-        input: Grant<Tags, Cost, Payload>,
+        input: Grant<Tags, Payload>,
     ) -> Result<AbilityId, AbilityDefinitionRegistryError> {
         let definition = definitions.require(key)?;
         Ok(self.grant_with_definition_key(Some(definition.key.clone()), input))
@@ -437,10 +409,7 @@ where
 
     /// Revokes granted and active abilities owned by `owner_id`.
     #[must_use]
-    pub fn revoke_owner(
-        &mut self,
-        owner_id: ObjectId,
-    ) -> RevokedOwnerAbilities<Tags, Cost, Payload> {
+    pub fn revoke_owner(&mut self, owner_id: ObjectId) -> RevokedOwnerAbilities<Tags, Payload> {
         let mut active_abilities = Vec::new();
         let mut active_index = 0;
         while active_index < self.active_abilities.len() {
@@ -468,15 +437,15 @@ where
     }
 
     /// Revokes granted abilities and emits owned cancellation facts for active abilities.
-    pub fn revoke_owner_with_events<F>(
+    pub fn revoke_owner_with_events<F, BlockReason>(
         &mut self,
         owner_id: ObjectId,
         mut emit: F,
-    ) -> RevokedOwnerAbilities<Tags, Cost, Payload>
+    ) -> RevokedOwnerAbilities<Tags, Payload>
     where
-        Cost: Clone,
         Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+        BlockReason: Clone,
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload, BlockReason>),
     {
         self.revoke_owner_with_borrowed_events(owner_id, |event| {
             emit(event.to_owned_event());
@@ -484,13 +453,13 @@ where
     }
 
     /// Revokes granted abilities and streams borrowed cancellation facts for active abilities.
-    pub fn revoke_owner_with_borrowed_events<F>(
+    pub fn revoke_owner_with_borrowed_events<F, BlockReason>(
         &mut self,
         owner_id: ObjectId,
         mut emit: F,
-    ) -> RevokedOwnerAbilities<Tags, Cost, Payload>
+    ) -> RevokedOwnerAbilities<Tags, Payload>
     where
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, BlockReason>),
     {
         let mut active_abilities = Vec::new();
         let mut active_index = 0;
@@ -526,30 +495,8 @@ where
     }
 
     #[must_use]
-    pub fn get(&self, ability_id: AbilityId) -> Option<&GrantedAbility<Tags, Cost, Payload>> {
+    pub fn get(&self, ability_id: AbilityId) -> Option<&GrantedAbility<Tags, Payload>> {
         self.find(ability_id)
-    }
-
-    pub fn cooldown_remaining(&self, ability_id: AbilityId) -> Result<CooldownUnits, AbilityError> {
-        let ability = self.find(ability_id).ok_or(AbilityError::MissingAbility)?;
-        Ok(ability.cooldown_remaining_units)
-    }
-
-    pub fn is_ready(&self, ability_id: AbilityId) -> Result<bool, AbilityError> {
-        Ok(self.cooldown_remaining(ability_id)? == 0)
-    }
-
-    /// Replaces the configured cooldown for future activations.
-    pub fn set_cooldown_units(
-        &mut self,
-        ability_id: AbilityId,
-        cooldown_units: Option<CooldownUnits>,
-    ) -> Result<(), AbilityError> {
-        let ability = self
-            .find_mut(ability_id)
-            .ok_or(AbilityError::MissingAbility)?;
-        ability.cooldown_units = cooldown_units;
-        Ok(())
     }
 
     #[must_use]
@@ -569,21 +516,13 @@ where
             .collect()
     }
 
-    pub fn tick_cooldowns(&mut self, elapsed_units: ClockUnits) {
-        for ability in &mut self.abilities {
-            ability.cooldown_remaining_units = ability
-                .cooldown_remaining_units
-                .saturating_sub(elapsed_units);
-        }
-    }
-
     #[must_use]
     pub fn active_activation_count(&self) -> usize {
         self.active_abilities.len()
     }
 
     #[must_use]
-    pub fn active_activations(&self) -> &[ActiveAbility<Tags, Cost, Payload>] {
+    pub fn active_activations(&self) -> &[ActiveAbility<Tags, Payload>] {
         &self.active_abilities
     }
 
@@ -591,21 +530,20 @@ where
     pub fn get_active_activation(
         &self,
         activation_id: AbilityActivationId,
-    ) -> Option<&ActiveAbility<Tags, Cost, Payload>> {
+    ) -> Option<&ActiveAbility<Tags, Payload>> {
         self.find_active(activation_id)
     }
 
-    /// Begins a non-instant activation and stores active execution state.
-    pub fn begin_activation_with<Context, Hooks>(
+    /// Begins an activation and stores active execution state.
+    pub async fn begin_activation_with<Context, Hooks>(
         &mut self,
         ability_id: AbilityId,
         commit_timing: AbilityCommitTiming,
         context: &mut Context,
         hooks: &mut Hooks,
-    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error, Hooks::BlockReason>>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
     {
         self.begin_activation_with_borrowed_events(
@@ -615,23 +553,23 @@ where
             hooks,
             |_| {},
         )
+        .await
     }
 
-    /// Begins a non-instant activation for an expected owner.
+    /// Begins an activation for an expected owner.
     ///
     /// This checked wrapper rejects invalid expected owners and owner/ability
     /// mismatches before caller-owned hooks run.
-    pub fn begin_activation_for_owner_with<Context, Hooks>(
+    pub async fn begin_activation_for_owner_with<Context, Hooks>(
         &mut self,
         owner_id: ObjectId,
         ability_id: AbilityId,
         commit_timing: AbilityCommitTiming,
         context: &mut Context,
         hooks: &mut Hooks,
-    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error, Hooks::BlockReason>>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
     {
         self.begin_activation_for_owner_with_borrowed_events(
@@ -642,22 +580,23 @@ where
             hooks,
             |_| {},
         )
+        .await
     }
 
-    /// Begins a non-instant activation and emits owned attempt, rejection, commit, and start facts.
-    pub fn begin_activation_with_events<Context, Hooks, F>(
+    /// Begins an activation and emits owned attempt, rejection, start, and commit facts.
+    pub async fn begin_activation_with_events<Context, Hooks, F>(
         &mut self,
         ability_id: AbilityId,
         commit_timing: AbilityCommitTiming,
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error, Hooks::BlockReason>>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+        Hooks::BlockReason: Clone,
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
     {
         self.begin_activation_with_borrowed_events(
             ability_id,
@@ -666,32 +605,29 @@ where
             hooks,
             |event| emit(event.to_owned_event()),
         )
+        .await
     }
 
-    /// Begins a non-instant activation and streams borrowed lifecycle facts.
-    ///
-    /// Borrowed facts are valid only for the duration of the callback. Use
-    /// `AbilityLifecycleEventView::to_owned_event` when a caller needs retained
-    /// facts for diagnostics, replay, or tests.
-    pub fn begin_activation_with_borrowed_events<Context, Hooks, F>(
+    /// Begins an activation and streams borrowed lifecycle facts.
+    pub async fn begin_activation_with_borrowed_events<Context, Hooks, F>(
         &mut self,
         ability_id: AbilityId,
         commit_timing: AbilityCommitTiming,
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error, Hooks::BlockReason>>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
     {
         let Some(ability_index) = self.find_index(ability_id) else {
+            let reason = AbilityActivationRejectionReason::MissingAbility;
             emit(AbilityLifecycleEventView::Rejected(
                 AbilityActivationRejectionView {
                     attempt: None,
-                    reason: AbilityActivationRejectionReason::MissingAbility,
+                    reason: &reason,
                 },
             ));
             return Err(AbilityActivationError::Ability(
@@ -702,89 +638,66 @@ where
         emit(AbilityLifecycleEventView::Attempted(
             Self::attempt_view_from_ability(&self.abilities[ability_index]),
         ));
-
-        if self.abilities[ability_index].cooldown_remaining_units > 0 {
-            emit(AbilityLifecycleEventView::Rejected(
-                AbilityActivationRejectionView {
-                    attempt: Some(Self::attempt_view_from_ability(
-                        &self.abilities[ability_index],
-                    )),
-                    reason: AbilityActivationRejectionReason::OnCooldown,
-                },
-            ));
-            return Err(AbilityActivationError::Ability(
-                AbilityError::AbilityOnCooldown,
-            ));
-        }
-
-        if let Err(error) = hooks.can_activate(context, &self.abilities[ability_index]) {
-            emit(AbilityLifecycleEventView::Rejected(
-                AbilityActivationRejectionView {
-                    attempt: Some(Self::attempt_view_from_ability(
-                        &self.abilities[ability_index],
-                    )),
-                    reason: AbilityActivationRejectionReason::Hook,
-                },
-            ));
-            return Err(AbilityActivationError::hook(
-                AbilityHookPhase::CanActivate,
-                error,
-            ));
-        }
-
         let seed = AbilityActivationSeed::from_ability(&self.abilities[ability_index]);
-        let mut committed = false;
-        if commit_timing == AbilityCommitTiming::OnStart {
-            let cooldown_units = match self.commit_ability_at_index(ability_index, context, hooks) {
-                Ok(cooldown_units) => cooldown_units,
-                Err(error) => {
-                    let reason = match &error {
-                        AbilityActivationError::Ability(AbilityError::AbilityOnCooldown) => {
-                            AbilityActivationRejectionReason::OnCooldown
-                        }
-                        AbilityActivationError::Ability(_) => {
-                            AbilityActivationRejectionReason::MissingAbility
-                        }
-                        AbilityActivationError::Hook { .. } => {
-                            AbilityActivationRejectionReason::Hook
-                        }
-                    };
-                    emit(AbilityLifecycleEventView::Rejected(
-                        AbilityActivationRejectionView {
-                            attempt: Some(seed.attempt_view()),
-                            reason,
-                        },
-                    ));
-                    return Err(error);
-                }
-            };
-            committed = true;
-            emit(AbilityLifecycleEventView::Committed(
-                AbilityActivationCommitView {
-                    attempt: seed.attempt_view(),
-                    cooldown_units,
-                },
-            ));
+
+        match hooks.can_activate(context, seed.attempt_view()).await {
+            Ok(AbilityActivationDecision::Allow) => {}
+            Ok(AbilityActivationDecision::Block(block_reason)) => {
+                let reason = AbilityActivationRejectionReason::Blocked(block_reason);
+                emit(AbilityLifecycleEventView::Rejected(
+                    AbilityActivationRejectionView {
+                        attempt: Some(seed.attempt_view()),
+                        reason: &reason,
+                    },
+                ));
+                let AbilityActivationRejectionReason::Blocked(block_reason) = reason else {
+                    unreachable!("reason was constructed as blocked");
+                };
+                return Err(AbilityActivationError::Blocked(block_reason));
+            }
+            Err(error) => {
+                let reason = AbilityActivationRejectionReason::Hook;
+                emit(AbilityLifecycleEventView::Rejected(
+                    AbilityActivationRejectionView {
+                        attempt: Some(seed.attempt_view()),
+                        reason: &reason,
+                    },
+                ));
+                return Err(AbilityActivationError::hook(
+                    AbilityHookPhase::CanActivate,
+                    error,
+                ));
+            }
         }
 
         let activation_id = self.next_activation_id;
         self.next_activation_id = AbilityActivationId::new(self.next_activation_id.get() + 1);
-        let active = seed.into_active(activation_id, commit_timing, committed);
+        let active = seed.into_active(activation_id, commit_timing, false);
         self.push_active_ability(active);
-        let active = self
-            .active_abilities
-            .last()
+        let active_index = self
+            .find_active_index(activation_id)
             .expect("activation was just pushed");
-        emit(AbilityLifecycleEventView::Started(active.into()));
+        emit(AbilityLifecycleEventView::Started(
+            (&self.active_abilities[active_index]).into(),
+        ));
+
+        let active_snapshot = self.active_abilities[active_index].clone();
+        if let Err(error) = hooks.on_start(context, (&active_snapshot).into()).await {
+            let canceled = self.remove_active_at_index(active_index);
+            emit(AbilityLifecycleEventView::Canceled((&canceled).into()));
+            return Err(AbilityActivationError::hook(AbilityHookPhase::Start, error));
+        }
+
+        if commit_timing == AbilityCommitTiming::OnStart {
+            self.commit_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)
+                .await?;
+        }
+
         Ok(activation_id)
     }
 
-    /// Begins a non-instant activation for an expected owner and emits lifecycle facts.
-    ///
-    /// This checked wrapper rejects invalid expected owners and owner/ability
-    /// mismatches before caller-owned hooks run. It otherwise delegates to
-    /// [`Self::begin_activation_with_borrowed_events`].
-    pub fn begin_activation_for_owner_with_events<Context, Hooks, F>(
+    /// Begins an activation for an expected owner and emits lifecycle facts.
+    pub async fn begin_activation_for_owner_with_events<Context, Hooks, F>(
         &mut self,
         owner_id: ObjectId,
         ability_id: AbilityId,
@@ -792,12 +705,12 @@ where
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error, Hooks::BlockReason>>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+        Hooks::BlockReason: Clone,
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
     {
         self.begin_activation_for_owner_with_borrowed_events(
             owner_id,
@@ -807,10 +720,11 @@ where
             hooks,
             |event| emit(event.to_owned_event()),
         )
+        .await
     }
 
-    /// Begins a non-instant activation for an expected owner and streams borrowed lifecycle facts.
-    pub fn begin_activation_for_owner_with_borrowed_events<Context, Hooks, F>(
+    /// Begins an activation for an expected owner and streams borrowed lifecycle facts.
+    pub async fn begin_activation_for_owner_with_borrowed_events<Context, Hooks, F>(
         &mut self,
         owner_id: ObjectId,
         ability_id: AbilityId,
@@ -818,18 +732,18 @@ where
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityActivationId, AbilityActivationError<Hooks::Error, Hooks::BlockReason>>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
     {
         if owner_id.is_invalid() {
+            let reason = AbilityActivationRejectionReason::InvalidOwner;
             emit(AbilityLifecycleEventView::Rejected(
                 AbilityActivationRejectionView {
                     attempt: None,
-                    reason: AbilityActivationRejectionReason::InvalidOwner,
+                    reason: &reason,
                 },
             ));
             return Err(AbilityActivationError::Ability(
@@ -838,10 +752,11 @@ where
         }
 
         let Some(ability_index) = self.find_index(ability_id) else {
+            let reason = AbilityActivationRejectionReason::MissingAbility;
             emit(AbilityLifecycleEventView::Rejected(
                 AbilityActivationRejectionView {
                     attempt: None,
-                    reason: AbilityActivationRejectionReason::MissingAbility,
+                    reason: &reason,
                 },
             ));
             return Err(AbilityActivationError::Ability(
@@ -853,12 +768,13 @@ where
         if actual_owner_id != owner_id {
             let attempt = Self::attempt_view_from_ability(&self.abilities[ability_index]);
             emit(AbilityLifecycleEventView::Attempted(attempt));
+            let reason = AbilityActivationRejectionReason::OwnerMismatch;
             emit(AbilityLifecycleEventView::Rejected(
                 AbilityActivationRejectionView {
                     attempt: Some(Self::attempt_view_from_ability(
                         &self.abilities[ability_index],
                     )),
-                    reason: AbilityActivationRejectionReason::OwnerMismatch,
+                    reason: &reason,
                 },
             ));
             return Err(AbilityActivationError::Ability(
@@ -870,19 +786,22 @@ where
         }
 
         self.begin_activation_with_borrowed_events(ability_id, commit_timing, context, hooks, emit)
+            .await
     }
 
     /// Begins an activation using commit timing from the granted ability's registered definition.
-    pub fn begin_registered_activation_with<PayloadSchema, Context, Hooks>(
+    pub async fn begin_registered_activation_with<PayloadSchema, Context, Hooks>(
         &mut self,
         definitions: &AbilityDefinitions<PayloadSchema>,
         ability_id: AbilityId,
         context: &mut Context,
         hooks: &mut Hooks,
-    ) -> Result<AbilityActivationId, RegisteredAbilityActivationError<Hooks::Error>>
+    ) -> Result<
+        AbilityActivationId,
+        RegisteredAbilityActivationError<Hooks::Error, Hooks::BlockReason>,
+    >
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
     {
         self.begin_registered_activation_with_borrowed_events(
@@ -892,22 +811,26 @@ where
             hooks,
             |_| {},
         )
+        .await
     }
 
     /// Begins an activation from a registered definition and emits owned lifecycle facts.
-    pub fn begin_registered_activation_with_events<PayloadSchema, Context, Hooks, F>(
+    pub async fn begin_registered_activation_with_events<PayloadSchema, Context, Hooks, F>(
         &mut self,
         definitions: &AbilityDefinitions<PayloadSchema>,
         ability_id: AbilityId,
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> Result<AbilityActivationId, RegisteredAbilityActivationError<Hooks::Error>>
+    ) -> Result<
+        AbilityActivationId,
+        RegisteredAbilityActivationError<Hooks::Error, Hooks::BlockReason>,
+    >
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+        Hooks::BlockReason: Clone,
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
     {
         self.begin_registered_activation_with_borrowed_events(
             definitions,
@@ -916,22 +839,30 @@ where
             hooks,
             |event| emit(event.to_owned_event()),
         )
+        .await
     }
 
-    /// Begins an activation from a registered definition and streams borrowed lifecycle facts.
-    pub fn begin_registered_activation_with_borrowed_events<PayloadSchema, Context, Hooks, F>(
+    /// Begins an activation from a registered definition and streams borrowed facts.
+    pub async fn begin_registered_activation_with_borrowed_events<
+        PayloadSchema,
+        Context,
+        Hooks,
+        F,
+    >(
         &mut self,
         definitions: &AbilityDefinitions<PayloadSchema>,
         ability_id: AbilityId,
         context: &mut Context,
         hooks: &mut Hooks,
         emit: F,
-    ) -> Result<AbilityActivationId, RegisteredAbilityActivationError<Hooks::Error>>
+    ) -> Result<
+        AbilityActivationId,
+        RegisteredAbilityActivationError<Hooks::Error, Hooks::BlockReason>,
+    >
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
     {
         let Some(ability) = self.find(ability_id) else {
             return self
@@ -942,6 +873,7 @@ where
                     hooks,
                     emit,
                 )
+                .await
                 .map_err(RegisteredAbilityActivationError::Activation);
         };
         let definition_key = ability
@@ -958,28 +890,23 @@ where
             hooks,
             emit,
         )
+        .await
         .map_err(RegisteredAbilityActivationError::Activation)
     }
 
     /// Runs an instant activation without emitting lifecycle facts.
-    ///
-    /// This performs the standard instant lifecycle: begin activation, run the
-    /// caller executor with the active activation view, cancel on executor
-    /// failure, and end the activation on success.
-    pub fn activate_instant_with<Context, Hooks, Execute>(
+    pub async fn activate_instant_with<Context, Hooks, Execute>(
         &mut self,
         ability_id: AbilityId,
         commit_timing: AbilityCommitTiming,
         context: &mut Context,
         hooks: &mut Hooks,
         execute: Execute,
-    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Payload, Hooks::Error, Hooks::BlockReason>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        Execute:
-            FnOnce(&mut Context, &ActiveAbility<Tags, Cost, Payload>) -> Result<(), Hooks::Error>,
+        Execute: FnOnce(&mut Context, &ActiveAbility<Tags, Payload>) -> Result<(), Hooks::Error>,
     {
         self.activate_instant_with_borrowed_events(
             ability_id,
@@ -989,10 +916,11 @@ where
             execute,
             |_| {},
         )
+        .await
     }
 
     /// Runs an instant activation and emits owned lifecycle facts.
-    pub fn activate_instant_with_events<Context, Hooks, Execute, F>(
+    pub async fn activate_instant_with_events<Context, Hooks, Execute, F>(
         &mut self,
         ability_id: AbilityId,
         commit_timing: AbilityCommitTiming,
@@ -1000,14 +928,13 @@ where
         hooks: &mut Hooks,
         execute: Execute,
         mut emit: F,
-    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Payload, Hooks::Error, Hooks::BlockReason>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        Execute:
-            FnOnce(&mut Context, &ActiveAbility<Tags, Cost, Payload>) -> Result<(), Hooks::Error>,
-        F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+        Hooks::BlockReason: Clone,
+        Execute: FnOnce(&mut Context, &ActiveAbility<Tags, Payload>) -> Result<(), Hooks::Error>,
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
     {
         self.activate_instant_with_borrowed_events(
             ability_id,
@@ -1017,10 +944,11 @@ where
             execute,
             |event| emit(event.to_owned_event()),
         )
+        .await
     }
 
     /// Runs an instant activation and streams borrowed lifecycle facts.
-    pub fn activate_instant_with_borrowed_events<Context, Hooks, Execute, F>(
+    pub async fn activate_instant_with_borrowed_events<Context, Hooks, Execute, F>(
         &mut self,
         ability_id: AbilityId,
         commit_timing: AbilityCommitTiming,
@@ -1028,85 +956,92 @@ where
         hooks: &mut Hooks,
         execute: Execute,
         mut emit: F,
-    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Payload, Hooks::Error, Hooks::BlockReason>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        Execute:
-            FnOnce(&mut Context, &ActiveAbility<Tags, Cost, Payload>) -> Result<(), Hooks::Error>,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+        Execute: FnOnce(&mut Context, &ActiveAbility<Tags, Payload>) -> Result<(), Hooks::Error>,
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
     {
-        let activation_id = self.begin_activation_with_borrowed_events(
-            ability_id,
-            commit_timing,
-            context,
-            hooks,
-            &mut emit,
-        )?;
+        let activation_id = self
+            .begin_activation_with_borrowed_events(
+                ability_id,
+                commit_timing,
+                context,
+                hooks,
+                &mut emit,
+            )
+            .await?;
         let active_index = self
             .find_active_index(activation_id)
             .expect("activation was just started");
 
         if let Err(error) = execute(context, &self.active_abilities[active_index]) {
-            self.cancel_activation_with_borrowed_events(activation_id, &mut emit);
+            self.cancel_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)
+                .await?;
             return Err(AbilityActivationError::hook(
                 AbilityHookPhase::ExecuteInstant,
                 error,
             ));
         }
 
-        let result =
-            self.end_activation_with_borrowed_events(activation_id, context, hooks, &mut emit);
+        let result = self
+            .end_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)
+            .await;
         if result.is_err() {
-            self.cancel_activation_with_borrowed_events(activation_id, &mut emit);
+            self.cancel_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)
+                .await?;
         }
         result
     }
 
-    /// Commits an active activation's cost/cooldown policy if it has not already committed.
-    pub fn commit_activation_with<Context, Hooks>(
+    /// Commits an active activation if it has not already committed.
+    pub async fn commit_activation_with<Context, Hooks>(
         &mut self,
         activation_id: AbilityActivationId,
         context: &mut Context,
         hooks: &mut Hooks,
-    ) -> Result<AbilityCommitOutcome, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityCommitOutcome, AbilityActivationError<Hooks::Error, Hooks::BlockReason>>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
+        Payload: Clone,
     {
         self.commit_activation_with_borrowed_events(activation_id, context, hooks, |_| {})
+            .await
     }
 
     /// Commits an active activation and emits an owned commit fact when this call performs the commit.
-    pub fn commit_activation_with_events<Context, Hooks, F>(
+    pub async fn commit_activation_with_events<Context, Hooks, F>(
         &mut self,
         activation_id: AbilityActivationId,
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> Result<AbilityCommitOutcome, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityCommitOutcome, AbilityActivationError<Hooks::Error, Hooks::BlockReason>>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+        Hooks::BlockReason: Clone,
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
     {
         self.commit_activation_with_borrowed_events(activation_id, context, hooks, |event| {
             emit(event.to_owned_event());
         })
+        .await
     }
 
     /// Commits an active activation and streams a borrowed commit fact when this call performs the commit.
-    pub fn commit_activation_with_borrowed_events<Context, Hooks, F>(
+    pub async fn commit_activation_with_borrowed_events<Context, Hooks, F>(
         &mut self,
         activation_id: AbilityActivationId,
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> Result<AbilityCommitOutcome, AbilityActivationError<Hooks::Error>>
+    ) -> Result<AbilityCommitOutcome, AbilityActivationError<Hooks::Error, Hooks::BlockReason>>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+        Hooks: AbilityHooks<Context, Tags, Payload>,
+        Payload: Clone,
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
     {
         let active_index =
             self.find_active_index(activation_id)
@@ -1117,67 +1052,74 @@ where
             return Ok(AbilityCommitOutcome::AlreadyCommitted);
         }
 
-        let ability_id = self.active_abilities[active_index].ability_id;
-        let ability_index = self
-            .find_index(ability_id)
-            .ok_or(AbilityActivationError::Ability(
-                AbilityError::MissingAbility,
-            ))?;
-        let cooldown_units = self.commit_ability_at_index(ability_index, context, hooks)?;
+        let active_snapshot = self.active_abilities[active_index].clone();
+        hooks
+            .on_commit(context, (&active_snapshot).into())
+            .await
+            .map_err(|error| AbilityActivationError::hook(AbilityHookPhase::Commit, error))?;
+
+        let Some(active_index) = self.find_active_index(activation_id) else {
+            return Err(AbilityActivationError::Ability(
+                AbilityError::MissingActivation,
+            ));
+        };
         self.active_abilities[active_index].committed = true;
         let active = ActiveAbilityView::from(&self.active_abilities[active_index]);
         emit(AbilityLifecycleEventView::Committed(
             AbilityActivationCommitView {
                 attempt: active.attempt_view(),
-                cooldown_units,
             },
         ));
-        Ok(AbilityCommitOutcome::Committed { cooldown_units })
+        Ok(AbilityCommitOutcome::Committed)
     }
 
     /// Ends an active activation without emitting lifecycle facts.
-    pub fn end_activation_with<Context, Hooks>(
+    pub async fn end_activation_with<Context, Hooks>(
         &mut self,
         activation_id: AbilityActivationId,
         context: &mut Context,
         hooks: &mut Hooks,
-    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Payload, Hooks::Error, Hooks::BlockReason>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
+        Payload: Clone,
     {
         self.end_activation_with_borrowed_events(activation_id, context, hooks, |_| {})
+            .await
     }
 
     /// Ends an active activation and emits owned commit/end facts in deterministic order.
-    pub fn end_activation_with_events<Context, Hooks, F>(
+    pub async fn end_activation_with_events<Context, Hooks, F>(
         &mut self,
         activation_id: AbilityActivationId,
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Payload, Hooks::Error, Hooks::BlockReason>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+        Hooks::BlockReason: Clone,
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
     {
         self.end_activation_with_borrowed_events(activation_id, context, hooks, |event| {
             emit(event.to_owned_event());
         })
+        .await
     }
 
     /// Ends an active activation and streams borrowed commit/end facts in deterministic order.
-    pub fn end_activation_with_borrowed_events<Context, Hooks, F>(
+    pub async fn end_activation_with_borrowed_events<Context, Hooks, F>(
         &mut self,
         activation_id: AbilityActivationId,
         context: &mut Context,
         hooks: &mut Hooks,
         mut emit: F,
-    ) -> AbilityEndOutcomeResult<Tags, Cost, Payload, Hooks::Error>
+    ) -> AbilityEndOutcomeResult<Tags, Payload, Hooks::Error, Hooks::BlockReason>
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
+        Hooks: AbilityHooks<Context, Tags, Payload>,
+        Payload: Clone,
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
     {
         let Some(active_index) = self.find_active_index(activation_id) else {
             return Ok(AbilityEndOutcome::MissingActivation);
@@ -1186,32 +1128,32 @@ where
             == AbilityCommitTiming::OnEnd
             && !self.active_abilities[active_index].committed;
         if needs_commit {
-            self.commit_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)?;
+            self.commit_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)
+                .await?;
         }
 
         let Some(active_index) = self.find_active_index(activation_id) else {
             return Ok(AbilityEndOutcome::MissingActivation);
         };
-        let ability_id = self.active_abilities[active_index].ability_id;
-        let ability_index = self
-            .find_index(ability_id)
-            .ok_or(AbilityActivationError::Ability(
-                AbilityError::MissingAbility,
-            ))?;
+        let active_snapshot = self.active_abilities[active_index].clone();
         hooks
-            .end(context, &self.abilities[ability_index])
+            .on_end(context, (&active_snapshot).into())
+            .await
             .map_err(|error| AbilityActivationError::hook(AbilityHookPhase::End, error))?;
 
+        let Some(active_index) = self.find_active_index(activation_id) else {
+            return Ok(AbilityEndOutcome::MissingActivation);
+        };
         let active = self.remove_active_at_index(active_index);
         emit(AbilityLifecycleEventView::Ended((&active).into()));
         Ok(AbilityEndOutcome::Ended(active))
     }
 
-    /// Cancels an active activation without emitting lifecycle facts.
+    /// Cancels an active activation without hook execution or lifecycle facts.
     pub fn cancel_activation(
         &mut self,
         activation_id: AbilityActivationId,
-    ) -> AbilityCancelOutcome<Tags, Cost, Payload> {
+    ) -> AbilityCancelOutcome<Tags, Payload> {
         let Some(active_index) = self.find_active_index(activation_id) else {
             return AbilityCancelOutcome::MissingActivation;
         };
@@ -1219,75 +1161,69 @@ where
     }
 
     /// Cancels an active activation and emits a cancel fact.
-    pub fn cancel_activation_with_events<F>(
+    pub async fn cancel_activation_with_events<Context, Hooks, F>(
         &mut self,
         activation_id: AbilityActivationId,
+        context: &mut Context,
+        hooks: &mut Hooks,
         mut emit: F,
-    ) -> AbilityCancelOutcome<Tags, Cost, Payload>
+    ) -> Result<
+        AbilityCancelOutcome<Tags, Payload>,
+        AbilityActivationError<Hooks::Error, Hooks::BlockReason>,
+    >
     where
-        Cost: Clone,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Cost, Payload>),
+        Hooks::BlockReason: Clone,
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
     {
-        self.cancel_activation_with_borrowed_events(activation_id, |event| {
-            emit(event.to_owned_event());
+        self.cancel_activation_with_borrowed_events(activation_id, context, hooks, |event| {
+            emit(event.to_owned_event())
         })
+        .await
     }
 
     /// Cancels an active activation and streams a borrowed cancel fact.
-    pub fn cancel_activation_with_borrowed_events<F>(
+    pub async fn cancel_activation_with_borrowed_events<Context, Hooks, F>(
         &mut self,
         activation_id: AbilityActivationId,
-        mut emit: F,
-    ) -> AbilityCancelOutcome<Tags, Cost, Payload>
-    where
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Cost, Payload>),
-    {
-        let AbilityCancelOutcome::Canceled(active) = self.cancel_activation(activation_id) else {
-            return AbilityCancelOutcome::MissingActivation;
-        };
-        emit(AbilityLifecycleEventView::Canceled((&active).into()));
-        AbilityCancelOutcome::Canceled(active)
-    }
-
-    fn commit_ability_at_index<Context, Hooks>(
-        &mut self,
-        ability_index: usize,
         context: &mut Context,
         hooks: &mut Hooks,
-    ) -> Result<Option<CooldownUnits>, AbilityActivationError<Hooks::Error>>
+        mut emit: F,
+    ) -> Result<
+        AbilityCancelOutcome<Tags, Payload>,
+        AbilityActivationError<Hooks::Error, Hooks::BlockReason>,
+    >
     where
-        Hooks: AbilityHooks<Context, Tags, Cost, Payload>,
+        Hooks: AbilityHooks<Context, Tags, Payload>,
+        Payload: Clone,
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
     {
-        let ability = &mut self.abilities[ability_index];
-        if ability.cooldown_remaining_units > 0 {
-            return Err(AbilityActivationError::Ability(
-                AbilityError::AbilityOnCooldown,
-            ));
-        }
-
-        let cooldown_units = hooks.cooldown_units(context, ability).map_err(|error| {
-            AbilityActivationError::hook(AbilityHookPhase::CooldownUnits, error)
-        })?;
+        let Some(active_index) = self.find_active_index(activation_id) else {
+            return Ok(AbilityCancelOutcome::MissingActivation);
+        };
+        let active_snapshot = self.active_abilities[active_index].clone();
         hooks
-            .commit(context, ability)
-            .map_err(|error| AbilityActivationError::hook(AbilityHookPhase::Commit, error))?;
+            .on_cancel(context, (&active_snapshot).into())
+            .await
+            .map_err(|error| AbilityActivationError::hook(AbilityHookPhase::Cancel, error))?;
 
-        if let Some(cooldown_units) = cooldown_units {
-            ability.cooldown_remaining_units = cooldown_units;
-        }
-        Ok(cooldown_units)
+        let Some(active_index) = self.find_active_index(activation_id) else {
+            return Ok(AbilityCancelOutcome::MissingActivation);
+        };
+        let active = self.remove_active_at_index(active_index);
+        emit(AbilityLifecycleEventView::Canceled((&active).into()));
+        Ok(AbilityCancelOutcome::Canceled(active))
     }
 
     fn attempt_view_from_ability(
-        ability: &GrantedAbility<Tags, Cost, Payload>,
-    ) -> AbilityActivationAttemptView<'_, Tags, Cost, Payload> {
+        ability: &GrantedAbility<Tags, Payload>,
+    ) -> AbilityActivationAttemptView<'_, Tags, Payload> {
         AbilityActivationAttemptView {
             ability_id: ability.id,
             definition_key: ability.definition_key.as_deref(),
             owner_id: ability.owner_id,
             tags: &ability.tags,
-            cost: ability.cost.as_ref(),
             payload: &ability.payload,
         }
     }
@@ -1296,23 +1232,15 @@ where
         self.ability_index_by_id.get(&ability_id).copied()
     }
 
-    fn find(&self, ability_id: AbilityId) -> Option<&GrantedAbility<Tags, Cost, Payload>> {
+    fn find(&self, ability_id: AbilityId) -> Option<&GrantedAbility<Tags, Payload>> {
         self.find_index(ability_id)
             .map(|index| &self.abilities[index])
-    }
-
-    fn find_mut(
-        &mut self,
-        ability_id: AbilityId,
-    ) -> Option<&mut GrantedAbility<Tags, Cost, Payload>> {
-        let index = self.find_index(ability_id)?;
-        Some(&mut self.abilities[index])
     }
 
     fn find_active(
         &self,
         activation_id: AbilityActivationId,
-    ) -> Option<&ActiveAbility<Tags, Cost, Payload>> {
+    ) -> Option<&ActiveAbility<Tags, Payload>> {
         self.find_active_index(activation_id)
             .map(|index| &self.active_abilities[index])
     }
@@ -1323,10 +1251,7 @@ where
             .copied()
     }
 
-    fn remove_ability_at_index(
-        &mut self,
-        ability_index: usize,
-    ) -> GrantedAbility<Tags, Cost, Payload> {
+    fn remove_ability_at_index(&mut self, ability_index: usize) -> GrantedAbility<Tags, Payload> {
         let removed = self.abilities.remove(ability_index);
         self.ability_index_by_id.remove(&removed.id);
         self.reindex_abilities_from(ability_index);
@@ -1340,16 +1265,13 @@ where
         }
     }
 
-    fn push_active_ability(&mut self, active: ActiveAbility<Tags, Cost, Payload>) {
+    fn push_active_ability(&mut self, active: ActiveAbility<Tags, Payload>) {
         self.active_index_by_activation_id
             .insert(active.activation_id, self.active_abilities.len());
         self.active_abilities.push(active);
     }
 
-    fn remove_active_at_index(
-        &mut self,
-        active_index: usize,
-    ) -> ActiveAbility<Tags, Cost, Payload> {
+    fn remove_active_at_index(&mut self, active_index: usize) -> ActiveAbility<Tags, Payload> {
         let removed = self.active_abilities.remove(active_index);
         self.active_index_by_activation_id
             .remove(&removed.activation_id);
@@ -1365,7 +1287,7 @@ where
     }
 }
 
-impl<Tags, Cost, Payload> Default for AbilityStore<Tags, Cost, Payload>
+impl<Tags, Payload> Default for AbilityStore<Tags, Payload>
 where
     Tags: TagCollection,
 {

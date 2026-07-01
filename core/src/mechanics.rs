@@ -5,7 +5,6 @@
 //! publish events. Caller-owned code can pass `tick_with` a closure that
 //! projects, publishes, exports, or adapts emitted facts.
 
-use crate::ability::AbilityStore;
 use crate::clock::{Clock, ClockUnits};
 use crate::effect::{EffectLifecycleEvent, EffectPipeline};
 use crate::lifecycle::LocalLifecycleEvent;
@@ -93,15 +92,6 @@ impl<'store, Event> MechanicsDriver<'store, Event> {
 impl<'store, Event> Default for MechanicsDriver<'store, Event> {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl<Tags, Cost, Payload, Event> MechanicsStore<Event> for AbilityStore<Tags, Cost, Payload>
-where
-    Tags: TagCollection,
-{
-    fn tick_mechanics(&mut self, elapsed_units: ClockUnits, _emit: &mut dyn FnMut(Event)) {
-        self.tick_cooldowns(elapsed_units);
     }
 }
 

@@ -25,9 +25,10 @@ Tags attach deterministic labels to Objects and support repeatable tag queries.
 Queries preserve Object iteration order so identical inputs produce identical
 selection order.
 
-Abilities describe activation lifecycle, cooldown units, commit timing, grants,
-and cancellation policy. Caller-owned hooks decide whether an activation is
-accepted and what payload is committed. Use `grant_checked` and
+Abilities describe activation lifecycle, commit timing, grants, and cancellation
+policy. Caller-owned async hooks decide whether an activation is accepted, why
+it is blocked, and what happens when start, commit, end, or cancel phases run.
+Use `grant_checked` and
 `begin_activation_for_owner_with_events` in common runtime flows so ability
 owners are validated against live objects and expected owners before hooks run.
 
@@ -44,8 +45,10 @@ committed, ended from missing activation, and canceled from missing activation.
 Effect application distinguishes rejected applications, accepted instant
 executions, and active effect creation. Ability hook failures include an
 `AbilityHookPhase` so caller-owned hook errors can be attributed to
-can-activate, cooldown calculation, commit, instant execution, or end without
-inspecting lifecycle events.
+can-activate, start, commit, instant execution, end, or cancel without
+inspecting lifecycle events. Cooldowns and costs are modeled by caller-owned
+effects, tags, attributes, and blocking queries rather than stored inside
+abilities.
 
 Lifecycle events are raw mechanics facts emitted by attributes, derived
 attributes, abilities, effects, and mechanics ticking. They describe what the

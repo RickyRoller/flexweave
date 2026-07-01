@@ -146,6 +146,7 @@
 
 pub mod ability;
 pub mod attribute;
+pub mod attribute_model;
 pub mod clock;
 pub mod data_store;
 pub mod derived_attribute;
@@ -163,14 +164,14 @@ pub mod tag;
 
 pub use ability::{
     AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationCommit,
-    AbilityActivationCommitView, AbilityActivationError, AbilityActivationId,
-    AbilityActivationMode, AbilityActivationRejection, AbilityActivationRejectionReason,
-    AbilityActivationRejectionView, AbilityCancelOutcome, AbilityCancelPolicy,
-    AbilityCommitOutcome, AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError,
-    AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndOutcome, AbilityEndOutcomeResult,
-    AbilityError, AbilityGrantError, AbilityHookPhase, AbilityHooks, AbilityId,
-    AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityStore, ActiveAbility,
-    ActiveAbilityView, CooldownUnits, Grant, GrantedAbility, RegisteredAbilityActivationError,
+    AbilityActivationCommitView, AbilityActivationDecision, AbilityActivationError,
+    AbilityActivationId, AbilityActivationMode, AbilityActivationRejection,
+    AbilityActivationRejectionReason, AbilityActivationRejectionView, AbilityCancelOutcome,
+    AbilityCancelPolicy, AbilityCommitOutcome, AbilityCommitTiming, AbilityDefinition,
+    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndOutcome,
+    AbilityEndOutcomeResult, AbilityError, AbilityGrantError, AbilityHookPhase, AbilityHooks,
+    AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityStore, ActiveAbility,
+    ActiveAbilityView, Grant, GrantedAbility, RegisteredAbilityActivationError,
     RevokedOwnerAbilities,
 };
 pub use attribute::{
@@ -179,17 +180,19 @@ pub use attribute::{
     AttributeMutationHooks, AttributeMutationRejection, AttributeMutationRequest,
     AttributeMutationResult, AttributePolicyDefinition, AttributeValue,
 };
+pub use attribute_model::{AttributeModel, AttributeOperation, AttributeOperationContext};
 pub use clock::{Clock, ClockUnits, FixedStepClock, RealtimeClock, RealtimeClockAccumulator};
 pub use data_store::DataStore;
 pub use derived_attribute::{DerivedAttribute, DerivedChange};
 pub use effect::{
     ActiveEffectId, EffectAdvance, EffectAdvanceView, EffectApplication, EffectApplicationDecision,
-    EffectApplicationError, EffectApplicationInput, EffectApplicationRejection,
-    EffectApplicationRejectionView, EffectApplicationView, EffectApplyOutcome, EffectClockPolicy,
-    EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions,
-    EffectExecution, EffectExecutionView, EffectInstance, EffectInstanceView, EffectKind,
+    EffectApplicationDraft, EffectApplicationError, EffectApplicationInput,
+    EffectApplicationRejection, EffectApplicationRejectionView, EffectApplicationView,
+    EffectApplyOutcome, EffectClockPolicy, EffectDefinition, EffectDefinitionError,
+    EffectDefinitionRegistryError, EffectDefinitions, EffectExecution, EffectExecutionView,
+    EffectInitializationError, EffectInitializer, EffectInstance, EffectInstanceView, EffectKind,
     EffectLifecycleEvent, EffectLifecycleEventView, EffectObjectRemovalPolicy, EffectPipeline,
-    EffectRouting, EffectSourcePolicy,
+    EffectRouting, EffectSourcePolicy, NoopEffectInitializer,
 };
 pub use errors::CoreError;
 pub use identity::{INVALID_OBJECT_ID, ObjectId, ObjectStore};
