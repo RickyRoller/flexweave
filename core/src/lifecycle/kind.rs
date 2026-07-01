@@ -121,8 +121,7 @@ where
     }
 }
 
-impl<Tags, Payload, BlockReason> LifecycleEvent
-    for AbilityLifecycleEvent<Tags, Payload, BlockReason>
+impl<Tags, Payload> LifecycleEvent for AbilityLifecycleEvent<Tags, Payload>
 where
     Tags: TagCollection,
 {
@@ -138,8 +137,7 @@ where
     }
 }
 
-impl<Tags, Payload, BlockReason> LifecycleEvent
-    for AbilityLifecycleEventView<'_, Tags, Payload, BlockReason>
+impl<Tags, Payload> LifecycleEvent for AbilityLifecycleEventView<'_, Tags, Payload>
 where
     Tags: TagCollection,
 {

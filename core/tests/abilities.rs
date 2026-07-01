@@ -188,10 +188,7 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
     let [_, AbilityLifecycleEvent::Rejected(rejected)] = blocked_events.as_slice() else {
         panic!("blocked activation should emit attempted and rejected");
     };
-    assert_eq!(
-        rejected.reason,
-        AbilityActivationRejectionReason::Blocked(BlockReason::Cooldown)
-    );
+    assert_eq!(rejected.reason, AbilityActivationRejectionReason::Blocked);
 
     runtime.effects.tick(1000);
     assert!(!runtime.effects.has_tag(owner, &cooldown_tag()));
@@ -711,8 +708,8 @@ fn ability_definition(
         .with_lifecycle_channels(["abilities/lifecycle"])
 }
 
-fn lifecycle_kinds<Payload, BlockReason>(
-    events: &[AbilityLifecycleEvent<TagSet<TestAtom>, Payload, BlockReason>],
+fn lifecycle_kinds<Payload>(
+    events: &[AbilityLifecycleEvent<TagSet<TestAtom>, Payload>],
 ) -> Vec<LifecycleEventKind> {
     events
         .iter()

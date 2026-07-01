@@ -5,12 +5,12 @@ use super::definition::AbilityCommitTiming;
 use super::ids::{AbilityActivationId, AbilityId};
 
 /// Public lifecycle rejection reason.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AbilityActivationRejectionReason<BlockReason = ()> {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AbilityActivationRejectionReason {
     MissingAbility,
     InvalidOwner,
     OwnerMismatch,
-    Blocked(BlockReason),
+    Blocked,
     Hook,
 }
 
@@ -61,41 +61,39 @@ where
 
 /// Activation rejection lifecycle fact.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AbilityActivationRejection<Tags, Payload, BlockReason = ()>
+pub struct AbilityActivationRejection<Tags, Payload>
 where
     Tags: TagCollection,
 {
     pub attempt: Option<AbilityActivationAttempt<Tags, Payload>>,
-    pub reason: AbilityActivationRejectionReason<BlockReason>,
+    pub reason: AbilityActivationRejectionReason,
 }
 
 /// Borrowed activation rejection lifecycle fact.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct AbilityActivationRejectionView<'event, Tags, Payload, BlockReason = ()>
+pub struct AbilityActivationRejectionView<'event, Tags, Payload>
 where
     Tags: TagCollection,
 {
     pub attempt: Option<AbilityActivationAttemptView<'event, Tags, Payload>>,
-    pub reason: &'event AbilityActivationRejectionReason<BlockReason>,
+    pub reason: AbilityActivationRejectionReason,
 }
 
-impl<'event, Tags, Payload, BlockReason>
-    AbilityActivationRejectionView<'event, Tags, Payload, BlockReason>
+impl<'event, Tags, Payload> AbilityActivationRejectionView<'event, Tags, Payload>
 where
     Tags: TagCollection,
 {
     #[must_use]
-    pub fn to_owned_rejection(&self) -> AbilityActivationRejection<Tags, Payload, BlockReason>
+    pub fn to_owned_rejection(&self) -> AbilityActivationRejection<Tags, Payload>
     where
         Payload: Clone,
-        BlockReason: Clone,
     {
         AbilityActivationRejection {
             attempt: self
                 .attempt
                 .as_ref()
                 .map(AbilityActivationAttemptView::to_owned_attempt),
-            reason: self.reason.clone(),
+            reason: self.reason,
         }
     }
 }
@@ -236,12 +234,12 @@ where
 
 /// Ability lifecycle events.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum AbilityLifecycleEvent<Tags, Payload, BlockReason = ()>
+pub enum AbilityLifecycleEvent<Tags, Payload>
 where
     Tags: TagCollection,
 {
     Attempted(AbilityActivationAttempt<Tags, Payload>),
-    Rejected(AbilityActivationRejection<Tags, Payload, BlockReason>),
+    Rejected(AbilityActivationRejection<Tags, Payload>),
     Committed(AbilityActivationCommit<Tags, Payload>),
     Started(ActiveAbility<Tags, Payload>),
     Canceled(ActiveAbility<Tags, Payload>),
@@ -250,28 +248,26 @@ where
 
 /// Borrowed ability lifecycle event for hot streaming paths.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AbilityLifecycleEventView<'event, Tags, Payload, BlockReason = ()>
+pub enum AbilityLifecycleEventView<'event, Tags, Payload>
 where
     Tags: TagCollection,
 {
     Attempted(AbilityActivationAttemptView<'event, Tags, Payload>),
-    Rejected(AbilityActivationRejectionView<'event, Tags, Payload, BlockReason>),
+    Rejected(AbilityActivationRejectionView<'event, Tags, Payload>),
     Committed(AbilityActivationCommitView<'event, Tags, Payload>),
     Started(ActiveAbilityView<'event, Tags, Payload>),
     Canceled(ActiveAbilityView<'event, Tags, Payload>),
     Ended(ActiveAbilityView<'event, Tags, Payload>),
 }
 
-impl<'event, Tags, Payload, BlockReason>
-    AbilityLifecycleEventView<'event, Tags, Payload, BlockReason>
+impl<'event, Tags, Payload> AbilityLifecycleEventView<'event, Tags, Payload>
 where
     Tags: TagCollection,
 {
     #[must_use]
-    pub fn to_owned_event(&self) -> AbilityLifecycleEvent<Tags, Payload, BlockReason>
+    pub fn to_owned_event(&self) -> AbilityLifecycleEvent<Tags, Payload>
     where
         Payload: Clone,
-        BlockReason: Clone,
     {
         match self {
             Self::Attempted(attempt) => {

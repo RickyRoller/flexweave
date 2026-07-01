@@ -86,18 +86,16 @@ impl<Event> ObjectLifecycleStore<Event> for DerivedAttribute {
     }
 }
 
-impl<Tags, Payload, BlockReason>
-    ObjectLifecycleStore<AbilityLifecycleEvent<Tags, Payload, BlockReason>>
+impl<Tags, Payload> ObjectLifecycleStore<AbilityLifecycleEvent<Tags, Payload>>
     for AbilityStore<Tags, Payload>
 where
     Tags: TagCollection,
     Payload: Clone,
-    BlockReason: Clone,
 {
     fn remove_object(
         &mut self,
         id: ObjectId,
-        emit: &mut dyn FnMut(AbilityLifecycleEvent<Tags, Payload, BlockReason>),
+        emit: &mut dyn FnMut(AbilityLifecycleEvent<Tags, Payload>),
     ) {
         self.revoke_owner_with_events(id, emit);
     }

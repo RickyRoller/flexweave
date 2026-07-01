@@ -437,15 +437,14 @@ where
     }
 
     /// Revokes granted abilities and emits owned cancellation facts for active abilities.
-    pub fn revoke_owner_with_events<F, BlockReason>(
+    pub fn revoke_owner_with_events<F>(
         &mut self,
         owner_id: ObjectId,
         mut emit: F,
     ) -> RevokedOwnerAbilities<Tags, Payload>
     where
         Payload: Clone,
-        BlockReason: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload, BlockReason>),
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
         self.revoke_owner_with_borrowed_events(owner_id, |event| {
             emit(event.to_owned_event());
@@ -453,13 +452,13 @@ where
     }
 
     /// Revokes granted abilities and streams borrowed cancellation facts for active abilities.
-    pub fn revoke_owner_with_borrowed_events<F, BlockReason>(
+    pub fn revoke_owner_with_borrowed_events<F>(
         &mut self,
         owner_id: ObjectId,
         mut emit: F,
     ) -> RevokedOwnerAbilities<Tags, Payload>
     where
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, BlockReason>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
         let mut active_abilities = Vec::new();
         let mut active_index = 0;
@@ -595,8 +594,7 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        Hooks::BlockReason: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
         self.begin_activation_with_borrowed_events(
             ability_id,
@@ -620,14 +618,14 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
         let Some(ability_index) = self.find_index(ability_id) else {
             let reason = AbilityActivationRejectionReason::MissingAbility;
             emit(AbilityLifecycleEventView::Rejected(
                 AbilityActivationRejectionView {
                     attempt: None,
-                    reason: &reason,
+                    reason,
                 },
             ));
             return Err(AbilityActivationError::Ability(
@@ -643,16 +641,13 @@ where
         match hooks.can_activate(context, seed.attempt_view()).await {
             Ok(AbilityActivationDecision::Allow) => {}
             Ok(AbilityActivationDecision::Block(block_reason)) => {
-                let reason = AbilityActivationRejectionReason::Blocked(block_reason);
+                let reason = AbilityActivationRejectionReason::Blocked;
                 emit(AbilityLifecycleEventView::Rejected(
                     AbilityActivationRejectionView {
                         attempt: Some(seed.attempt_view()),
-                        reason: &reason,
+                        reason,
                     },
                 ));
-                let AbilityActivationRejectionReason::Blocked(block_reason) = reason else {
-                    unreachable!("reason was constructed as blocked");
-                };
                 return Err(AbilityActivationError::Blocked(block_reason));
             }
             Err(error) => {
@@ -660,7 +655,7 @@ where
                 emit(AbilityLifecycleEventView::Rejected(
                     AbilityActivationRejectionView {
                         attempt: Some(seed.attempt_view()),
-                        reason: &reason,
+                        reason,
                     },
                 ));
                 return Err(AbilityActivationError::hook(
@@ -709,8 +704,7 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        Hooks::BlockReason: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
         self.begin_activation_for_owner_with_borrowed_events(
             owner_id,
@@ -736,14 +730,14 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
         if owner_id.is_invalid() {
             let reason = AbilityActivationRejectionReason::InvalidOwner;
             emit(AbilityLifecycleEventView::Rejected(
                 AbilityActivationRejectionView {
                     attempt: None,
-                    reason: &reason,
+                    reason,
                 },
             ));
             return Err(AbilityActivationError::Ability(
@@ -756,7 +750,7 @@ where
             emit(AbilityLifecycleEventView::Rejected(
                 AbilityActivationRejectionView {
                     attempt: None,
-                    reason: &reason,
+                    reason,
                 },
             ));
             return Err(AbilityActivationError::Ability(
@@ -774,7 +768,7 @@ where
                     attempt: Some(Self::attempt_view_from_ability(
                         &self.abilities[ability_index],
                     )),
-                    reason: &reason,
+                    reason,
                 },
             ));
             return Err(AbilityActivationError::Ability(
@@ -829,8 +823,7 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        Hooks::BlockReason: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
         self.begin_registered_activation_with_borrowed_events(
             definitions,
@@ -862,7 +855,7 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
         let Some(ability) = self.find(ability_id) else {
             return self
@@ -932,9 +925,8 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        Hooks::BlockReason: Clone,
         Execute: FnOnce(&mut Context, &ActiveAbility<Tags, Payload>) -> Result<(), Hooks::Error>,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
         self.activate_instant_with_borrowed_events(
             ability_id,
@@ -961,7 +953,7 @@ where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
         Execute: FnOnce(&mut Context, &ActiveAbility<Tags, Payload>) -> Result<(), Hooks::Error>,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
         let activation_id = self
             .begin_activation_with_borrowed_events(
@@ -1019,8 +1011,7 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        Hooks::BlockReason: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
         self.commit_activation_with_borrowed_events(activation_id, context, hooks, |event| {
             emit(event.to_owned_event());
@@ -1039,7 +1030,7 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
         let active_index =
             self.find_active_index(activation_id)
@@ -1097,8 +1088,7 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        Hooks::BlockReason: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
         self.end_activation_with_borrowed_events(activation_id, context, hooks, |event| {
             emit(event.to_owned_event());
@@ -1117,7 +1107,7 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
         let Some(active_index) = self.find_active_index(activation_id) else {
             return Ok(AbilityEndOutcome::MissingActivation);
@@ -1172,8 +1162,7 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        Hooks::BlockReason: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload, Hooks::BlockReason>),
+        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
         self.cancel_activation_with_borrowed_events(activation_id, context, hooks, |event| {
             emit(event.to_owned_event())
@@ -1195,7 +1184,7 @@ where
     where
         Hooks: AbilityHooks<Context, Tags, Payload>,
         Payload: Clone,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, Hooks::BlockReason>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
         let Some(active_index) = self.find_active_index(activation_id) else {
             return Ok(AbilityCancelOutcome::MissingActivation);
@@ -1214,13 +1203,13 @@ where
         Ok(AbilityCancelOutcome::Canceled(active))
     }
 
-    fn discard_active_with_borrowed_event<F, BlockReason>(
+    fn discard_active_with_borrowed_event<F>(
         &mut self,
         activation_id: AbilityActivationId,
         mut emit: F,
     ) -> AbilityCancelOutcome<Tags, Payload>
     where
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, BlockReason>),
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
         let Some(active_index) = self.find_active_index(activation_id) else {
             return AbilityCancelOutcome::MissingActivation;
