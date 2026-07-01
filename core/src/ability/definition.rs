@@ -20,8 +20,6 @@ pub enum AbilityCommitTiming {
 pub struct AbilityDefinition<PayloadSchema = ()> {
     pub key: String,
     pub commit_timing: AbilityCommitTiming,
-    pub tag_requirement_keys: Vec<String>,
-    pub activation_tag_keys: Vec<String>,
     pub emits_lifecycle: bool,
     pub emitted_channel_keys: Vec<String>,
     pub payload_schema: PayloadSchema,
@@ -34,8 +32,6 @@ pub enum AbilityDefinitionError {
     MissingEmittedChannelKey { key: String },
     EmptyEmittedChannelKey { key: String },
     UnknownEmittedChannelKey { key: String, channel_key: String },
-    EmptyTagRequirementKey { key: String },
-    EmptyActivationTagKey { key: String },
 }
 
 impl fmt::Display for AbilityDefinitionError {
@@ -53,14 +49,6 @@ impl fmt::Display for AbilityDefinitionError {
             Self::UnknownEmittedChannelKey { key, channel_key } => write!(
                 formatter,
                 "ability definition `{key}` references unknown emitted channel `{channel_key}`"
-            ),
-            Self::EmptyTagRequirementKey { key } => write!(
-                formatter,
-                "ability definition `{key}` has an empty tag requirement key"
-            ),
-            Self::EmptyActivationTagKey { key } => write!(
-                formatter,
-                "ability definition `{key}` has an empty activation tag key"
             ),
         }
     }
@@ -105,14 +93,12 @@ impl std::error::Error for AbilityDefinitionRegistryError {
 }
 
 impl<PayloadSchema> AbilityDefinition<PayloadSchema> {
-    /// Creates ability definition metadata with no routing or tag metadata.
+    /// Creates ability definition metadata with no routing metadata.
     #[must_use]
     pub fn new(key: impl Into<String>, payload_schema: PayloadSchema) -> Self {
         Self {
             key: key.into(),
             commit_timing: AbilityCommitTiming::OnStart,
-            tag_requirement_keys: Vec::new(),
-            activation_tag_keys: Vec::new(),
             emits_lifecycle: false,
             emitted_channel_keys: Vec::new(),
             payload_schema,
@@ -122,32 +108,6 @@ impl<PayloadSchema> AbilityDefinition<PayloadSchema> {
     #[must_use]
     pub fn with_commit_timing(mut self, commit_timing: AbilityCommitTiming) -> Self {
         self.commit_timing = commit_timing;
-        self
-    }
-
-    #[must_use]
-    pub fn with_tag_requirement_keys<I, K>(mut self, keys: I) -> Self
-    where
-        I: IntoIterator<Item = K>,
-        K: AsRef<str>,
-    {
-        self.tag_requirement_keys = keys
-            .into_iter()
-            .map(|key| key.as_ref().to_owned())
-            .collect();
-        self
-    }
-
-    #[must_use]
-    pub fn with_activation_tag_keys<I, K>(mut self, keys: I) -> Self
-    where
-        I: IntoIterator<Item = K>,
-        K: AsRef<str>,
-    {
-        self.activation_tag_keys = keys
-            .into_iter()
-            .map(|key| key.as_ref().to_owned())
-            .collect();
         self
     }
 
@@ -180,16 +140,6 @@ impl<PayloadSchema> AbilityDefinition<PayloadSchema> {
         }
         if self.emitted_channel_keys.iter().any(|key| key.is_empty()) {
             return Err(AbilityDefinitionError::EmptyEmittedChannelKey {
-                key: self.key.clone(),
-            });
-        }
-        if self.tag_requirement_keys.iter().any(|key| key.is_empty()) {
-            return Err(AbilityDefinitionError::EmptyTagRequirementKey {
-                key: self.key.clone(),
-            });
-        }
-        if self.activation_tag_keys.iter().any(|key| key.is_empty()) {
-            return Err(AbilityDefinitionError::EmptyActivationTagKey {
                 key: self.key.clone(),
             });
         }

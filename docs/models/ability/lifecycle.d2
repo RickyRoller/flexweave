@@ -43,17 +43,26 @@ owner_mismatch.class: failure
 attempted: Emit Attempted
 attempted.class: side_effect
 
-cooldown_gate: Cooldown remaining?
-cooldown_gate.class: decision
-
-cooldown_reject: Reject OnCooldown
-cooldown_reject.class: failure
-
 can_activate: hooks.can_activate
 can_activate.class: caller
 
+blocked_reject: Reject Blocked
+blocked_reject.class: failure
+
 hook_reject: Reject Hook CanActivate
 hook_reject.class: failure
+
+active_state: Push ActiveAbility
+active_state.class: state
+
+started: Emit Started
+started.class: side_effect
+
+start_hook: hooks.on_start
+start_hook.class: caller
+
+start_failed: Cancel after start hook failure
+start_failed.class: failure
 
 commit_timing: Commit timing
 commit_timing.class: decision
@@ -64,11 +73,8 @@ commit_now.class: side_effect
 commit_deferred: Defer commit
 commit_deferred.class: state
 
-active_state: Push ActiveAbility
-active_state.class: state
-
-started: Emit Started
-started.class: side_effect
+active_ready: Active remains stored
+active_ready.class: state
 
 manual_command: Manual commit command
 manual_command.class: caller
@@ -88,8 +94,11 @@ already_committed.class: state
 commit_late: Commit before end or manual commit
 commit_late.class: side_effect
 
-end_hook: hooks.end
+end_hook: hooks.on_end
 end_hook.class: caller
+
+cancel_hook: hooks.on_cancel
+cancel_hook.class: caller
 
 ended: Remove active and emit Ended
 ended.class: side_effect
@@ -97,31 +106,31 @@ ended.class: side_effect
 canceled: Remove active and emit Canceled
 canceled.class: side_effect
 
-cooldown_tick: tick_cooldowns saturating subtract
-cooldown_tick.class: side_effect
-
 begin -> owner_gate: optional checked path
 owner_gate -> invalid_owner: invalid owner id
 owner_gate -> missing_ability: ability id not found
 owner_gate -> owner_mismatch: grant belongs to another owner
 owner_gate -> attempted: valid owner or unchecked path
 
-attempted -> cooldown_gate: inspect GrantedAbility
-cooldown_gate -> cooldown_reject: cooldown remaining nonzero
-cooldown_gate -> can_activate: ready
+attempted -> can_activate: caller policy
+can_activate -> blocked_reject: Block(reason)
 can_activate -> hook_reject: hook error
-can_activate -> commit_timing: accepted
+can_activate -> active_state: Allow
+active_state -> started: assign AbilityActivationId
+started -> start_hook: active snapshot
+start_hook -> start_failed: hook error
+start_failed -> canceled: remove active and emit Canceled
+start_hook -> commit_timing: hook ok
 
 commit_timing -> commit_now: OnStart
 commit_timing -> commit_deferred: OnEnd or Manual
-commit_now -> active_state: cooldown_units hook + commit hook + set cooldown
-commit_deferred -> active_state: no cooldown yet
-active_state -> started: assign AbilityActivationId
+commit_now -> active_ready: hooks.on_commit + emit Committed
+commit_deferred -> active_ready: no commit yet
 
-started -> manual_command: active remains stored {class: async_edge}
-started -> end_command: active remains stored {class: async_edge}
-started -> cancel_command: active remains stored {class: async_edge}
-started -> revoke_owner: owner cleanup {class: async_edge}
+active_ready -> manual_command: command later {class: async_edge}
+active_ready -> end_command: command later {class: async_edge}
+active_ready -> cancel_command: command later {class: async_edge}
+active_ready -> revoke_owner: owner cleanup {class: async_edge}
 
 manual_command -> already_committed: active.committed is true
 manual_command -> commit_late: not committed
@@ -131,10 +140,9 @@ end_command -> end_hook: already committed or Manual
 commit_late -> end_hook: set committed and emit Committed
 end_hook -> ended: hook ok
 
-cancel_command -> canceled: no commit or end hook
+cancel_command -> cancel_hook: active exists
+cancel_hook -> canceled: hook ok
 revoke_owner -> canceled: active activations for owner
-
-cooldown_tick -> cooldown_gate: future activation can retry
 
 instant: Instant helper overlay {
   instant_begin: activate_instant_with

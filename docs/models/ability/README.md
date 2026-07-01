@@ -41,25 +41,23 @@ Each D2 file has a same-name `.svg` render beside it.
 
 ## Implementation Notes
 
-- `AbilityDefinition` validates authoring metadata, but `AbilityStore` does not
-  automatically enforce `activation_mode`, `cancel_policy`,
-  `tag_requirement_keys`, or `activation_tag_keys` at runtime.
+- `AbilityDefinition` validates authoring metadata for definition identity,
+  commit timing, payload schema, and lifecycle routing.
 - `begin_registered_activation_*` uses a granted definition key to choose
   `commit_timing`; other definition fields remain metadata or validation hints.
 - Ability lifecycle facts are returned through callbacks. Channel keys on
   definitions do not auto-route events into `EventChannel`.
-- `AbilityHooks` are the boundary where caller code decides resource checks,
-  cooldown override, commit side effects, and end side effects.
+- `AbilityHooks::can_activate` is the single runtime boundary where caller code
+  decides activation blocking, including required tags, resource checks,
+  cooldown override, authority, and targeting.
+- Other `AbilityHooks` methods own commit side effects, end side effects, and
+  cancellation behavior.
 - `ActiveAbility::source_id` exposes the owner id for caller-owned effect
   application derived from an activation; abilities do not apply effects
   automatically.
 
 ## Open Questions
 
-- Should registered activation eventually enforce `activation_mode` and
-  `cancel_policy`, or should those remain authoring metadata only?
-- Should tag requirement and activation tag metadata get a first-class runtime
-  helper, or should hooks remain the only enforcement point?
 - Should ability-derived effect application get a documented adapter pattern
   that starts from `ActiveAbility::source_id`?
 - Should a future task model caller-owned authority and prediction separately

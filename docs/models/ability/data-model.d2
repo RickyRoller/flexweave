@@ -21,19 +21,12 @@ classes: {
   metadata: {
     shape: class
   }
-  gap: {
-    shape: callout
-  }
 }
 
 authoring: Authoring model {
   definition: AbilityDefinition {
     key: String
-    activation_mode: AbilityActivationMode
     commit_timing: AbilityCommitTiming
-    cancel_policy: AbilityCancelPolicy
-    tag_requirement_keys: "Vec<String>"
-    activation_tag_keys: "Vec<String>"
     emits_lifecycle: bool
     emitted_channel_keys: "Vec<String>"
     payload_schema: PayloadSchema
@@ -62,8 +55,6 @@ runtime: Runtime store {
   grant_input: Grant {
     owner_id: ObjectId
     tags: Tags
-    cost: "Option<Cost>"
-    cooldown_units: "Option<CooldownUnits>"
     payload: Payload
   }
   grant_input.class: artifact
@@ -73,9 +64,6 @@ runtime: Runtime store {
     definition_key: "Option<String>"
     owner_id: ObjectId
     tags: Tags
-    cost: "Option<Cost>"
-    cooldown_units: "Option<CooldownUnits>"
-    cooldown_remaining_units: CooldownUnits
     payload: Payload
   }
   granted.class: artifact
@@ -86,7 +74,6 @@ runtime: Runtime store {
     definition_key: "Option<String>"
     owner_id: ObjectId
     tags: Tags
-    cost: "Option<Cost>"
     payload: Payload
     commit_timing: AbilityCommitTiming
     committed: bool
@@ -116,10 +103,11 @@ caller: Caller boundary {
 
   hooks: AbilityHooks {
     shape: class
-    can_activate(context, ability): "Result<(), Error>"
-    cooldown_units(context, ability): "Result<Option<CooldownUnits>, Error>"
-    commit(context, ability): "Result<(), Error>"
-    end(context, ability): "Result<(), Error>"
+    can_activate(context, attempt): "Result<AbilityActivationDecision, Error>"
+    on_start(context, active): "Result<(), Error>"
+    on_commit(context, active): "Result<(), Error>"
+    on_end(context, active): "Result<(), Error>"
+    on_cancel(context, active): "Result<(), Error>"
   }
   hooks.class: artifact
 
@@ -144,10 +132,6 @@ events.class: artifact
 authoring.definition -> runtime.grant_input: grant_with_definition validates metadata
 authoring.definitions -> runtime.grant_input: grant_registered requires key
 runtime.grant_input -> caller.objects: grant_checked validates live owner
-runtime.store -> caller.hooks: activation calls hooks with GrantedAbility
+runtime.store -> caller.hooks: can_activate owns activation blocking
 runtime.active -> caller.executor: instant activation passes ActiveAbility
 events -> caller.channel: caller publishes owned facts
-
-metadata_gap: Definition fields are mostly metadata at runtime.\nStore does not enforce activation_mode cancel_policy or tag metadata.
-metadata_gap.class: gap
-authoring.definition -> metadata_gap

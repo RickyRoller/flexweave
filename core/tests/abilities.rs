@@ -4,12 +4,12 @@ use common::{TestAtom, block_on};
 use flexweave::{
     AbilityActivationDecision, AbilityActivationError, AbilityActivationRejectionReason,
     AbilityCancelOutcome, AbilityCommitOutcome, AbilityCommitTiming, AbilityDefinition,
-    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndOutcome,
-    AbilityGrantError, AbilityHookPhase, AbilityHooks, AbilityId, AbilityLifecycleEvent,
-    AbilityLifecycleEventView, AbilityStore, ActiveAbilityView, EffectApplicationDecision,
-    EffectApplicationInput, EffectDefinition, EffectLifecycleEvent, EffectPipeline, EventChannel,
-    EventChannelDefinition, EventRetention, Grant, INVALID_OBJECT_ID, LifecycleEvent,
-    LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet,
+    AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndOutcome, AbilityGrantError,
+    AbilityHookPhase, AbilityHooks, AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView,
+    AbilityStore, ActiveAbilityView, EffectApplicationDecision, EffectApplicationInput,
+    EffectDefinition, EffectLifecycleEvent, EffectPipeline, EventChannel, EventChannelDefinition,
+    EventRetention, Grant, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId,
+    ObjectStore, Tag, TagSet,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -445,8 +445,6 @@ fn ability_definition_metadata_supports_async_lifecycle_timing() {
         AbilityDefinition {
             key: "ability".to_owned(),
             commit_timing: AbilityCommitTiming::OnEnd,
-            tag_requirement_keys: Vec::new(),
-            activation_tag_keys: Vec::new(),
             emits_lifecycle: false,
             emitted_channel_keys: Vec::new(),
             payload_schema: "payload/schema",
@@ -458,17 +456,6 @@ fn ability_definition_metadata_supports_async_lifecycle_timing() {
     definition
         .validate_channels(&["abilities/lifecycle"])
         .unwrap();
-
-    let malformed_tags = AbilityDefinition {
-        tag_requirement_keys: vec![String::new()],
-        ..definition.clone()
-    };
-    assert_eq!(
-        malformed_tags.validate().unwrap_err(),
-        AbilityDefinitionError::EmptyTagRequirementKey {
-            key: "channel".to_owned(),
-        }
-    );
 
     let definitions = AbilityDefinitions::new([definition.clone()]).unwrap();
     assert_eq!(definitions.definitions()[0].key, "channel");
@@ -703,8 +690,6 @@ fn ability_definition(
 ) -> AbilityDefinition<&'static str> {
     AbilityDefinition::new(key, "test/payload")
         .with_commit_timing(commit_timing)
-        .with_tag_requirement_keys(["ability"])
-        .with_activation_tag_keys(["channeling"])
         .with_lifecycle_channels(["abilities/lifecycle"])
 }
 
