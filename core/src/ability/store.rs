@@ -436,7 +436,7 @@ where
         }
     }
 
-    /// Revokes granted abilities and emits owned cancellation facts for active abilities.
+    /// Revokes granted abilities and emits owned revocation facts for active abilities.
     pub fn revoke_owner_with_events<F>(
         &mut self,
         owner_id: ObjectId,
@@ -451,7 +451,7 @@ where
         })
     }
 
-    /// Revokes granted abilities and streams borrowed cancellation facts for active abilities.
+    /// Revokes granted abilities and streams borrowed revocation facts for active abilities.
     pub fn revoke_owner_with_borrowed_events<F>(
         &mut self,
         owner_id: ObjectId,
@@ -465,7 +465,7 @@ where
         while active_index < self.active_abilities.len() {
             if self.active_abilities[active_index].owner_id == owner_id {
                 let active = self.remove_active_at_index(active_index);
-                emit(AbilityLifecycleEventView::Canceled((&active).into()));
+                emit(AbilityLifecycleEventView::Revoked((&active).into()));
                 active_abilities.push(active);
             } else {
                 active_index += 1;
@@ -678,8 +678,8 @@ where
 
         let active_snapshot = self.active_abilities[active_index].clone();
         if let Err(error) = hooks.on_start(context, (&active_snapshot).into()).await {
-            let canceled = self.remove_active_at_index(active_index);
-            emit(AbilityLifecycleEventView::Canceled((&canceled).into()));
+            let rolled_back = self.remove_active_at_index(active_index);
+            emit(AbilityLifecycleEventView::RolledBack((&rolled_back).into()));
             return Err(AbilityActivationError::hook(AbilityHookPhase::Start, error));
         }
 
@@ -969,7 +969,7 @@ where
             .expect("activation was just started");
 
         if let Err(error) = execute(context, &self.active_abilities[active_index]) {
-            self.discard_active_with_borrowed_event(activation_id, &mut emit);
+            self.rollback_active_with_borrowed_event(activation_id, &mut emit);
             return Err(AbilityActivationError::hook(
                 AbilityHookPhase::ExecuteInstant,
                 error,
@@ -980,7 +980,7 @@ where
             .end_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)
             .await;
         if result.is_err() {
-            self.discard_active_with_borrowed_event(activation_id, &mut emit);
+            self.rollback_active_with_borrowed_event(activation_id, &mut emit);
         }
         result
     }
@@ -1203,21 +1203,19 @@ where
         Ok(AbilityCancelOutcome::Canceled(active))
     }
 
-    fn discard_active_with_borrowed_event<F>(
+    fn rollback_active_with_borrowed_event<F>(
         &mut self,
         activation_id: AbilityActivationId,
         mut emit: F,
-    ) -> AbilityCancelOutcome<Tags, Payload>
-    where
+    ) where
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
         let Some(active_index) = self.find_active_index(activation_id) else {
-            return AbilityCancelOutcome::MissingActivation;
+            return;
         };
 
         let active = self.remove_active_at_index(active_index);
-        emit(AbilityLifecycleEventView::Canceled((&active).into()));
-        AbilityCancelOutcome::Canceled(active)
+        emit(AbilityLifecycleEventView::RolledBack((&active).into()));
     }
 
     fn attempt_view_from_ability(

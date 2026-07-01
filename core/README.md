@@ -54,6 +54,9 @@ attributes, abilities, effects, and mechanics ticking. They describe what the
 Flexweave primitive did. They are not application events, engine events, UI
 events, network messages, or persisted audit records until caller code maps
 them into that model.
+Ability cancellation facts mean caller-owned cancel behavior ran. Ability
+revocation and rollback facts are cleanup facts for owner removal and failed
+activation helpers.
 
 Event channels are typed, caller-owned transport and retention primitives. An
 `EventChannel` validates the published `LifecycleEventKind`, optionally retains

@@ -39,7 +39,19 @@ selection.
 
 **Ability lifecycle**:
 The domain-neutral sequence of ability grant, activation attempt, activation
-decision, start, commit, cancellation, and completion.
+decision, start, commit, cancellation, revocation, rollback, and completion.
+
+**Ability cancellation**:
+A lifecycle termination where caller-owned cancel behavior runs before active
+ability state is removed.
+
+**Ability revocation**:
+A lifecycle cleanup where active ability state is removed because its owner is
+revoked or destroyed.
+
+**Ability rollback**:
+A lifecycle cleanup where active ability state is removed after activation
+startup or helper execution fails before normal completion.
 
 **Clock unit**:
 A caller-defined mechanics time unit used to advance effect lifetimes, periodic

@@ -9,7 +9,7 @@ theme (`theme-id: 200`) for consistent contrast.
 
 The ability system covers authorable ability definitions, runtime grants,
 activation attempts, commit timing, cooldowns, active execution state,
-cancellation, ending, revocation, and lifecycle facts.
+cancellation, revocation, rollback, ending, and lifecycle facts.
 
 Flexweave owns deterministic primitive state and lifecycle facts. Caller code
 owns hook behavior, resource semantics, event-channel publication, runtime
@@ -33,7 +33,8 @@ authority, task execution, and effect application derived from an ability.
 - `data-model.d2` shows the static definition, grant, store, hook, and event
   relationships.
 - `lifecycle.d2` shows active and instant activation paths, commit timing,
-  rejection, cancellation, ending, revocation, and cooldown advancement.
+  rejection, cancellation, revocation, rollback, ending, and cooldown
+  advancement.
 - `event-publication.d2` shows borrowed versus owned lifecycle facts and the
   caller-owned event-channel publication boundary.
 
@@ -51,7 +52,8 @@ Each D2 file has a same-name `.svg` render beside it.
   decides activation blocking, including required tags, resource checks,
   cooldown override, authority, and targeting.
 - Other `AbilityHooks` methods own commit side effects, end side effects, and
-  cancellation behavior.
+  cancellation behavior. Revocation and rollback lifecycle facts are cleanup
+  paths and do not imply `on_cancel` ran.
 - `ActiveAbility::source_id` exposes the owner id for caller-owned effect
   application derived from an activation; abilities do not apply effects
   automatically.

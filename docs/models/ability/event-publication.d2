@@ -35,6 +35,8 @@ borrowed: AbilityLifecycleEventView {
   Committed: AbilityActivationCommitView
   Started: ActiveAbilityView
   Canceled: ActiveAbilityView
+  Revoked: ActiveAbilityView
+  RolledBack: ActiveAbilityView
   Ended: ActiveAbilityView
 }
 borrowed.class: primitive
@@ -45,6 +47,8 @@ owned: AbilityLifecycleEvent {
   Committed: AbilityActivationCommit
   Started: ActiveAbility
   Canceled: ActiveAbility
+  Revoked: ActiveAbility
+  RolledBack: ActiveAbility
   Ended: ActiveAbility
 }
 owned.class: data
@@ -55,6 +59,8 @@ kind: LifecycleEventKind {
   AbilityActivationCommitted: enum variant
   AbilityActivationStarted: enum variant
   AbilityActivationCanceled: enum variant
+  AbilityActivationRevoked: enum variant
+  AbilityActivationRolledBack: enum variant
   AbilityActivationEnded: enum variant
 }
 kind.class: metadata

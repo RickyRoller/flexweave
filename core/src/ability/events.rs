@@ -243,6 +243,8 @@ where
     Committed(AbilityActivationCommit<Tags, Payload>),
     Started(ActiveAbility<Tags, Payload>),
     Canceled(ActiveAbility<Tags, Payload>),
+    Revoked(ActiveAbility<Tags, Payload>),
+    RolledBack(ActiveAbility<Tags, Payload>),
     Ended(ActiveAbility<Tags, Payload>),
 }
 
@@ -257,6 +259,8 @@ where
     Committed(AbilityActivationCommitView<'event, Tags, Payload>),
     Started(ActiveAbilityView<'event, Tags, Payload>),
     Canceled(ActiveAbilityView<'event, Tags, Payload>),
+    Revoked(ActiveAbilityView<'event, Tags, Payload>),
+    RolledBack(ActiveAbilityView<'event, Tags, Payload>),
     Ended(ActiveAbilityView<'event, Tags, Payload>),
 }
 
@@ -279,6 +283,8 @@ where
             Self::Committed(commit) => AbilityLifecycleEvent::Committed(commit.to_owned_commit()),
             Self::Started(active) => AbilityLifecycleEvent::Started(active.to_owned_active()),
             Self::Canceled(active) => AbilityLifecycleEvent::Canceled(active.to_owned_active()),
+            Self::Revoked(active) => AbilityLifecycleEvent::Revoked(active.to_owned_active()),
+            Self::RolledBack(active) => AbilityLifecycleEvent::RolledBack(active.to_owned_active()),
             Self::Ended(active) => AbilityLifecycleEvent::Ended(active.to_owned_active()),
         }
     }

@@ -26,6 +26,8 @@ pub enum LifecycleEventKind {
     AbilityActivationCommitted,
     AbilityActivationStarted,
     AbilityActivationCanceled,
+    AbilityActivationRevoked,
+    AbilityActivationRolledBack,
     AbilityActivationEnded,
 }
 
@@ -132,6 +134,8 @@ where
             Self::Committed(_) => LifecycleEventKind::AbilityActivationCommitted,
             Self::Started(_) => LifecycleEventKind::AbilityActivationStarted,
             Self::Canceled(_) => LifecycleEventKind::AbilityActivationCanceled,
+            Self::Revoked(_) => LifecycleEventKind::AbilityActivationRevoked,
+            Self::RolledBack(_) => LifecycleEventKind::AbilityActivationRolledBack,
             Self::Ended(_) => LifecycleEventKind::AbilityActivationEnded,
         }
     }
@@ -148,6 +152,8 @@ where
             Self::Committed(_) => LifecycleEventKind::AbilityActivationCommitted,
             Self::Started(_) => LifecycleEventKind::AbilityActivationStarted,
             Self::Canceled(_) => LifecycleEventKind::AbilityActivationCanceled,
+            Self::Revoked(_) => LifecycleEventKind::AbilityActivationRevoked,
+            Self::RolledBack(_) => LifecycleEventKind::AbilityActivationRolledBack,
             Self::Ended(_) => LifecycleEventKind::AbilityActivationEnded,
         }
     }

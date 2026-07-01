@@ -64,7 +64,7 @@ fn object_cleanup_driver_removes_registered_object_keyed_state() {
 }
 
 #[test]
-fn ability_owner_cleanup_revokes_grants_and_cancels_active_abilities() {
+fn ability_owner_cleanup_revokes_grants_and_active_abilities() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     struct Payload;
 
@@ -129,10 +129,10 @@ fn ability_owner_cleanup_revokes_grants_and_cancels_active_abilities() {
             .get_active_activation(retained_activation)
             .is_some()
     );
-    let [AbilityLifecycleEvent::Canceled(canceled)] = events.as_slice() else {
-        panic!("owner cleanup should emit one cancellation fact");
+    let [AbilityLifecycleEvent::Revoked(revoked)] = events.as_slice() else {
+        panic!("owner cleanup should emit one revocation fact");
     };
-    assert_eq!(canceled.activation_id, owned_activation);
+    assert_eq!(revoked.activation_id, owned_activation);
 }
 
 #[test]

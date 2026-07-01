@@ -61,7 +61,7 @@ started.class: side_effect
 start_hook: hooks.on_start
 start_hook.class: caller
 
-start_failed: Cancel after start hook failure
+start_failed: Rollback after start hook failure
 start_failed.class: failure
 
 commit_timing: Commit timing
@@ -106,6 +106,12 @@ ended.class: side_effect
 canceled: Remove active and emit Canceled
 canceled.class: side_effect
 
+revoked: Remove active and emit Revoked
+revoked.class: side_effect
+
+rolled_back: Remove active and emit RolledBack
+rolled_back.class: side_effect
+
 begin -> owner_gate: optional checked path
 owner_gate -> invalid_owner: invalid owner id
 owner_gate -> missing_ability: ability id not found
@@ -119,7 +125,7 @@ can_activate -> active_state: Allow
 active_state -> started: assign AbilityActivationId
 started -> start_hook: active snapshot
 start_hook -> start_failed: hook error
-start_failed -> canceled: remove active and emit Canceled
+start_failed -> rolled_back: remove active and emit RolledBack
 start_hook -> commit_timing: hook ok
 
 commit_timing -> commit_now: OnStart
@@ -142,7 +148,7 @@ end_hook -> ended: hook ok
 
 cancel_command -> cancel_hook: active exists
 cancel_hook -> canceled: hook ok
-revoke_owner -> canceled: active activations for owner
+revoke_owner -> revoked: active activations for owner
 
 instant: Instant helper overlay {
   instant_begin: activate_instant_with
@@ -154,13 +160,14 @@ instant: Instant helper overlay {
   instant_success_end: end active activation
   instant_success_end.class: side_effect
 
-  instant_failure_cancel: cancel on execute or end failure
-  instant_failure_cancel.class: failure
+  instant_failure_rollback: rollback on execute or end failure
+  instant_failure_rollback.class: failure
 
   instant_begin -> _.begin: delegates to begin_activation
   _.started -> instant_execute: transient active state
-  instant_execute -> instant_failure_cancel: ExecuteInstant hook error
+  instant_execute -> instant_failure_rollback: ExecuteInstant hook error
   instant_execute -> instant_success_end: executor ok
   instant_success_end -> _.ended: end ok
-  instant_success_end -> instant_failure_cancel: end or deferred commit fails
+  instant_success_end -> instant_failure_rollback: end or deferred commit fails
+  instant_failure_rollback -> _.rolled_back: remove active and emit RolledBack
 }

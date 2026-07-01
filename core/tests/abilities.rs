@@ -521,6 +521,81 @@ fn caller_publishes_ability_lifecycle_events_to_named_channels() {
 }
 
 #[test]
+fn start_hook_failure_rolls_back_active_activation_without_cancel_hook() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Payload;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum HookError {
+        Start,
+        Cancel,
+    }
+
+    struct Runtime {
+        cancel_calls: usize,
+    }
+
+    struct Hooks;
+
+    impl AbilityHooks<Runtime, TagSet<TestAtom>, Payload> for Hooks {
+        type Error = HookError;
+        type BlockReason = ();
+
+        async fn on_start(
+            &mut self,
+            _context: &mut Runtime,
+            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
+        ) -> Result<(), Self::Error> {
+            Err(HookError::Start)
+        }
+
+        async fn on_cancel(
+            &mut self,
+            context: &mut Runtime,
+            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
+        ) -> Result<(), Self::Error> {
+            context.cancel_calls += 1;
+            Err(HookError::Cancel)
+        }
+    }
+
+    let mut abilities = AbilityStore::new();
+    let ability_id = grant_payload(&mut abilities, Payload);
+    let mut runtime = Runtime { cancel_calls: 0 };
+    let mut hooks = Hooks;
+    let mut events = Vec::new();
+
+    assert_eq!(
+        block_on(abilities.begin_activation_with_events(
+            ability_id,
+            AbilityCommitTiming::Manual,
+            &mut runtime,
+            &mut hooks,
+            |event| events.push(event),
+        )),
+        Err(AbilityActivationError::Hook {
+            phase: AbilityHookPhase::Start,
+            error: HookError::Start,
+        })
+    );
+
+    assert_eq!(runtime.cancel_calls, 0);
+    assert_eq!(abilities.active_activation_count(), 0);
+    assert_eq!(
+        lifecycle_kinds(&events),
+        vec![
+            LifecycleEventKind::AbilityActivationAttempted,
+            LifecycleEventKind::AbilityActivationStarted,
+            LifecycleEventKind::AbilityActivationRolledBack,
+        ]
+    );
+    let [_, _, AbilityLifecycleEvent::RolledBack(rolled_back)] = events.as_slice() else {
+        panic!("start failure should emit a rollback fact");
+    };
+    assert_eq!(rolled_back.ability_id, ability_id);
+}
+
+#[test]
 fn borrowed_ability_attempt_event_does_not_clone_payload_for_publication() {
     #[derive(Debug)]
     struct Payload {
@@ -664,9 +739,13 @@ fn instant_activation_rollback_preserves_execute_error_when_cancel_hook_fails() 
         vec![
             LifecycleEventKind::AbilityActivationAttempted,
             LifecycleEventKind::AbilityActivationStarted,
-            LifecycleEventKind::AbilityActivationCanceled,
+            LifecycleEventKind::AbilityActivationRolledBack,
         ]
     );
+    let [_, _, AbilityLifecycleEvent::RolledBack(rolled_back)] = events.as_slice() else {
+        panic!("instant execute failure should emit a rollback fact");
+    };
+    assert_eq!(rolled_back.ability_id, ability_id);
 }
 
 fn grant_payload<Payload>(
