@@ -1,8 +1,7 @@
 use flexweave::{
     Attribute, AttributeDefaultValue, AttributeDefinition, AttributeDefinitionError,
-    AttributeDomain, AttributeModel, AttributeMutationDecision, AttributeMutationHooks,
-    AttributeMutationRequest, AttributeMutationResult, AttributeOperation,
-    AttributeOperationContext, AttributePolicyDefinition, AttributeValue, DataStore,
+    AttributeDomain, AttributeMutationDecision, AttributeMutationHooks, AttributeMutationRequest,
+    AttributeMutationResult, AttributePolicyDefinition, AttributeValue, DataStore,
     DerivedAttribute, EventChannel, EventChannelDefinition, EventRetention, LifecycleEvent,
     LifecycleEventKind, ObjectId, ObjectStore,
 };
@@ -30,83 +29,6 @@ fn val_core_006_standalone_attribute_stores_signed_floats_with_stable_overwrite(
     attribute.attach(player, -1.0);
     assert_eq!(attribute.get(player), Some(-1.0));
     assert_eq!(attribute.count(), 2);
-}
-
-#[test]
-fn attribute_model_runs_caller_owned_operations_over_raw_and_derived_attributes() {
-    struct CombatAttributes {
-        health: Attribute,
-        shield: Attribute,
-    }
-
-    struct CombatDerived {
-        mitigation: DerivedAttribute,
-    }
-
-    struct ApplyDamage {
-        amount: AttributeValue,
-    }
-
-    impl AttributeOperation<(), CombatAttributes, CombatDerived> for ApplyDamage {
-        type Output = AttributeValue;
-        type Error = ();
-
-        fn apply(
-            &mut self,
-            context: AttributeOperationContext<'_, (), CombatAttributes, CombatDerived>,
-        ) -> Result<Self::Output, Self::Error> {
-            let mitigation = context
-                .derived
-                .mitigation
-                .get(context.object_id)
-                .unwrap_or(0.0);
-            let mut remaining = self.amount * (1.0 - mitigation);
-            let shield = context
-                .attributes
-                .shield
-                .get(context.object_id)
-                .unwrap_or(0.0);
-            let absorbed = remaining.min(shield);
-            if absorbed > 0.0 {
-                context
-                    .attributes
-                    .shield
-                    .set(context.object_id, shield - absorbed);
-                remaining -= absorbed;
-            }
-
-            let health = context
-                .attributes
-                .health
-                .get(context.object_id)
-                .unwrap_or(0.0);
-            context
-                .attributes
-                .health
-                .set(context.object_id, (health - remaining).max(0.0));
-            Ok(remaining)
-        }
-    }
-
-    let target = ObjectId::new(1);
-    let mut health = Attribute::new();
-    let mut shield = Attribute::new();
-    health.attach(target, 100.0);
-    shield.attach(target, 50.0);
-    let mut model = AttributeModel::new(
-        CombatAttributes { health, shield },
-        CombatDerived {
-            mitigation: DerivedAttribute::new(|_| Some(0.25)),
-        },
-    );
-
-    let applied_to_health = model
-        .apply_operation(target, &mut (), ApplyDamage { amount: 100.0 })
-        .unwrap();
-
-    assert_eq!(applied_to_health, 25.0);
-    assert_eq!(model.attributes().shield.get(target), Some(0.0));
-    assert_eq!(model.attributes().health.get(target), Some(75.0));
 }
 
 #[test]

@@ -30,11 +30,6 @@ channel.
 An attribute value calculated from caller-owned runtime state rather than
 stored as source data.
 
-**Attribute model**:
-A caller-owned mechanics model that groups stored and derived attributes behind
-higher-level attribute behavior.
-_Avoid_: Attribute bundle
-
 **Attribute change**:
 A reported transition from a previous attribute value to a current value.
 

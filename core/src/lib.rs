@@ -146,7 +146,6 @@
 
 pub mod ability;
 pub mod attribute;
-pub mod attribute_model;
 pub mod clock;
 pub mod data_store;
 pub mod derived_attribute;
@@ -179,7 +178,6 @@ pub use attribute::{
     AttributeMutationHooks, AttributeMutationRejection, AttributeMutationRequest,
     AttributeMutationResult, AttributePolicyDefinition, AttributeValue,
 };
-pub use attribute_model::{AttributeModel, AttributeOperation, AttributeOperationContext};
 pub use clock::{Clock, ClockUnits, FixedStepClock, RealtimeClock, RealtimeClockAccumulator};
 pub use data_store::DataStore;
 pub use derived_attribute::{DerivedAttribute, DerivedChange};

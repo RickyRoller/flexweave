@@ -109,6 +109,13 @@ Flexweave does not load content packs, decide which enemies are in a zone, or
 store authored catalog files. It validates the active in-memory bundle the caller
 hands it and gives runtime helpers a stable key lookup surface.
 
+## Model Complex Attributes
+
+For attribute behavior that combines stored attributes, derived values, effects,
+tags, and local runtime policy, keep the calculation in consumer code. See
+[model complex attributes](./model-complex-attributes.md) for the recommended
+shape.
+
 ## Keep the Boundary
 
 Flexweave should remain independent of catalog files, generated output directories,
