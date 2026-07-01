@@ -2,15 +2,14 @@ mod common;
 
 use common::{TestAtom, block_on};
 use flexweave::{
-    AbilityActivationDecision, AbilityActivationError, AbilityActivationMode,
-    AbilityActivationRejectionReason, AbilityCancelOutcome, AbilityCancelPolicy,
-    AbilityCommitOutcome, AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError,
-    AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndOutcome, AbilityGrantError,
-    AbilityHookPhase, AbilityHooks, AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView,
-    AbilityStore, ActiveAbilityView, EffectApplicationDecision, EffectApplicationInput,
-    EffectDefinition, EffectLifecycleEvent, EffectPipeline, EventChannel, EventChannelDefinition,
-    EventRetention, Grant, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId,
-    ObjectStore, Tag, TagSet,
+    AbilityActivationDecision, AbilityActivationError, AbilityActivationRejectionReason,
+    AbilityCancelOutcome, AbilityCommitOutcome, AbilityCommitTiming, AbilityDefinition,
+    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndOutcome,
+    AbilityGrantError, AbilityHookPhase, AbilityHooks, AbilityId, AbilityLifecycleEvent,
+    AbilityLifecycleEventView, AbilityStore, ActiveAbilityView, EffectApplicationDecision,
+    EffectApplicationInput, EffectDefinition, EffectLifecycleEvent, EffectPipeline, EventChannel,
+    EventChannelDefinition, EventRetention, Grant, INVALID_OBJECT_ID, LifecycleEvent,
+    LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -389,13 +388,9 @@ fn registered_definitions_provide_activation_timing_without_cost_or_cooldown_sta
         type BlockReason = ();
     }
 
-    let definitions = AbilityDefinitions::new([ability_definition(
-        "channel",
-        AbilityActivationMode::Active,
-        AbilityCommitTiming::OnEnd,
-        AbilityCancelPolicy::CanCancel,
-    )])
-    .unwrap();
+    let definitions =
+        AbilityDefinitions::new([ability_definition("channel", AbilityCommitTiming::OnEnd)])
+            .unwrap();
     let mut abilities = AbilityStore::new();
     let ability_id = abilities
         .grant_registered(
@@ -446,16 +441,13 @@ fn registered_definitions_provide_activation_timing_without_cost_or_cooldown_sta
 }
 
 #[test]
-fn ability_definition_metadata_allows_async_lifecycle_variants() {
+fn ability_definition_metadata_supports_async_lifecycle_timing() {
     assert_eq!(
-        AbilityDefinition::instant("instant", "payload/schema")
-            .with_commit_timing(AbilityCommitTiming::OnEnd)
-            .with_cancel_policy(AbilityCancelPolicy::CanCancel),
+        AbilityDefinition::new("ability", "payload/schema")
+            .with_commit_timing(AbilityCommitTiming::OnEnd),
         AbilityDefinition {
-            key: "instant".to_owned(),
-            activation_mode: AbilityActivationMode::Instant,
+            key: "ability".to_owned(),
             commit_timing: AbilityCommitTiming::OnEnd,
-            cancel_policy: AbilityCancelPolicy::CanCancel,
             tag_requirement_keys: Vec::new(),
             activation_tag_keys: Vec::new(),
             emits_lifecycle: false,
@@ -464,12 +456,7 @@ fn ability_definition_metadata_allows_async_lifecycle_variants() {
         }
     );
 
-    let definition = ability_definition(
-        "channel",
-        AbilityActivationMode::Active,
-        AbilityCommitTiming::Manual,
-        AbilityCancelPolicy::CanCancel,
-    );
+    let definition = ability_definition("channel", AbilityCommitTiming::Manual);
     definition.validate().unwrap();
     definition
         .validate_channels(&["abilities/lifecycle"])
@@ -715,19 +702,13 @@ fn cooldown_tag() -> Tag<TestAtom> {
 
 fn ability_definition(
     key: &str,
-    activation_mode: AbilityActivationMode,
     commit_timing: AbilityCommitTiming,
-    cancel_policy: AbilityCancelPolicy,
 ) -> AbilityDefinition<&'static str> {
-    match activation_mode {
-        AbilityActivationMode::Instant => AbilityDefinition::instant(key, "test/payload"),
-        AbilityActivationMode::Active => AbilityDefinition::active(key, "test/payload"),
-    }
-    .with_commit_timing(commit_timing)
-    .with_cancel_policy(cancel_policy)
-    .with_tag_requirement_keys(["ability"])
-    .with_activation_tag_keys(["channeling"])
-    .with_lifecycle_channels(["abilities/lifecycle"])
+    AbilityDefinition::new(key, "test/payload")
+        .with_commit_timing(commit_timing)
+        .with_tag_requirement_keys(["ability"])
+        .with_activation_tag_keys(["channeling"])
+        .with_lifecycle_channels(["abilities/lifecycle"])
 }
 
 fn lifecycle_kinds<Payload, BlockReason>(

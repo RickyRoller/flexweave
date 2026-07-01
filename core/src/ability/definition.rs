@@ -3,26 +3,12 @@ use std::fmt;
 
 use crate::registry::{DefinitionRegistryEntry, RegistryEntry};
 
-/// Ability activation mode declared by an ability definition.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AbilityActivationMode {
-    Instant,
-    Active,
-}
-
 /// When the ability lifecycle should run its commit phase automatically.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AbilityCommitTiming {
     OnStart,
     OnEnd,
     Manual,
-}
-
-/// Whether an activation can be canceled.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AbilityCancelPolicy {
-    CannotCancel,
-    CanCancel,
 }
 
 /// Authorable ability definition metadata.
@@ -33,9 +19,7 @@ pub enum AbilityCancelPolicy {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AbilityDefinition<PayloadSchema = ()> {
     pub key: String,
-    pub activation_mode: AbilityActivationMode,
     pub commit_timing: AbilityCommitTiming,
-    pub cancel_policy: AbilityCancelPolicy,
     pub tag_requirement_keys: Vec<String>,
     pub activation_tag_keys: Vec<String>,
     pub emits_lifecycle: bool,
@@ -121,30 +105,12 @@ impl std::error::Error for AbilityDefinitionRegistryError {
 }
 
 impl<PayloadSchema> AbilityDefinition<PayloadSchema> {
-    /// Creates instant ability definition metadata with no routing or tag metadata.
+    /// Creates ability definition metadata with no routing or tag metadata.
     #[must_use]
-    pub fn instant(key: impl Into<String>, payload_schema: PayloadSchema) -> Self {
+    pub fn new(key: impl Into<String>, payload_schema: PayloadSchema) -> Self {
         Self {
             key: key.into(),
-            activation_mode: AbilityActivationMode::Instant,
             commit_timing: AbilityCommitTiming::OnStart,
-            cancel_policy: AbilityCancelPolicy::CannotCancel,
-            tag_requirement_keys: Vec::new(),
-            activation_tag_keys: Vec::new(),
-            emits_lifecycle: false,
-            emitted_channel_keys: Vec::new(),
-            payload_schema,
-        }
-    }
-
-    /// Creates active ability definition metadata with no routing or tag metadata.
-    #[must_use]
-    pub fn active(key: impl Into<String>, payload_schema: PayloadSchema) -> Self {
-        Self {
-            key: key.into(),
-            activation_mode: AbilityActivationMode::Active,
-            commit_timing: AbilityCommitTiming::OnStart,
-            cancel_policy: AbilityCancelPolicy::CanCancel,
             tag_requirement_keys: Vec::new(),
             activation_tag_keys: Vec::new(),
             emits_lifecycle: false,
@@ -156,12 +122,6 @@ impl<PayloadSchema> AbilityDefinition<PayloadSchema> {
     #[must_use]
     pub fn with_commit_timing(mut self, commit_timing: AbilityCommitTiming) -> Self {
         self.commit_timing = commit_timing;
-        self
-    }
-
-    #[must_use]
-    pub fn with_cancel_policy(mut self, cancel_policy: AbilityCancelPolicy) -> Self {
-        self.cancel_policy = cancel_policy;
         self
     }
 

@@ -165,14 +165,13 @@ pub mod tag;
 pub use ability::{
     AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationCommit,
     AbilityActivationCommitView, AbilityActivationDecision, AbilityActivationError,
-    AbilityActivationId, AbilityActivationMode, AbilityActivationRejection,
-    AbilityActivationRejectionReason, AbilityActivationRejectionView, AbilityCancelOutcome,
-    AbilityCancelPolicy, AbilityCommitOutcome, AbilityCommitTiming, AbilityDefinition,
-    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndOutcome,
-    AbilityEndOutcomeResult, AbilityError, AbilityGrantError, AbilityHookPhase, AbilityHooks,
-    AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityStore, ActiveAbility,
-    ActiveAbilityView, Grant, GrantedAbility, RegisteredAbilityActivationError,
-    RevokedOwnerAbilities,
+    AbilityActivationId, AbilityActivationRejection, AbilityActivationRejectionReason,
+    AbilityActivationRejectionView, AbilityCancelOutcome, AbilityCommitOutcome,
+    AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError, AbilityDefinitionRegistryError,
+    AbilityDefinitions, AbilityEndOutcome, AbilityEndOutcomeResult, AbilityError,
+    AbilityGrantError, AbilityHookPhase, AbilityHooks, AbilityId, AbilityLifecycleEvent,
+    AbilityLifecycleEventView, AbilityStore, ActiveAbility, ActiveAbilityView, Grant,
+    GrantedAbility, RegisteredAbilityActivationError, RevokedOwnerAbilities,
 };
 pub use attribute::{
     Attribute, AttributeChange, AttributeDefaultValue, AttributeDefinition,

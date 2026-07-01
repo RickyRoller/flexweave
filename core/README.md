@@ -25,10 +25,9 @@ Tags attach deterministic labels to Objects and support repeatable tag queries.
 Queries preserve Object iteration order so identical inputs produce identical
 selection order.
 
-Abilities describe activation lifecycle, commit timing, grants, and cancellation
-policy. Caller-owned async hooks decide whether an activation is accepted, why
-it is blocked, and what happens when start, commit, end, or cancel phases run.
-Use `grant_checked` and
+Abilities describe activation lifecycle, commit timing, and grants. Caller-owned
+async hooks decide whether an activation is accepted, why it is blocked, and
+what happens when start, commit, end, or cancel phases run. Use `grant_checked` and
 `begin_activation_for_owner_with_events` in common runtime flows so ability
 owners are validated against live objects and expected owners before hooks run.
 

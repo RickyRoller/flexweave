@@ -7,8 +7,8 @@ mod ids;
 mod store;
 
 pub use definition::{
-    AbilityActivationMode, AbilityCancelPolicy, AbilityCommitTiming, AbilityDefinition,
-    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions,
+    AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError, AbilityDefinitionRegistryError,
+    AbilityDefinitions,
 };
 pub use events::{
     AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationCommit,
