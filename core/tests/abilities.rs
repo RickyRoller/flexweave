@@ -6,11 +6,11 @@ use flexweave::{
     AbilityActivationRejectionReason, AbilityCancelOutcome, AbilityCancelPolicy,
     AbilityCommitOutcome, AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError,
     AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndOutcome, AbilityGrantError,
-    AbilityHooks, AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityStore,
-    ActiveAbilityView, EffectApplicationDecision, EffectApplicationInput, EffectDefinition,
-    EffectLifecycleEvent, EffectPipeline, EventChannel, EventChannelDefinition, EventRetention,
-    Grant, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId, ObjectStore, Tag,
-    TagSet,
+    AbilityHookPhase, AbilityHooks, AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView,
+    AbilityStore, ActiveAbilityView, EffectApplicationDecision, EffectApplicationInput,
+    EffectDefinition, EffectLifecycleEvent, EffectPipeline, EventChannel, EventChannelDefinition,
+    EventRetention, Grant, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId,
+    ObjectStore, Tag, TagSet,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -632,6 +632,70 @@ fn borrowed_ability_attempt_event_does_not_clone_payload_for_publication() {
     .unwrap();
 
     assert_eq!(clone_count.get(), 4);
+}
+
+#[test]
+fn instant_activation_rollback_preserves_execute_error_when_cancel_hook_fails() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Payload;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum HookError {
+        Execute,
+        Cancel,
+    }
+
+    struct Runtime {
+        cancel_calls: usize,
+    }
+
+    struct Hooks;
+
+    impl AbilityHooks<Runtime, TagSet<TestAtom>, Payload> for Hooks {
+        type Error = HookError;
+        type BlockReason = ();
+
+        async fn on_cancel(
+            &mut self,
+            context: &mut Runtime,
+            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
+        ) -> Result<(), Self::Error> {
+            context.cancel_calls += 1;
+            Err(HookError::Cancel)
+        }
+    }
+
+    let mut abilities = AbilityStore::new();
+    let ability_id = grant_payload(&mut abilities, Payload);
+    let mut runtime = Runtime { cancel_calls: 0 };
+    let mut hooks = Hooks;
+    let mut events = Vec::new();
+
+    assert_eq!(
+        block_on(abilities.activate_instant_with_events(
+            ability_id,
+            AbilityCommitTiming::Manual,
+            &mut runtime,
+            &mut hooks,
+            |_context, _active| Err(HookError::Execute),
+            |event| events.push(event),
+        )),
+        Err(AbilityActivationError::Hook {
+            phase: AbilityHookPhase::ExecuteInstant,
+            error: HookError::Execute,
+        })
+    );
+
+    assert_eq!(runtime.cancel_calls, 0);
+    assert_eq!(abilities.active_activation_count(), 0);
+    assert_eq!(
+        lifecycle_kinds(&events),
+        vec![
+            LifecycleEventKind::AbilityActivationAttempted,
+            LifecycleEventKind::AbilityActivationStarted,
+            LifecycleEventKind::AbilityActivationCanceled,
+        ]
+    );
 }
 
 fn grant_payload<Payload>(

@@ -977,8 +977,7 @@ where
             .expect("activation was just started");
 
         if let Err(error) = execute(context, &self.active_abilities[active_index]) {
-            self.cancel_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)
-                .await?;
+            self.discard_active_with_borrowed_event(activation_id, &mut emit);
             return Err(AbilityActivationError::hook(
                 AbilityHookPhase::ExecuteInstant,
                 error,
@@ -989,8 +988,7 @@ where
             .end_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)
             .await;
         if result.is_err() {
-            self.cancel_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)
-                .await?;
+            self.discard_active_with_borrowed_event(activation_id, &mut emit);
         }
         result
     }
@@ -1214,6 +1212,23 @@ where
         let active = self.remove_active_at_index(active_index);
         emit(AbilityLifecycleEventView::Canceled((&active).into()));
         Ok(AbilityCancelOutcome::Canceled(active))
+    }
+
+    fn discard_active_with_borrowed_event<F, BlockReason>(
+        &mut self,
+        activation_id: AbilityActivationId,
+        mut emit: F,
+    ) -> AbilityCancelOutcome<Tags, Payload>
+    where
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload, BlockReason>),
+    {
+        let Some(active_index) = self.find_active_index(activation_id) else {
+            return AbilityCancelOutcome::MissingActivation;
+        };
+
+        let active = self.remove_active_at_index(active_index);
+        emit(AbilityLifecycleEventView::Canceled((&active).into()));
+        AbilityCancelOutcome::Canceled(active)
     }
 
     fn attempt_view_from_ability(
