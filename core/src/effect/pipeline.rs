@@ -9,8 +9,8 @@ use super::application::{
     EffectApplicationRejectionView, EffectApplicationView, EffectInitializer, EffectSourcePolicy,
 };
 use super::definition::{
-    EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions,
-    EffectKind,
+    EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError,
+    EffectDefinitions, EffectKind,
 };
 use super::events::{
     EffectAdvanceView, EffectExecutionView, EffectInstance, EffectInstanceView,
@@ -60,6 +60,73 @@ pub enum EffectApplyOutcome {
     Rejected,
     ExecutedInstant,
     ActiveCreated(ActiveEffectId),
+}
+
+struct PreparedEffectApplication<'definition, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    definition_key: &'definition str,
+    kind: EffectKind,
+    duration: Option<EffectClockPolicy>,
+    period: Option<EffectClockPolicy>,
+    source_id: Option<ObjectId>,
+    target_id: ObjectId,
+    tags: Tags,
+    payload: Payload,
+    decision: EffectApplicationDecision,
+}
+
+impl<'definition, Tags, Payload> PreparedEffectApplication<'definition, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    fn new<Schema>(
+        definition: &'definition EffectDefinition<Schema>,
+        input: EffectApplicationInput<Tags, Payload>,
+    ) -> Self {
+        let EffectApplicationInput {
+            source_id,
+            target_id,
+            tags,
+            payload,
+            decision,
+        } = input;
+
+        Self {
+            definition_key: definition.key.as_str(),
+            kind: definition.kind,
+            duration: definition.duration,
+            period: definition.period,
+            source_id,
+            target_id,
+            tags,
+            payload,
+            decision,
+        }
+    }
+
+    fn initialize<Context, Initializer>(
+        &mut self,
+        context: &mut Context,
+        initializer: &mut Initializer,
+    ) -> Result<(), Initializer::Error>
+    where
+        Initializer: EffectInitializer<Context, Tags, Payload>,
+    {
+        initializer.initialize(
+            context,
+            EffectApplicationDraft {
+                definition_key: self.definition_key,
+                source_id: self.source_id,
+                target_id: self.target_id,
+                tags: &self.tags,
+                payload: &mut self.payload,
+                duration: &mut self.duration,
+                period: &mut self.period,
+            },
+        )
+    }
 }
 
 impl fmt::Display for EffectApplicationError {
@@ -187,7 +254,10 @@ where
         F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
     {
         definition.validate()?;
-        Ok(self.apply_validated_with_borrowed_events(definition, input, on_event))
+        Ok(self.apply_prepared_with_borrowed_events(
+            PreparedEffectApplication::new(definition, input),
+            on_event,
+        ))
     }
 
     /// Applies or executes an effect with caller-owned initialization context.
@@ -242,13 +312,14 @@ where
         F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
     {
         definition.validate()?;
-        self.apply_validated_initialized_with_borrowed_events(
-            definition,
-            input,
-            context,
-            initializer,
-            on_event,
-        )
+        let mut prepared = PreparedEffectApplication::new(definition, input);
+        if matches!(&prepared.decision, EffectApplicationDecision::Accept) {
+            prepared
+                .initialize(context, initializer)
+                .map_err(EffectInitializationError::Initialize)?;
+            validate_effect_runtime_clocks(definition, prepared.duration, prepared.period)?;
+        }
+        Ok(self.apply_prepared_with_borrowed_events(prepared, on_event))
     }
 
     /// Applies an effect by looking up a previously validated definition key.
@@ -291,28 +362,34 @@ where
         F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
     {
         let definition = definitions.require(key)?;
-        Ok(self.apply_validated_with_borrowed_events(definition, input, on_event))
+        Ok(self.apply_prepared_with_borrowed_events(
+            PreparedEffectApplication::new(definition, input),
+            on_event,
+        ))
     }
 
-    fn apply_validated_with_borrowed_events<Schema, F>(
+    fn apply_prepared_with_borrowed_events<'definition, F>(
         &mut self,
-        definition: &EffectDefinition<Schema>,
-        input: EffectApplicationInput<Tags, Payload>,
+        prepared: PreparedEffectApplication<'definition, Tags, Payload>,
         mut on_event: F,
     ) -> EffectApplyOutcome
     where
         F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
     {
-        let EffectApplicationInput {
+        let PreparedEffectApplication {
+            definition_key,
+            kind,
+            duration,
+            period,
             source_id,
             target_id,
             tags,
             payload,
             decision,
-        } = input;
+        } = prepared;
 
         let application = EffectApplicationView {
-            definition_key: Some(definition.key.as_str()),
+            definition_key: Some(definition_key),
             source_id,
             target_id,
             tags: &tags,
@@ -332,10 +409,10 @@ where
             EffectApplicationDecision::Accept => {
                 on_event(EffectLifecycleEventView::ApplicationAccepted(application));
 
-                if definition.kind == EffectKind::Instant {
+                if kind == EffectKind::Instant {
                     on_event(EffectLifecycleEventView::Executed(EffectExecutionView {
                         active_effect_id: None,
-                        definition_key: Some(definition.key.as_str()),
+                        definition_key: Some(definition_key),
                         source_id,
                         target_id,
                         tags: &tags,
@@ -349,103 +426,7 @@ where
                 self.next_id = ActiveEffectId::new(self.next_id.get() + 1);
                 let effect = EffectInstance {
                     id,
-                    definition_key: Some(definition.key.clone()),
-                    source_id,
-                    target_id,
-                    remaining_units: definition.duration.map(|duration| duration.units),
-                    period: definition.period,
-                    period_elapsed_units: 0,
-                    tags,
-                    payload,
-                };
-                self.push_effect(effect);
-                let effect = self.effects.last().expect("effect was just pushed");
-                on_event(EffectLifecycleEventView::ActiveCreated(effect.into()));
-                EffectApplyOutcome::ActiveCreated(id)
-            }
-        }
-    }
-
-    fn apply_validated_initialized_with_borrowed_events<Schema, Context, Initializer, F>(
-        &mut self,
-        definition: &EffectDefinition<Schema>,
-        input: EffectApplicationInput<Tags, Payload>,
-        context: &mut Context,
-        initializer: &mut Initializer,
-        mut on_event: F,
-    ) -> Result<EffectApplyOutcome, EffectInitializationError<Initializer::Error>>
-    where
-        Initializer: EffectInitializer<Context, Tags, Payload>,
-        F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
-    {
-        let EffectApplicationInput {
-            source_id,
-            target_id,
-            tags,
-            mut payload,
-            decision,
-        } = input;
-
-        let mut duration = definition.duration;
-        let mut period = definition.period;
-
-        if matches!(decision, EffectApplicationDecision::Accept) {
-            initializer
-                .initialize(
-                    context,
-                    EffectApplicationDraft {
-                        definition_key: definition.key.as_str(),
-                        source_id,
-                        target_id,
-                        tags: &tags,
-                        payload: &mut payload,
-                        duration: &mut duration,
-                        period: &mut period,
-                    },
-                )
-                .map_err(EffectInitializationError::Initialize)?;
-            validate_effect_runtime_clocks(definition, duration, period)?;
-        }
-
-        let application = EffectApplicationView {
-            definition_key: Some(definition.key.as_str()),
-            source_id,
-            target_id,
-            tags: &tags,
-            payload: &payload,
-        };
-
-        match decision {
-            EffectApplicationDecision::Reject { reason } => {
-                on_event(EffectLifecycleEventView::ApplicationRejected(
-                    EffectApplicationRejectionView {
-                        application,
-                        reason: &reason,
-                    },
-                ));
-                Ok(EffectApplyOutcome::Rejected)
-            }
-            EffectApplicationDecision::Accept => {
-                on_event(EffectLifecycleEventView::ApplicationAccepted(application));
-
-                if definition.kind == EffectKind::Instant {
-                    on_event(EffectLifecycleEventView::Executed(EffectExecutionView {
-                        active_effect_id: None,
-                        definition_key: Some(definition.key.as_str()),
-                        source_id,
-                        target_id,
-                        tags: &tags,
-                        payload: &payload,
-                        elapsed_units: None,
-                    }));
-                    return Ok(EffectApplyOutcome::ExecutedInstant);
-                }
-
-                let id = self.next_id;
-                self.next_id = ActiveEffectId::new(self.next_id.get() + 1);
-                let effect = EffectInstance {
-                    id,
-                    definition_key: Some(definition.key.clone()),
+                    definition_key: Some(definition_key.to_owned()),
                     source_id,
                     target_id,
                     remaining_units: duration.map(|duration| duration.units),
@@ -457,7 +438,7 @@ where
                 self.push_effect(effect);
                 let effect = self.effects.last().expect("effect was just pushed");
                 on_event(EffectLifecycleEventView::ActiveCreated(effect.into()));
-                Ok(EffectApplyOutcome::ActiveCreated(id))
+                EffectApplyOutcome::ActiveCreated(id)
             }
         }
     }
