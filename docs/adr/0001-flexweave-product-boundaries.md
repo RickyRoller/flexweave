@@ -1,4 +1,4 @@
-# ADR 0001: Flexweave Product Boundaries
+# ADR 0001: Flexweave Core Library Scope
 
 ## Status
 
@@ -6,26 +6,22 @@ Accepted
 
 ## Context
 
-Flexweave contains a Rust mechanics primitive crate and optional Studio
-authoring surfaces. These surfaces need independent ownership so the Rust crate
-can be used without Studio, while Studio can provide package-driven authoring,
-validation, migrations, generated output checks, and a reusable app shell.
+Flexweave needs one stable reusable surface for deterministic mechanics
+primitives. Consumer projects still need freedom to own domain content, runtime
+binding choices, application behavior, and deployment.
 
 ## Decision
 
-The repository uses three stable top-level surfaces:
+The repository uses one stable top-level implementation surface:
 
 - `core` for the Rust crate named `flexweave`.
-- `studio` for the TypeScript package named `@flexweave/studio`.
-- `studio/app` for the application package named `@flexweave/studio-app`.
 
-Consumer projects own their Studio project config, catalog content, generated
-output directories, runtime hook implementations, local host app entry point,
-adapter, branding, and deployment.
+Consumer projects own authored content, runtime bindings, application-specific
+semantics, and deployment.
 
 ## Consequences
 
 - Rust crate verification can run with Rust commands only.
-- Studio verification can run without consumer project source.
-- Package updates follow update, migrate, and verify commands.
-- Documentation can describe Flexweave as a standalone product.
+- The root workspace only orchestrates shared documentation and Rust crate
+  verification.
+- Documentation can describe Flexweave as a standalone library.

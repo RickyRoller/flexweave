@@ -6,9 +6,7 @@ flexweave/
 ├── package.json
 ├── README.md
 ├── core/
-├── docs/
-├── scripts/
-└── studio/
+└── docs/
 ```
 
 ## Root
@@ -19,11 +17,3 @@ repository documentation.
 ## Flexweave Rust Crate
 
 `core` is the Rust workspace member for the package named `flexweave`.
-
-## Studio Package
-
-`studio` is the package workspace member for `@flexweave/studio`.
-
-## Studio App
-
-`studio/app` is the package workspace member for `@flexweave/studio-app`.

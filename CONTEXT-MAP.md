@@ -8,17 +8,13 @@ only the context files that match the area you are touching.
 - [Flexweave](./core/CONTEXT.md) covers domain-agnostic mechanics
   primitives such as object identity, attached data, attributes, effects,
   abilities, tags, queries, registries, signals, and primitive errors.
-- [Flexweave Studio](./studio/CONTEXT.md) covers Studio catalog contracts,
-  Studio project config, generated mechanics definitions, runtime hooks, local
-  host apps, package update flow, and reusable app shell boundaries.
 
 ## Relationships
 
-- Flexweave is usable without Flexweave Studio.
-- Flexweave Studio builds on Flexweave primitives as an optional authoring and
-  build-time system.
-- Consumer projects consume versioned Flexweave packages and provide their own
-  content, runtime bindings, runtime hooks, and local host app entry point.
+- Flexweave provides primitive mechanics building blocks while caller code owns
+  application meaning.
+- Consumer projects consume the Flexweave crate and provide their own content,
+  runtime bindings, and deployment.
 
 ## ADRs
 

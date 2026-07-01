@@ -1,7 +1,6 @@
 # Use Flexweave
 
-Use Flexweave when a runtime needs deterministic mechanics primitives without Studio
-authoring workflows.
+Use Flexweave when a runtime needs deterministic mechanics primitives.
 
 ## Add the Crate
 
@@ -113,4 +112,4 @@ hands it and gives runtime helpers a stable key lookup surface.
 ## Keep the Boundary
 
 Flexweave should remain independent of catalog files, generated output directories,
-runtime hooks, Studio UI behavior, and consumer project source.
+runtime bindings, application behavior, and consumer project source.

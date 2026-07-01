@@ -1,32 +1,20 @@
 {
   "name": "flexweave",
   "private": true,
-  "workspaces": [
-    "studio",
-    "studio/app"
-  ],
   "type": "module",
   "scripts": {
-    "build": "bun run build:studio && bun run build:core",
+    "build": "bun run build:core",
     "build:core": "cargo build -p flexweave",
-    "build:studio": "bun run --filter @flexweave/studio build && bun run --filter @flexweave/studio-app build",
-    "check": "ultracite check && bun run check:core && bun run check:studio",
+    "check": "ultracite check && bun run check:core",
     "check:core": "bun run check:core:fmt && bun run check:core:lint",
     "check:core:fmt": "cargo fmt -p flexweave -- --check",
     "check:core:lint": "cargo clippy -p flexweave --all-targets -- -D warnings",
-    "check:studio": "bun run check:studio:package && bun run check:studio:app && bun run check:studio:boundary",
-    "check:studio:app": "bun run --filter @flexweave/studio-app typecheck",
-    "check:studio:boundary": "bun scripts/verify-studio-boundary.ts",
-    "check:studio:package": "bun run --filter @flexweave/studio typecheck",
     "docs:core": "cargo doc -p flexweave --no-deps",
     "fix": "ultracite fix",
-    "test": "bun run test:core && bun run test:studio",
+    "test": "bun run test:core",
     "test:core": "cargo test -p flexweave",
-    "test:studio": "bun run --filter @flexweave/studio test && bun run --filter @flexweave/studio-app test",
-    "verify": "bun run check && bun run test && bun run build && bun run verify:studio-host-app && bun run docs:core",
-    "verify:core": "bun run check:core && bun run test:core && bun run build:core && bun run docs:core",
-    "verify:studio": "bun run check:studio && bun run test:studio && bun run build:studio && bun run verify:studio-host-app",
-    "verify:studio-host-app": "bun scripts/verify-studio-host-app.ts"
+    "verify": "bun run verify:core",
+    "verify:core": "bun run check:core && bun run test:core && bun run build:core && bun run docs:core"
   },
   "devDependencies": {
     "oxfmt": "^0.55.0",
