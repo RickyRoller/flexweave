@@ -6,6 +6,7 @@ mod event_sink;
 mod events;
 mod hooks;
 mod ids;
+mod indexed_store;
 mod lifecycle_transaction;
 mod store;
 

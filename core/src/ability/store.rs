@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::convert::Infallible;
 use std::fmt;
 
@@ -23,6 +22,7 @@ use super::hooks::{
     NoCommitAction,
 };
 use super::ids::{AbilityActivationId, AbilityId};
+use super::indexed_store::{ActiveAbilityIndex, GrantedAbilityIndex};
 use super::lifecycle_transaction::ActiveAbilityTransition;
 
 /// Ability begin errors, including caller-owned blocking and gate failures.
@@ -265,10 +265,8 @@ where
 {
     next_id: AbilityId,
     next_activation_id: AbilityActivationId,
-    abilities: Vec<GrantedAbility<Tags, Payload>>,
-    ability_index_by_id: HashMap<AbilityId, usize>,
-    active_abilities: Vec<ActiveAbility<Tags, Payload>>,
-    active_index_by_activation_id: HashMap<AbilityActivationId, usize>,
+    abilities: GrantedAbilityIndex<Tags, Payload>,
+    active_abilities: ActiveAbilityIndex<Tags, Payload>,
 }
 
 /// Stored ability record.
@@ -313,10 +311,8 @@ where
         Self {
             next_id: AbilityId::new(1),
             next_activation_id: AbilityActivationId::new(1),
-            abilities: Vec::new(),
-            ability_index_by_id: HashMap::new(),
-            active_abilities: Vec::new(),
-            active_index_by_activation_id: HashMap::new(),
+            abilities: GrantedAbilityIndex::new(),
+            active_abilities: ActiveAbilityIndex::new(),
         }
     }
 
@@ -335,7 +331,6 @@ where
     ) -> AbilityId {
         let id = self.next_id;
         self.next_id = AbilityId::new(self.next_id.get() + 1);
-        self.ability_index_by_id.insert(id, self.abilities.len());
         self.abilities.push(GrantedAbility {
             id,
             definition_key,
@@ -385,25 +380,8 @@ where
     /// Revokes granted and active abilities owned by `owner_id`.
     #[must_use]
     pub fn revoke_owner(&mut self, owner_id: ObjectId) -> RevokedOwnerAbilities<Tags, Payload> {
-        let mut active_abilities = Vec::new();
-        let mut active_index = 0;
-        while active_index < self.active_abilities.len() {
-            if self.active_abilities[active_index].owner_id == owner_id {
-                active_abilities.push(self.remove_active_at_index(active_index));
-            } else {
-                active_index += 1;
-            }
-        }
-
-        let mut grants = Vec::new();
-        let mut ability_index = 0;
-        while ability_index < self.abilities.len() {
-            if self.abilities[ability_index].owner_id == owner_id {
-                grants.push(self.remove_ability_at_index(ability_index));
-            } else {
-                ability_index += 1;
-            }
-        }
+        let active_abilities = self.active_abilities.remove_owner_with(owner_id, |_| {});
+        let grants = self.abilities.remove_owner(owner_id);
 
         RevokedOwnerAbilities {
             grants,
@@ -433,27 +411,10 @@ where
     where
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
-        let mut active_abilities = Vec::new();
-        let mut active_index = 0;
-        while active_index < self.active_abilities.len() {
-            if self.active_abilities[active_index].owner_id == owner_id {
-                let active = self.remove_active_at_index(active_index);
-                Self::emit_active_transition(ActiveAbilityTransition::Revoked, &active, &mut emit);
-                active_abilities.push(active);
-            } else {
-                active_index += 1;
-            }
-        }
-
-        let mut grants = Vec::new();
-        let mut ability_index = 0;
-        while ability_index < self.abilities.len() {
-            if self.abilities[ability_index].owner_id == owner_id {
-                grants.push(self.remove_ability_at_index(ability_index));
-            } else {
-                ability_index += 1;
-            }
-        }
+        let active_abilities = self.active_abilities.remove_owner_with(owner_id, |active| {
+            Self::emit_active_transition(ActiveAbilityTransition::Revoked, active, &mut emit);
+        });
+        let grants = self.abilities.remove_owner(owner_id);
 
         RevokedOwnerAbilities {
             grants,
@@ -495,7 +456,7 @@ where
 
     #[must_use]
     pub fn active_activations(&self) -> &[ActiveAbility<Tags, Payload>] {
-        &self.active_abilities
+        self.active_abilities.as_slice()
     }
 
     #[must_use]
@@ -971,11 +932,11 @@ where
         let active_index = self
             .find_active_index(activation_id)
             .ok_or(AbilityCommitError::Ability(AbilityError::MissingActivation))?;
-        if self.active_abilities[active_index].committed {
+        if self.active_abilities.get_at(active_index).committed {
             return Ok(AbilityCommitOutcome::AlreadyCommitted);
         }
 
-        let active_view = ActiveAbilityView::from(&self.active_abilities[active_index]);
+        let active_view = ActiveAbilityView::from(self.active_abilities.get_at(active_index));
         if let Err(error) = action.apply_commit(context, active_view) {
             self.remove_active_for_transition(
                 active_index,
@@ -985,10 +946,10 @@ where
             return Err(AbilityCommitError::Action(error));
         }
 
-        self.active_abilities[active_index].committed = true;
+        self.active_abilities.get_mut_at(active_index).committed = true;
         Self::emit_active_transition(
             ActiveAbilityTransition::Committed,
-            &self.active_abilities[active_index],
+            self.active_abilities.get_at(active_index),
             &mut emit,
         );
         Ok(AbilityCommitOutcome::Committed)
@@ -1027,7 +988,7 @@ where
         let Some(active_index) = self.find_active_index(activation_id) else {
             return Err(AbilityEndError::MissingActivation);
         };
-        if !self.active_abilities[active_index].committed {
+        if !self.active_abilities.get_at(active_index).committed {
             return Err(AbilityEndError::UncommittedActivation);
         }
 
@@ -1119,7 +1080,7 @@ where
         let Some(active_index) = self.find_active_index(activation_id) else {
             return Err(AbilityRollbackError::MissingActivation);
         };
-        if self.active_abilities[active_index].committed {
+        if self.active_abilities.get_at(active_index).committed {
             return Err(AbilityRollbackError::AlreadyCommitted);
         }
 
@@ -1199,13 +1160,10 @@ where
         let activation_id = self.next_activation_id;
         self.next_activation_id = AbilityActivationId::new(self.next_activation_id.get() + 1);
         let active = seed.into_active(activation_id, false);
-        self.push_active_ability(active);
-        let active_index = self
-            .find_active_index(activation_id)
-            .expect("activation was just pushed");
+        let active_index = self.active_abilities.push(active);
         Self::emit_active_transition(
             ActiveAbilityTransition::Started,
-            &self.active_abilities[active_index],
+            self.active_abilities.get_at(active_index),
             emit,
         );
         activation_id
@@ -1220,7 +1178,7 @@ where
     where
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
-        let active = self.remove_active_at_index(active_index);
+        let active = self.active_abilities.remove_at(active_index);
         Self::emit_active_transition(transition, &active, emit);
         active
     }
@@ -1235,62 +1193,19 @@ where
         emit(transition.event(active));
     }
 
-    fn find_index(&self, ability_id: AbilityId) -> Option<usize> {
-        self.ability_index_by_id.get(&ability_id).copied()
-    }
-
     fn find(&self, ability_id: AbilityId) -> Option<&GrantedAbility<Tags, Payload>> {
-        self.find_index(ability_id)
-            .map(|index| &self.abilities[index])
+        self.abilities.get(ability_id)
     }
 
     fn find_active(
         &self,
         activation_id: AbilityActivationId,
     ) -> Option<&ActiveAbility<Tags, Payload>> {
-        self.find_active_index(activation_id)
-            .map(|index| &self.active_abilities[index])
+        self.active_abilities.get(activation_id)
     }
 
     fn find_active_index(&self, activation_id: AbilityActivationId) -> Option<usize> {
-        self.active_index_by_activation_id
-            .get(&activation_id)
-            .copied()
-    }
-
-    fn remove_ability_at_index(&mut self, ability_index: usize) -> GrantedAbility<Tags, Payload> {
-        let removed = self.abilities.remove(ability_index);
-        self.ability_index_by_id.remove(&removed.id);
-        self.reindex_abilities_from(ability_index);
-        removed
-    }
-
-    fn reindex_abilities_from(&mut self, start: usize) {
-        for index in start..self.abilities.len() {
-            self.ability_index_by_id
-                .insert(self.abilities[index].id, index);
-        }
-    }
-
-    fn push_active_ability(&mut self, active: ActiveAbility<Tags, Payload>) {
-        self.active_index_by_activation_id
-            .insert(active.activation_id, self.active_abilities.len());
-        self.active_abilities.push(active);
-    }
-
-    fn remove_active_at_index(&mut self, active_index: usize) -> ActiveAbility<Tags, Payload> {
-        let removed = self.active_abilities.remove(active_index);
-        self.active_index_by_activation_id
-            .remove(&removed.activation_id);
-        self.reindex_active_from(active_index);
-        removed
-    }
-
-    fn reindex_active_from(&mut self, start: usize) {
-        for index in start..self.active_abilities.len() {
-            self.active_index_by_activation_id
-                .insert(self.active_abilities[index].activation_id, index);
-        }
+        self.active_abilities.index_of(activation_id)
     }
 }
 
