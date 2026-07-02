@@ -8,6 +8,7 @@ mod hooks;
 mod ids;
 mod indexed_store;
 mod lifecycle_transaction;
+mod results;
 mod store;
 
 pub use definition::{
@@ -23,9 +24,9 @@ pub use hooks::{
     NoCommitAction,
 };
 pub use ids::{AbilityActivationId, AbilityId};
-pub use store::{
+pub use results::{
     AbilityBeginError, AbilityCancelOutcome, AbilityCommitError, AbilityCommitOutcome,
     AbilityEndError, AbilityEndOutcome, AbilityError, AbilityGrantError, AbilityRollbackError,
-    AbilityRollbackOutcome, AbilityStore, Grant, GrantedAbility, RegisteredAbilityActivationError,
-    RevokedOwnerAbilities,
+    AbilityRollbackOutcome, RegisteredAbilityActivationError,
 };
+pub use store::{AbilityStore, Grant, GrantedAbility, RevokedOwnerAbilities};

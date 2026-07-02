@@ -6,7 +6,8 @@ use super::events::{
     AbilityActivationAttemptView, AbilityActivationRejectionReason, ActiveAbility,
 };
 use super::ids::{AbilityActivationId, AbilityId};
-use super::store::{AbilityError, GrantedAbility};
+use super::results::AbilityError;
+use super::store::GrantedAbility;
 
 pub(super) struct AbilityActivationRequest<'ability, Tags, Payload>
 where
