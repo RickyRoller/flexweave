@@ -13,6 +13,7 @@ use super::activation_request::{
 use super::definition::{
     AbilityDefinition, AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions,
 };
+use super::event_sink::{discard_lifecycle_event, owned_lifecycle_events};
 use super::events::{
     AbilityActivationRejectionReason, AbilityActivationRejectionView, AbilityLifecycleEvent,
     AbilityLifecycleEventView, ActiveAbility, ActiveAbilityView,
@@ -420,9 +421,7 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
-        self.revoke_owner_with_borrowed_events(owner_id, |event| {
-            emit(event.to_owned_event());
-        })
+        self.revoke_owner_with_borrowed_events(owner_id, owned_lifecycle_events(&mut emit))
     }
 
     /// Revokes granted abilities and streams borrowed revocation facts for active abilities.
@@ -515,7 +514,7 @@ where
     where
         Payload: Clone,
     {
-        self.begin_activation_with_borrowed_events(ability_id, |_| {})
+        self.begin_activation_with_borrowed_events(ability_id, discard_lifecycle_event)
     }
 
     /// Begins an activation and emits owned attempt, rejection, and start facts.
@@ -528,9 +527,7 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
-        self.begin_activation_with_borrowed_events(ability_id, |event| {
-            emit(event.to_owned_event());
-        })
+        self.begin_activation_with_borrowed_events(ability_id, owned_lifecycle_events(&mut emit))
     }
 
     /// Begins an activation and streams borrowed lifecycle facts.
@@ -559,7 +556,12 @@ where
         Gate: AbilityActivationGate<Context, Tags, Payload>,
         Payload: Clone,
     {
-        self.begin_activation_with_gate_borrowed_events(ability_id, context, gate, |_| {})
+        self.begin_activation_with_gate_borrowed_events(
+            ability_id,
+            context,
+            gate,
+            discard_lifecycle_event,
+        )
     }
 
     /// Begins a gate-backed activation and emits owned attempt, rejection, and start facts.
@@ -575,9 +577,12 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
-        self.begin_activation_with_gate_borrowed_events(ability_id, context, gate, |event| {
-            emit(event.to_owned_event());
-        })
+        self.begin_activation_with_gate_borrowed_events(
+            ability_id,
+            context,
+            gate,
+            owned_lifecycle_events(&mut emit),
+        )
     }
 
     /// Begins a gate-backed activation and streams borrowed lifecycle facts.
@@ -614,7 +619,11 @@ where
     where
         Payload: Clone,
     {
-        self.begin_activation_for_owner_with_borrowed_events(owner_id, ability_id, |_| {})
+        self.begin_activation_for_owner_with_borrowed_events(
+            owner_id,
+            ability_id,
+            discard_lifecycle_event,
+        )
     }
 
     /// Begins an activation for an expected owner and emits owned lifecycle facts.
@@ -628,9 +637,11 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
-        self.begin_activation_for_owner_with_borrowed_events(owner_id, ability_id, |event| {
-            emit(event.to_owned_event());
-        })
+        self.begin_activation_for_owner_with_borrowed_events(
+            owner_id,
+            ability_id,
+            owned_lifecycle_events(&mut emit),
+        )
     }
 
     /// Begins an activation for an expected owner and streams borrowed lifecycle facts.
@@ -668,7 +679,7 @@ where
             ability_id,
             context,
             gate,
-            |_| {},
+            discard_lifecycle_event,
         )
     }
 
@@ -691,7 +702,7 @@ where
             ability_id,
             context,
             gate,
-            |event| emit(event.to_owned_event()),
+            owned_lifecycle_events(&mut emit),
         )
     }
 
@@ -730,7 +741,11 @@ where
     where
         Payload: Clone,
     {
-        self.begin_registered_activation_with_borrowed_events(definitions, ability_id, |_| {})
+        self.begin_registered_activation_with_borrowed_events(
+            definitions,
+            ability_id,
+            discard_lifecycle_event,
+        )
     }
 
     /// Begins a registered activation and emits owned lifecycle facts.
@@ -744,9 +759,11 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
-        self.begin_registered_activation_with_borrowed_events(definitions, ability_id, |event| {
-            emit(event.to_owned_event())
-        })
+        self.begin_registered_activation_with_borrowed_events(
+            definitions,
+            ability_id,
+            owned_lifecycle_events(&mut emit),
+        )
     }
 
     /// Begins a registered activation and streams borrowed lifecycle facts.
@@ -788,7 +805,7 @@ where
             ability_id,
             context,
             gate,
-            |_| {},
+            discard_lifecycle_event,
         )
     }
 
@@ -811,7 +828,7 @@ where
             ability_id,
             context,
             gate,
-            |event| emit(event.to_owned_event()),
+            owned_lifecycle_events(&mut emit),
         )
     }
 
@@ -862,7 +879,7 @@ where
         &mut self,
         activation_id: AbilityActivationId,
     ) -> Result<AbilityCommitOutcome, AbilityCommitError<Infallible>> {
-        self.commit_activation_with_borrowed_events(activation_id, |_| {})
+        self.commit_activation_with_borrowed_events(activation_id, discard_lifecycle_event)
     }
 
     /// Commits an active activation and emits an owned commit fact when this call commits.
@@ -875,9 +892,10 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
-        self.commit_activation_with_borrowed_events(activation_id, |event| {
-            emit(event.to_owned_event());
-        })
+        self.commit_activation_with_borrowed_events(
+            activation_id,
+            owned_lifecycle_events(&mut emit),
+        )
     }
 
     /// Commits an active activation and streams a borrowed commit fact when this call commits.
@@ -909,7 +927,12 @@ where
     where
         Action: AbilityCommitAction<Context, Tags, Payload>,
     {
-        self.commit_activation_with_action_borrowed_events(activation_id, context, action, |_| {})
+        self.commit_activation_with_action_borrowed_events(
+            activation_id,
+            context,
+            action,
+            discard_lifecycle_event,
+        )
     }
 
     /// Commits with a caller-owned action and emits owned lifecycle facts.
@@ -929,7 +952,7 @@ where
             activation_id,
             context,
             action,
-            |event| emit(event.to_owned_event()),
+            owned_lifecycle_events(&mut emit),
         )
     }
 
@@ -976,7 +999,7 @@ where
         &mut self,
         activation_id: AbilityActivationId,
     ) -> Result<AbilityEndOutcome<Tags, Payload>, AbilityEndError> {
-        self.end_activation_with_borrowed_events(activation_id, |_| {})
+        self.end_activation_with_borrowed_events(activation_id, discard_lifecycle_event)
     }
 
     /// Ends a committed active activation and emits an owned end fact.
@@ -989,9 +1012,7 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
-        self.end_activation_with_borrowed_events(activation_id, |event| {
-            emit(event.to_owned_event());
-        })
+        self.end_activation_with_borrowed_events(activation_id, owned_lifecycle_events(&mut emit))
     }
 
     /// Ends a committed active activation and streams a borrowed end fact.
@@ -1023,7 +1044,7 @@ where
         &mut self,
         activation_id: AbilityActivationId,
     ) -> AbilityCancelOutcome<Tags, Payload> {
-        self.cancel_activation_with_borrowed_events(activation_id, |_| {})
+        self.cancel_activation_with_borrowed_events(activation_id, discard_lifecycle_event)
     }
 
     /// Cancels an active activation and emits an owned cancel fact.
@@ -1036,9 +1057,10 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
-        self.cancel_activation_with_borrowed_events(activation_id, |event| {
-            emit(event.to_owned_event());
-        })
+        self.cancel_activation_with_borrowed_events(
+            activation_id,
+            owned_lifecycle_events(&mut emit),
+        )
     }
 
     /// Cancels an active activation and streams a borrowed cancel fact.
@@ -1066,7 +1088,7 @@ where
         &mut self,
         activation_id: AbilityActivationId,
     ) -> Result<AbilityRollbackOutcome<Tags, Payload>, AbilityRollbackError> {
-        self.rollback_activation_with_borrowed_events(activation_id, |_| {})
+        self.rollback_activation_with_borrowed_events(activation_id, discard_lifecycle_event)
     }
 
     /// Rolls back an uncommitted active activation and emits an owned rollback fact.
@@ -1079,9 +1101,10 @@ where
         Payload: Clone,
         F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
     {
-        self.rollback_activation_with_borrowed_events(activation_id, |event| {
-            emit(event.to_owned_event());
-        })
+        self.rollback_activation_with_borrowed_events(
+            activation_id,
+            owned_lifecycle_events(&mut emit),
+        )
     }
 
     /// Rolls back an uncommitted active activation and streams a borrowed rollback fact.

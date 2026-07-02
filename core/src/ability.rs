@@ -2,6 +2,7 @@
 
 mod activation_request;
 mod definition;
+mod event_sink;
 mod events;
 mod hooks;
 mod ids;
