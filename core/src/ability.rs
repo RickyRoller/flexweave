@@ -1,5 +1,6 @@
 //! Domain-neutral ability primitive.
 
+mod activation_request;
 mod definition;
 mod events;
 mod hooks;

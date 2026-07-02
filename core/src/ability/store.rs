@@ -5,12 +5,17 @@ use std::fmt;
 use crate::identity::{ObjectId, ObjectStore};
 use crate::tag::TagCollection;
 
+use super::activation_request::{
+    AbilityActivationRequest, AbilityActivationRequestError, AbilityActivationSeed,
+    RegisteredActivationRequestError, resolve_activation_request, resolve_owner_activation_request,
+    resolve_registered_activation_request,
+};
 use super::definition::{
     AbilityDefinition, AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions,
 };
 use super::events::{
-    AbilityActivationAttemptView, AbilityActivationRejectionReason, AbilityActivationRejectionView,
-    AbilityLifecycleEvent, AbilityLifecycleEventView, ActiveAbility, ActiveAbilityView,
+    AbilityActivationRejectionReason, AbilityActivationRejectionView, AbilityLifecycleEvent,
+    AbilityLifecycleEventView, ActiveAbility, ActiveAbilityView,
 };
 use super::hooks::{
     AbilityActivationDecision, AbilityActivationGate, AbilityCommitAction, AllowActivation,
@@ -294,61 +299,6 @@ where
     #[must_use]
     pub fn has_tag(&self, tag: &Tags::Tag) -> bool {
         self.tags.has_tag(tag)
-    }
-}
-
-struct AbilityActivationSeed<Tags, Payload>
-where
-    Tags: TagCollection,
-{
-    ability_id: AbilityId,
-    definition_key: Option<String>,
-    owner_id: ObjectId,
-    tags: Tags,
-    payload: Payload,
-}
-
-impl<Tags, Payload> AbilityActivationSeed<Tags, Payload>
-where
-    Tags: TagCollection,
-{
-    fn from_ability(ability: &GrantedAbility<Tags, Payload>) -> Self
-    where
-        Payload: Clone,
-    {
-        Self {
-            ability_id: ability.id,
-            definition_key: ability.definition_key.clone(),
-            owner_id: ability.owner_id,
-            tags: ability.tags.clone(),
-            payload: ability.payload.clone(),
-        }
-    }
-
-    fn attempt_view(&self) -> AbilityActivationAttemptView<'_, Tags, Payload> {
-        AbilityActivationAttemptView {
-            ability_id: self.ability_id,
-            definition_key: self.definition_key.as_deref(),
-            owner_id: self.owner_id,
-            tags: &self.tags,
-            payload: &self.payload,
-        }
-    }
-
-    fn into_active(
-        self,
-        activation_id: AbilityActivationId,
-        committed: bool,
-    ) -> ActiveAbility<Tags, Payload> {
-        ActiveAbility {
-            activation_id,
-            ability_id: self.ability_id,
-            definition_key: self.definition_key,
-            owner_id: self.owner_id,
-            tags: self.tags,
-            payload: self.payload,
-            committed,
-        }
     }
 }
 
@@ -642,57 +592,16 @@ where
         Payload: Clone,
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
-        let Some(ability_index) = self.find_index(ability_id) else {
-            let reason = AbilityActivationRejectionReason::MissingAbility;
-            emit(AbilityLifecycleEventView::Rejected(
-                AbilityActivationRejectionView {
-                    attempt: None,
-                    reason,
-                },
-            ));
-            return Err(AbilityBeginError::Ability(AbilityError::MissingAbility));
-        };
-
-        emit(AbilityLifecycleEventView::Attempted(
-            Self::attempt_view_from_ability(&self.abilities[ability_index]),
-        ));
-        let seed = AbilityActivationSeed::from_ability(&self.abilities[ability_index]);
-
-        match gate.can_activate(context, seed.attempt_view()) {
-            Ok(AbilityActivationDecision::Allow) => {}
-            Ok(AbilityActivationDecision::Block(block_reason)) => {
-                let reason = AbilityActivationRejectionReason::Blocked;
-                emit(AbilityLifecycleEventView::Rejected(
-                    AbilityActivationRejectionView {
-                        attempt: Some(seed.attempt_view()),
-                        reason,
-                    },
-                ));
-                return Err(AbilityBeginError::Blocked(block_reason));
-            }
+        let request = match resolve_activation_request(self.find(ability_id)) {
+            Ok(request) => request,
             Err(error) => {
-                let reason = AbilityActivationRejectionReason::Gate;
-                emit(AbilityLifecycleEventView::Rejected(
-                    AbilityActivationRejectionView {
-                        attempt: Some(seed.attempt_view()),
-                        reason,
-                    },
-                ));
-                return Err(AbilityBeginError::Gate(error));
+                Self::emit_activation_request_rejection(&error, &mut emit);
+                return Err(AbilityBeginError::Ability(error.ability_error()));
             }
-        }
+        };
+        let seed = Self::prepare_activation_seed(request, context, gate, &mut emit)?;
 
-        let activation_id = self.next_activation_id;
-        self.next_activation_id = AbilityActivationId::new(self.next_activation_id.get() + 1);
-        let active = seed.into_active(activation_id, false);
-        self.push_active_ability(active);
-        let active_index = self
-            .find_active_index(activation_id)
-            .expect("activation was just pushed");
-        emit(AbilityLifecycleEventView::Started(
-            (&self.active_abilities[active_index]).into(),
-        ));
-        Ok(activation_id)
+        Ok(self.start_activation_from_seed(seed, &mut emit))
     }
 
     /// Begins an activation for an expected owner without a caller-owned gate.
@@ -799,50 +708,16 @@ where
         Payload: Clone,
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
-        if owner_id.is_invalid() {
-            let reason = AbilityActivationRejectionReason::InvalidOwner;
-            emit(AbilityLifecycleEventView::Rejected(
-                AbilityActivationRejectionView {
-                    attempt: None,
-                    reason,
-                },
-            ));
-            return Err(AbilityBeginError::Ability(AbilityError::InvalidOwner {
-                owner_id,
-            }));
-        }
-
-        let Some(ability_index) = self.find_index(ability_id) else {
-            let reason = AbilityActivationRejectionReason::MissingAbility;
-            emit(AbilityLifecycleEventView::Rejected(
-                AbilityActivationRejectionView {
-                    attempt: None,
-                    reason,
-                },
-            ));
-            return Err(AbilityBeginError::Ability(AbilityError::MissingAbility));
+        let request = match resolve_owner_activation_request(owner_id, self.find(ability_id)) {
+            Ok(request) => request,
+            Err(error) => {
+                Self::emit_activation_request_rejection(&error, &mut emit);
+                return Err(AbilityBeginError::Ability(error.ability_error()));
+            }
         };
+        let seed = Self::prepare_activation_seed(request, context, gate, &mut emit)?;
 
-        let actual_owner_id = self.abilities[ability_index].owner_id;
-        if actual_owner_id != owner_id {
-            let attempt = Self::attempt_view_from_ability(&self.abilities[ability_index]);
-            emit(AbilityLifecycleEventView::Attempted(attempt));
-            let reason = AbilityActivationRejectionReason::OwnerMismatch;
-            emit(AbilityLifecycleEventView::Rejected(
-                AbilityActivationRejectionView {
-                    attempt: Some(Self::attempt_view_from_ability(
-                        &self.abilities[ability_index],
-                    )),
-                    reason,
-                },
-            ));
-            return Err(AbilityBeginError::Ability(AbilityError::OwnerMismatch {
-                expected_owner_id: owner_id,
-                actual_owner_id,
-            }));
-        }
-
-        self.begin_activation_with_gate_borrowed_events(ability_id, context, gate, emit)
+        Ok(self.start_activation_from_seed(seed, &mut emit))
     }
 
     /// Begins an activation using the granted ability's registered definition key.
@@ -953,20 +828,32 @@ where
         Payload: Clone,
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
-        let Some(ability) = self.find(ability_id) else {
-            return self
-                .begin_activation_with_gate_borrowed_events(ability_id, context, gate, emit)
-                .map_err(RegisteredAbilityActivationError::Activation);
+        let mut emit = emit;
+        let request = match resolve_registered_activation_request(
+            definitions,
+            ability_id,
+            self.find(ability_id),
+        ) {
+            Ok(request) => request,
+            Err(RegisteredActivationRequestError::Activation(error)) => {
+                Self::emit_activation_request_rejection(&error, &mut emit);
+                return Err(RegisteredAbilityActivationError::Activation(
+                    AbilityBeginError::Ability(error.ability_error()),
+                ));
+            }
+            Err(RegisteredActivationRequestError::MissingGrantedDefinitionKey { ability_id }) => {
+                return Err(
+                    RegisteredAbilityActivationError::MissingGrantedDefinitionKey { ability_id },
+                );
+            }
+            Err(RegisteredActivationRequestError::Definition(error)) => {
+                return Err(RegisteredAbilityActivationError::Definition(error));
+            }
         };
-        let definition_key = ability
-            .definition_key
-            .clone()
-            .ok_or(RegisteredAbilityActivationError::MissingGrantedDefinitionKey { ability_id })?;
-        definitions
-            .require(&definition_key)
-            .map_err(RegisteredAbilityActivationError::Definition)?;
-        self.begin_activation_with_gate_borrowed_events(ability_id, context, gate, emit)
-            .map_err(RegisteredAbilityActivationError::Activation)
+        let seed = Self::prepare_activation_seed(request, context, gate, &mut emit)
+            .map_err(RegisteredAbilityActivationError::Activation)?;
+
+        Ok(self.start_activation_from_seed(seed, &mut emit))
     }
 
     /// Commits an active activation with no caller-owned action.
@@ -1206,16 +1093,82 @@ where
         Ok(AbilityRollbackOutcome::RolledBack(active))
     }
 
-    fn attempt_view_from_ability(
-        ability: &GrantedAbility<Tags, Payload>,
-    ) -> AbilityActivationAttemptView<'_, Tags, Payload> {
-        AbilityActivationAttemptView {
-            ability_id: ability.id,
-            definition_key: ability.definition_key.as_deref(),
-            owner_id: ability.owner_id,
-            tags: &ability.tags,
-            payload: &ability.payload,
+    fn emit_activation_request_rejection<F>(
+        error: &AbilityActivationRequestError<'_, Tags, Payload>,
+        emit: &mut F,
+    ) where
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
+    {
+        if let Some(attempt) = error.attempt_view() {
+            emit(AbilityLifecycleEventView::Attempted(attempt));
         }
+        emit(AbilityLifecycleEventView::Rejected(
+            AbilityActivationRejectionView {
+                attempt: error.attempt_view(),
+                reason: error.reason(),
+            },
+        ));
+    }
+
+    fn prepare_activation_seed<Context, Gate, F>(
+        request: AbilityActivationRequest<'_, Tags, Payload>,
+        context: &Context,
+        gate: &mut Gate,
+        emit: &mut F,
+    ) -> Result<
+        AbilityActivationSeed<Tags, Payload>,
+        AbilityBeginError<Gate::Error, Gate::BlockReason>,
+    >
+    where
+        Gate: AbilityActivationGate<Context, Tags, Payload>,
+        Payload: Clone,
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
+    {
+        let attempt = request.attempt_view();
+        emit(AbilityLifecycleEventView::Attempted(attempt));
+
+        match gate.can_activate(context, request.attempt_view()) {
+            Ok(AbilityActivationDecision::Allow) => Ok(request.to_seed()),
+            Ok(AbilityActivationDecision::Block(block_reason)) => {
+                emit(AbilityLifecycleEventView::Rejected(
+                    AbilityActivationRejectionView {
+                        attempt: Some(request.attempt_view()),
+                        reason: AbilityActivationRejectionReason::Blocked,
+                    },
+                ));
+                Err(AbilityBeginError::Blocked(block_reason))
+            }
+            Err(error) => {
+                emit(AbilityLifecycleEventView::Rejected(
+                    AbilityActivationRejectionView {
+                        attempt: Some(request.attempt_view()),
+                        reason: AbilityActivationRejectionReason::Gate,
+                    },
+                ));
+                Err(AbilityBeginError::Gate(error))
+            }
+        }
+    }
+
+    fn start_activation_from_seed<F>(
+        &mut self,
+        seed: AbilityActivationSeed<Tags, Payload>,
+        emit: &mut F,
+    ) -> AbilityActivationId
+    where
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
+    {
+        let activation_id = self.next_activation_id;
+        self.next_activation_id = AbilityActivationId::new(self.next_activation_id.get() + 1);
+        let active = seed.into_active(activation_id, false);
+        self.push_active_ability(active);
+        let active_index = self
+            .find_active_index(activation_id)
+            .expect("activation was just pushed");
+        emit(AbilityLifecycleEventView::Started(
+            (&self.active_abilities[active_index]).into(),
+        ));
+        activation_id
     }
 
     fn find_index(&self, ability_id: AbilityId) -> Option<usize> {
