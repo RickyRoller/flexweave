@@ -82,17 +82,31 @@ runtime: Runtime store {
     shape: class
     next_id: AbilityId
     next_activation_id: AbilityActivationId
-    abilities: "Vec<GrantedAbility>"
-    ability_index_by_id: "HashMap<AbilityId, usize>"
-    active_abilities: "Vec<ActiveAbility>"
-    active_index_by_activation_id: "HashMap<AbilityActivationId, usize>"
+    abilities: "GrantedAbilityIndex<Tags, Payload>"
+    active_abilities: "ActiveAbilityIndex<Tags, Payload>"
   }
   store.class: artifact
 
+  grant_index: GrantedAbilityIndex {
+    shape: class
+    records: "Vec<GrantedAbility>"
+    index_by_id: "HashMap<AbilityId, usize>"
+  }
+  grant_index.class: artifact
+
+  active_index: ActiveAbilityIndex {
+    shape: class
+    records: "Vec<ActiveAbility>"
+    index_by_activation_id: "HashMap<AbilityActivationId, usize>"
+  }
+  active_index.class: artifact
+
   grant_input -> granted: grant copies runtime payload
   granted -> active: begin activation clones seed
-  store -> granted: deterministic grant order
-  store -> active: active execution order
+  store -> grant_index: owns deterministic grant index
+  store -> active_index: owns deterministic active index
+  grant_index -> granted: deterministic grant order
+  active_index -> active: active execution order
 }
 
 caller: Caller boundary {
