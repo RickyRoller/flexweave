@@ -22,6 +22,7 @@ use super::hooks::{
     NoCommitAction,
 };
 use super::ids::{AbilityActivationId, AbilityId};
+use super::lifecycle_transaction::ActiveAbilityTransition;
 
 /// Ability begin errors, including caller-owned blocking and gate failures.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -438,7 +439,7 @@ where
         while active_index < self.active_abilities.len() {
             if self.active_abilities[active_index].owner_id == owner_id {
                 let active = self.remove_active_at_index(active_index);
-                emit(AbilityLifecycleEventView::Revoked((&active).into()));
+                Self::emit_active_transition(ActiveAbilityTransition::Revoked, &active, &mut emit);
                 active_abilities.push(active);
             } else {
                 active_index += 1;
@@ -953,15 +954,20 @@ where
 
         let active_view = ActiveAbilityView::from(&self.active_abilities[active_index]);
         if let Err(error) = action.apply_commit(context, active_view) {
-            let active = self.remove_active_at_index(active_index);
-            emit(AbilityLifecycleEventView::RolledBack((&active).into()));
+            self.remove_active_for_transition(
+                active_index,
+                ActiveAbilityTransition::RolledBack,
+                &mut emit,
+            );
             return Err(AbilityCommitError::Action(error));
         }
 
         self.active_abilities[active_index].committed = true;
-        emit(AbilityLifecycleEventView::Committed(
-            (&self.active_abilities[active_index]).into(),
-        ));
+        Self::emit_active_transition(
+            ActiveAbilityTransition::Committed,
+            &self.active_abilities[active_index],
+            &mut emit,
+        );
         Ok(AbilityCommitOutcome::Committed)
     }
 
@@ -1004,8 +1010,11 @@ where
             return Err(AbilityEndError::UncommittedActivation);
         }
 
-        let active = self.remove_active_at_index(active_index);
-        emit(AbilityLifecycleEventView::Ended((&active).into()));
+        let active = self.remove_active_for_transition(
+            active_index,
+            ActiveAbilityTransition::Ended,
+            &mut emit,
+        );
         Ok(AbilityEndOutcome::Ended(active))
     }
 
@@ -1044,8 +1053,11 @@ where
         let Some(active_index) = self.find_active_index(activation_id) else {
             return AbilityCancelOutcome::MissingActivation;
         };
-        let active = self.remove_active_at_index(active_index);
-        emit(AbilityLifecycleEventView::Canceled((&active).into()));
+        let active = self.remove_active_for_transition(
+            active_index,
+            ActiveAbilityTransition::Canceled,
+            &mut emit,
+        );
         AbilityCancelOutcome::Canceled(active)
     }
 
@@ -1088,8 +1100,11 @@ where
             return Err(AbilityRollbackError::AlreadyCommitted);
         }
 
-        let active = self.remove_active_at_index(active_index);
-        emit(AbilityLifecycleEventView::RolledBack((&active).into()));
+        let active = self.remove_active_for_transition(
+            active_index,
+            ActiveAbilityTransition::RolledBack,
+            &mut emit,
+        );
         Ok(AbilityRollbackOutcome::RolledBack(active))
     }
 
@@ -1165,10 +1180,36 @@ where
         let active_index = self
             .find_active_index(activation_id)
             .expect("activation was just pushed");
-        emit(AbilityLifecycleEventView::Started(
-            (&self.active_abilities[active_index]).into(),
-        ));
+        Self::emit_active_transition(
+            ActiveAbilityTransition::Started,
+            &self.active_abilities[active_index],
+            emit,
+        );
         activation_id
+    }
+
+    fn remove_active_for_transition<F>(
+        &mut self,
+        active_index: usize,
+        transition: ActiveAbilityTransition,
+        emit: &mut F,
+    ) -> ActiveAbility<Tags, Payload>
+    where
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
+    {
+        let active = self.remove_active_at_index(active_index);
+        Self::emit_active_transition(transition, &active, emit);
+        active
+    }
+
+    fn emit_active_transition<F>(
+        transition: ActiveAbilityTransition,
+        active: &ActiveAbility<Tags, Payload>,
+        emit: &mut F,
+    ) where
+        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
+    {
+        emit(transition.event(active));
     }
 
     fn find_index(&self, ability_id: AbilityId) -> Option<usize> {

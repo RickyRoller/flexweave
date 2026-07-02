@@ -5,6 +5,7 @@ mod definition;
 mod events;
 mod hooks;
 mod ids;
+mod lifecycle_transaction;
 mod store;
 
 pub use definition::{
