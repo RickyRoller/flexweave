@@ -45,17 +45,29 @@ selection.
 The domain-neutral sequence of ability grant, activation attempt, activation
 decision, start, commit, cancellation, revocation, rollback, and completion.
 
+**Ability commitment**:
+The lifecycle transition where an active ability crosses the caller-defined
+point of no return.
+_Avoid_: cost payment, cooldown start, resource spend
+
 **Ability cancellation**:
-A lifecycle termination where caller-owned cancel behavior runs before active
-ability state is removed.
+A lifecycle termination where active ability state is removed by an explicit
+cancellation command.
+_Avoid_: normal completion, rollback
 
 **Ability revocation**:
 A lifecycle cleanup where active ability state is removed because its owner is
 revoked or destroyed.
 
 **Ability rollback**:
-A lifecycle cleanup where active ability state is removed after activation
-startup or helper execution fails before normal completion.
+A lifecycle cleanup where active ability state is removed because an activation
+failed before normal completion.
+_Avoid_: cancellation
+
+**Ability completion**:
+A lifecycle termination where committed active ability state is removed by a
+normal end command.
+_Avoid_: cancellation, rollback
 
 **Clock unit**:
 A caller-defined mechanics time unit used to advance effect lifetimes, periodic
