@@ -678,8 +678,7 @@ where
 
         let active_snapshot = self.active_abilities[active_index].clone();
         if let Err(error) = hooks.on_start(context, (&active_snapshot).into()).await {
-            let rolled_back = self.remove_active_at_index(active_index);
-            emit(AbilityLifecycleEventView::RolledBack((&rolled_back).into()));
+            self.rollback_active_with_borrowed_event(activation_id, &mut emit);
             return Err(AbilityActivationError::hook(AbilityHookPhase::Start, error));
         }
 
