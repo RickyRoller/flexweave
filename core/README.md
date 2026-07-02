@@ -25,11 +25,13 @@ Tags attach deterministic labels to Objects and support repeatable tag queries.
 Queries preserve Object iteration order so identical inputs produce identical
 selection order.
 
-Abilities describe activation lifecycle, commit timing, and grants. Caller-owned
-async hooks decide whether an activation is accepted, why it is blocked, and
-what happens when start, commit, end, or cancel phases run. Use `grant_checked` and
-`begin_activation_for_owner_with_events` in common runtime flows so ability
-owners are validated against live objects and expected owners before hooks run.
+Abilities describe activation lifecycle, grants, active state, explicit
+commitment, cancellation, rollback, revocation, and completion. Caller-owned
+synchronous gates decide whether active state may be created, and caller-owned
+commit actions apply point-of-no-return consequences during explicit commit.
+Use `grant_checked` and `begin_activation_for_owner_with_events` in common
+runtime flows so ability owners are validated against live objects and expected
+owners before activation gates run.
 
 Effects describe application, execution, active lifetime, advancement,
 removal, and expiration. Active effect instances carry runtime effect state for
@@ -39,15 +41,14 @@ explicit `EffectSourcePolicy` when an `ObjectStore` is available; the raw
 object-reference validity themselves.
 
 State-changing runtime commands return explicit primitive outcomes. Ability
-commit, end, cancel, and instant activation distinguish committed from already
-committed, ended from missing activation, and canceled from missing activation.
-Effect application distinguishes rejected applications, accepted instant
-executions, and active effect creation. Ability hook failures include an
-`AbilityHookPhase` so caller-owned hook errors can be attributed to
-can-activate, start, commit, instant execution, end, or cancel without
-inspecting lifecycle events. Cooldowns and costs are modeled by caller-owned
-effects, tags, attributes, and blocking queries rather than stored inside
-abilities.
+commit distinguishes committed from already committed, end requires committed
+active state, cancel distinguishes canceled from missing activation, and
+rollback removes only uncommitted active state. Effect application
+distinguishes rejected applications, accepted instant executions, and active
+effect creation. Ability gate and commit-action failures are returned through
+command errors without requiring callers to inspect lifecycle events. Cooldowns
+and costs are modeled by caller-owned effects, tags, attributes, gates, and
+commit actions rather than stored inside abilities.
 
 Lifecycle events are raw mechanics facts emitted by attributes, derived
 attributes, abilities, effects, and mechanics ticking. They describe what the
@@ -62,7 +63,7 @@ Event channels are typed, caller-owned transport and retention primitives. An
 `EventChannel` validates the published `LifecycleEventKind`, optionally retains
 published facts, and notifies subscribed listeners in deterministic order. It
 does not subscribe to stores, discover definitions, or auto-route emitted facts.
-Callers publish facts into channels from hooks, pipeline callbacks, or
+Callers publish facts into channels from ability command callbacks, pipeline callbacks, or
 `MechanicsDriver::tick_with`.
 
 Signals are derived facts created by `SignalProjection` from source lifecycle

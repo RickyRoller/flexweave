@@ -8,13 +8,15 @@ theme (`theme-id: 200`) for consistent contrast.
 ## Scope
 
 The ability system covers authorable ability definitions, runtime grants,
-activation attempts, commit timing, active execution state, cancellation,
+activation attempts, explicit commitment, active execution state, cancellation,
 revocation, rollback, ending, and lifecycle facts. Cooldowns are modeled through
-caller-owned effects, tags, and hooks rather than ability-owned state.
+caller-owned effects, tags, activation gates, and commit actions rather than
+ability-owned state.
 
 Flexweave owns deterministic primitive state and lifecycle facts. Caller code
-owns hook behavior, resource semantics, event-channel publication, runtime
-authority, task execution, and effect application derived from an ability.
+owns activation gate behavior, commit action behavior, resource semantics,
+event-channel publication, runtime authority, task execution, and effect
+application derived from an ability.
 
 ## Source Paths
 
@@ -31,11 +33,10 @@ authority, task execution, and effect application derived from an ability.
 
 ## Model Files
 
-- `data-model.d2` shows the static definition, grant, store, hook, and event
+- `data-model.d2` shows the static definition, grant, store, gate, action, and event
   relationships.
-- `lifecycle.d2` shows active and instant activation paths, commit timing,
-  rejection, cancellation, revocation, rollback, ending, and cooldown
-  advancement.
+- `lifecycle.d2` shows begin, explicit commit, end, cancel, rollback,
+  revocation, and rejection paths.
 - `event-publication.d2` shows borrowed versus owned lifecycle facts and the
   caller-owned event-channel publication boundary.
 
@@ -45,16 +46,16 @@ Each D2 file has a same-name `.svg` render beside it.
 
 - `AbilityDefinition` validates authoring metadata for definition identity and
   lifecycle routing. Payload schema is carried as caller-owned metadata.
-- `begin_registered_activation_*` uses a granted definition key to choose
-  `commit_timing`; other definition fields remain metadata or validation hints.
+- `begin_registered_activation_*` validates that the granted definition key is
+  registered; definition fields remain metadata or validation hints.
 - Ability lifecycle facts are returned through callbacks. Channel keys on
   definitions do not auto-route events into `EventChannel`.
-- `AbilityHooks::can_activate` is the single runtime boundary where caller code
-  decides activation blocking, including required tags, resource checks,
-  cooldown override, authority, and targeting.
-- Other `AbilityHooks` methods own commit side effects, end side effects, and
-  cancellation behavior. Revocation and rollback lifecycle facts are cleanup
-  paths and do not imply `on_cancel` ran.
+- `AbilityActivationGate::can_activate` is the begin-time runtime boundary
+  where caller code decides activation blocking, including required tags,
+  resource checks, cooldown override, authority, and targeting.
+- `AbilityCommitAction::apply_commit` owns point-of-no-return side effects.
+  End, cancel, revocation, and rollback commands do not accept caller
+  participants.
 - `ActiveAbility::source_id` exposes the owner id for caller-owned effect
   application derived from an activation; abilities do not apply effects
   automatically.

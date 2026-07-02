@@ -1,12 +1,11 @@
 mod common;
 
-use common::{TestAtom, block_on};
+use common::TestAtom;
 use flexweave::{
-    AbilityCommitTiming, AbilityGrantError, AbilityHooks, AbilityLifecycleEvent, AbilityStore,
-    Attribute, CoreError, DataStore, DerivedAttribute, EffectApplicationError,
-    EffectApplicationInput, EffectClockPolicy, EffectDefinition, EffectKind, EffectLifecycleEvent,
-    EffectObjectRemovalPolicy, EffectPipeline, EffectSourcePolicy, Grant, ObjectDestructionDriver,
-    ObjectId, ObjectStore, Tag, TagSet, query,
+    AbilityGrantError, AbilityLifecycleEvent, AbilityStore, Attribute, CoreError, DataStore,
+    DerivedAttribute, EffectApplicationError, EffectApplicationInput, EffectClockPolicy,
+    EffectDefinition, EffectKind, EffectLifecycleEvent, EffectObjectRemovalPolicy, EffectPipeline,
+    EffectSourcePolicy, Grant, ObjectDestructionDriver, ObjectId, ObjectStore, Tag, TagSet, query,
 };
 
 #[test]
@@ -68,13 +67,6 @@ fn ability_owner_cleanup_revokes_grants_and_active_abilities() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     struct Payload;
 
-    struct Hooks;
-
-    impl AbilityHooks<(), TagSet<TestAtom>, Payload> for Hooks {
-        type Error = ();
-        type BlockReason = ();
-    }
-
     let mut objects = ObjectStore::new();
     let owner = objects.create();
     let other_owner = objects.create();
@@ -83,6 +75,16 @@ fn ability_owner_cleanup_revokes_grants_and_active_abilities() {
         .grant_checked(
             &objects,
             Grant::new(owner, TagSet::new([Tag::new([TestAtom::Ability])]), Payload),
+        )
+        .unwrap();
+    let owned_uncommitted = abilities
+        .grant_checked(
+            &objects,
+            Grant::new(
+                owner,
+                TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Variant])]),
+                Payload,
+            ),
         )
         .unwrap();
     let retained = abilities
@@ -95,44 +97,49 @@ fn ability_owner_cleanup_revokes_grants_and_active_abilities() {
             ),
         )
         .unwrap();
-    let mut context = ();
-    let mut hooks = Hooks;
-    let owned_activation = block_on(abilities.begin_activation_for_owner_with(
-        owner,
-        owned,
-        AbilityCommitTiming::OnStart,
-        &mut context,
-        &mut hooks,
-    ))
-    .unwrap();
-    let retained_activation = block_on(abilities.begin_activation_for_owner_with(
-        other_owner,
-        retained,
-        AbilityCommitTiming::OnStart,
-        &mut context,
-        &mut hooks,
-    ))
-    .unwrap();
+    let owned_activation = abilities.begin_activation_for_owner(owner, owned).unwrap();
+    abilities.commit_activation(owned_activation).unwrap();
+    let owned_uncommitted_activation = abilities
+        .begin_activation_for_owner(owner, owned_uncommitted)
+        .unwrap();
+    let retained_activation = abilities
+        .begin_activation_for_owner(other_owner, retained)
+        .unwrap();
     let mut events: Vec<AbilityLifecycleEvent<TagSet<TestAtom>, Payload>> = Vec::new();
 
     let revoked = abilities.revoke_owner_with_events(owner, |event| events.push(event));
 
-    assert_eq!(revoked.grants.len(), 1);
+    assert_eq!(revoked.grants.len(), 2);
     assert_eq!(revoked.grants[0].id, owned);
-    assert_eq!(revoked.active_abilities.len(), 1);
+    assert_eq!(revoked.grants[1].id, owned_uncommitted);
+    assert_eq!(revoked.active_abilities.len(), 2);
     assert_eq!(revoked.active_abilities[0].activation_id, owned_activation);
+    assert_eq!(
+        revoked.active_abilities[1].activation_id,
+        owned_uncommitted_activation
+    );
     assert_eq!(abilities.count(), 1);
     assert_eq!(abilities.active_activation_count(), 1);
     assert_eq!(abilities.get(retained).unwrap().owner_id, other_owner);
+    assert!(revoked.active_abilities[0].committed);
+    assert!(!revoked.active_abilities[1].committed);
     assert!(
         abilities
             .get_active_activation(retained_activation)
             .is_some()
     );
-    let [AbilityLifecycleEvent::Revoked(revoked)] = events.as_slice() else {
-        panic!("owner cleanup should emit one revocation fact");
+    let [
+        AbilityLifecycleEvent::Revoked(committed_revoked),
+        AbilityLifecycleEvent::Revoked(uncommitted_revoked),
+    ] = events.as_slice()
+    else {
+        panic!("owner cleanup should emit revocation facts");
     };
-    assert_eq!(revoked.activation_id, owned_activation);
+    assert_eq!(committed_revoked.activation_id, owned_activation);
+    assert_eq!(
+        uncommitted_revoked.activation_id,
+        owned_uncommitted_activation
+    );
 }
 
 #[test]

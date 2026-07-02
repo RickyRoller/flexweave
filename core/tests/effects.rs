@@ -2,13 +2,12 @@ mod common;
 
 use common::TestAtom;
 use flexweave::{
-    AbilityActivationId, AbilityCommitTiming, AbilityId, ActiveAbility, ActiveEffectId,
-    EffectApplicationDecision, EffectApplicationDraft, EffectApplicationError,
-    EffectApplicationInput, EffectApplyOutcome, EffectClockPolicy, EffectDefinition,
-    EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions, EffectInitializer,
-    EffectKind, EffectLifecycleEvent, EffectLifecycleEventView, EffectPipeline, EffectRouting,
-    EffectSourcePolicy, EventChannel, EventChannelDefinition, EventRetention, LifecycleEventKind,
-    ObjectId, ObjectStore, Tag, TagSet,
+    AbilityActivationId, AbilityId, ActiveAbility, ActiveEffectId, EffectApplicationDecision,
+    EffectApplicationDraft, EffectApplicationError, EffectApplicationInput, EffectApplyOutcome,
+    EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError,
+    EffectDefinitions, EffectInitializer, EffectKind, EffectLifecycleEvent,
+    EffectLifecycleEventView, EffectPipeline, EffectRouting, EffectSourcePolicy, EventChannel,
+    EventChannelDefinition, EventRetention, LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet,
 };
 
 #[test]
@@ -855,7 +854,6 @@ fn effect_input_can_derive_source_from_active_ability() {
         owner_id: source,
         tags: TagSet::new([Tag::new([TestAtom::Ability])]),
         payload: (),
-        commit_timing: AbilityCommitTiming::OnStart,
         committed: true,
     };
     let input = EffectApplicationInput::accept_from_active_ability(

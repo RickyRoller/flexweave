@@ -1,8 +1,9 @@
 use flexweave::{
-    AbilityActivationError, AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityError,
-    AbilityGrantError, AbilityHookPhase, AbilityId, CoreError, EffectApplicationError,
-    EffectDefinitionError, EffectDefinitionRegistryError, EventChannelDefinitionError,
-    EventChannelError, LifecycleEventKind, RegisteredAbilityActivationError, SignalDefinitionError,
+    AbilityBeginError, AbilityCommitError, AbilityDefinitionError, AbilityDefinitionRegistryError,
+    AbilityEndError, AbilityError, AbilityGrantError, AbilityId, AbilityRollbackError, CoreError,
+    EffectApplicationError, EffectDefinitionError, EffectDefinitionRegistryError,
+    EventChannelDefinitionError, EventChannelError, LifecycleEventKind,
+    RegisteredAbilityActivationError, SignalDefinitionError,
 };
 use std::fmt;
 
@@ -30,7 +31,10 @@ fn public_flexweave_errors_implement_std_error() {
     assert_error::<AbilityDefinitionRegistryError>();
     assert_error::<AbilityError>();
     assert_error::<AbilityGrantError>();
-    assert_error::<AbilityActivationError<HookError>>();
+    assert_error::<AbilityBeginError<HookError>>();
+    assert_error::<AbilityCommitError<HookError>>();
+    assert_error::<AbilityEndError>();
+    assert_error::<AbilityRollbackError>();
     assert_error::<RegisteredAbilityActivationError<HookError>>();
     assert_error::<EffectApplicationError>();
     assert_error::<EffectDefinitionError>();
@@ -92,7 +96,7 @@ fn definition_errors_include_relevant_keys_in_display_messages() {
 
 #[test]
 fn runtime_errors_have_contextual_display_messages_and_sources() {
-    let ability = AbilityActivationError::<HookError>::Ability(AbilityError::MissingActivation);
+    let ability = AbilityBeginError::<HookError>::Ability(AbilityError::MissingActivation);
     assert_eq!(
         ability.to_string(),
         "ability activation failed: missing ability activation"
@@ -104,26 +108,44 @@ fn runtime_errors_have_contextual_display_messages_and_sources() {
         "missing ability activation"
     );
 
-    let blocked = AbilityActivationError::<HookError, &str>::Blocked("cooldown");
+    let blocked = AbilityBeginError::<HookError, &str>::Blocked("cooldown");
     assert_eq!(
         blocked.to_string(),
         "ability activation blocked: \"cooldown\""
     );
     assert!(std::error::Error::source(&blocked).is_none());
 
-    let hook = AbilityActivationError::<HookError>::Hook {
-        phase: AbilityHookPhase::CanActivate,
-        error: HookError,
-    };
+    let gate = AbilityBeginError::<HookError>::Gate(HookError);
     assert_eq!(
-        hook.to_string(),
-        "ability activation hook failed during can-activate: hook denied activation"
+        gate.to_string(),
+        "ability activation gate failed: hook denied activation"
     );
     assert_eq!(
-        std::error::Error::source(&hook)
-            .expect("hook error should be exposed as source")
+        std::error::Error::source(&gate)
+            .expect("gate error should be exposed as source")
             .to_string(),
         "hook denied activation"
+    );
+
+    let commit = AbilityCommitError::Action(HookError);
+    assert_eq!(
+        commit.to_string(),
+        "ability commit action failed: hook denied activation"
+    );
+    assert_eq!(
+        std::error::Error::source(&commit)
+            .expect("commit action error should be exposed as source")
+            .to_string(),
+        "hook denied activation"
+    );
+
+    assert_eq!(
+        AbilityEndError::UncommittedActivation.to_string(),
+        "uncommitted ability activation"
+    );
+    assert_eq!(
+        AbilityRollbackError::AlreadyCommitted.to_string(),
+        "ability activation is already committed"
     );
 
     assert_eq!(

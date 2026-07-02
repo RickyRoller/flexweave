@@ -13,7 +13,7 @@ cooldowns are calculated.
 ## Define a Runtime Model
 
 Group the primitive stores that matter to the consumer runtime, then expose
-domain methods that ability and effect hooks can call.
+domain methods that ability commit actions and effect adapters can call.
 
 ```rust
 use flexweave::{Attribute, AttributeValue, DerivedAttribute, ObjectId};
@@ -47,16 +47,14 @@ impl CombatModel {
 }
 ```
 
-## Call the Model From Hooks
+## Call the Model From Commit Actions
 
 Keep authored effects and ability payloads from becoming hardcoded attribute
 operations. Let them describe intent or configured values, then let the consumer
 runtime decide how that intent interacts with attributes.
 
 ```rust
-use flexweave::{
-    AbilityHooks, ActiveAbilityView, AttributeValue, ObjectId, TagSet,
-};
+use flexweave::{AbilityCommitAction, ActiveAbilityView, AttributeValue, ObjectId, TagSet};
 
 struct Runtime {
     combat: CombatModel,
@@ -67,13 +65,12 @@ struct DamagePayload {
     amount: AttributeValue,
 }
 
-struct Hooks;
+struct CommitDamage;
 
-impl AbilityHooks<Runtime, TagSet<String>, DamagePayload> for Hooks {
+impl AbilityCommitAction<Runtime, TagSet<String>, DamagePayload> for CommitDamage {
     type Error = ();
-    type BlockReason = ();
 
-    async fn on_commit(
+    fn apply_commit(
         &mut self,
         context: &mut Runtime,
         active: ActiveAbilityView<'_, TagSet<String>, DamagePayload>,
@@ -88,7 +85,8 @@ impl AbilityHooks<Runtime, TagSet<String>, DamagePayload> for Hooks {
 
 The same pattern works from an effect execution adapter, an event-channel
 listener, or any consumer-owned runtime service. Flexweave provides the
-deterministic primitives and lifecycle hooks; the consumer owns the calculation.
+deterministic primitives and lifecycle command boundary; the consumer owns the
+calculation.
 
 ## Keep the Boundary
 

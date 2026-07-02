@@ -1,7 +1,6 @@
 use crate::identity::ObjectId;
 use crate::tag::TagCollection;
 
-use super::definition::AbilityCommitTiming;
 use super::ids::{AbilityActivationId, AbilityId};
 
 /// Public lifecycle rejection reason.
@@ -11,7 +10,7 @@ pub enum AbilityActivationRejectionReason {
     InvalidOwner,
     OwnerMismatch,
     Blocked,
-    Hook,
+    Gate,
 }
 
 /// Activation attempt lifecycle fact.
@@ -98,39 +97,6 @@ where
     }
 }
 
-/// Ability commit lifecycle fact.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AbilityActivationCommit<Tags, Payload>
-where
-    Tags: TagCollection,
-{
-    pub attempt: AbilityActivationAttempt<Tags, Payload>,
-}
-
-/// Borrowed ability commit lifecycle fact.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct AbilityActivationCommitView<'event, Tags, Payload>
-where
-    Tags: TagCollection,
-{
-    pub attempt: AbilityActivationAttemptView<'event, Tags, Payload>,
-}
-
-impl<'event, Tags, Payload> AbilityActivationCommitView<'event, Tags, Payload>
-where
-    Tags: TagCollection,
-{
-    #[must_use]
-    pub fn to_owned_commit(&self) -> AbilityActivationCommit<Tags, Payload>
-    where
-        Payload: Clone,
-    {
-        AbilityActivationCommit {
-            attempt: self.attempt.to_owned_attempt(),
-        }
-    }
-}
-
 /// Active ability execution state.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ActiveAbility<Tags, Payload>
@@ -143,7 +109,6 @@ where
     pub owner_id: ObjectId,
     pub tags: Tags,
     pub payload: Payload,
-    pub commit_timing: AbilityCommitTiming,
     pub committed: bool,
 }
 
@@ -170,7 +135,6 @@ where
     pub owner_id: ObjectId,
     pub tags: &'event Tags,
     pub payload: &'event Payload,
-    pub commit_timing: AbilityCommitTiming,
     pub committed: bool,
 }
 
@@ -190,7 +154,6 @@ where
             owner_id: self.owner_id,
             tags: self.tags.clone(),
             payload: self.payload.clone(),
-            commit_timing: self.commit_timing,
             committed: self.committed,
         }
     }
@@ -226,7 +189,6 @@ where
             owner_id: value.owner_id,
             tags: &value.tags,
             payload: &value.payload,
-            commit_timing: value.commit_timing,
             committed: value.committed,
         }
     }
@@ -240,7 +202,7 @@ where
 {
     Attempted(AbilityActivationAttempt<Tags, Payload>),
     Rejected(AbilityActivationRejection<Tags, Payload>),
-    Committed(AbilityActivationCommit<Tags, Payload>),
+    Committed(ActiveAbility<Tags, Payload>),
     Started(ActiveAbility<Tags, Payload>),
     Canceled(ActiveAbility<Tags, Payload>),
     Revoked(ActiveAbility<Tags, Payload>),
@@ -256,7 +218,7 @@ where
 {
     Attempted(AbilityActivationAttemptView<'event, Tags, Payload>),
     Rejected(AbilityActivationRejectionView<'event, Tags, Payload>),
-    Committed(AbilityActivationCommitView<'event, Tags, Payload>),
+    Committed(ActiveAbilityView<'event, Tags, Payload>),
     Started(ActiveAbilityView<'event, Tags, Payload>),
     Canceled(ActiveAbilityView<'event, Tags, Payload>),
     Revoked(ActiveAbilityView<'event, Tags, Payload>),
@@ -280,7 +242,7 @@ where
             Self::Rejected(rejection) => {
                 AbilityLifecycleEvent::Rejected(rejection.to_owned_rejection())
             }
-            Self::Committed(commit) => AbilityLifecycleEvent::Committed(commit.to_owned_commit()),
+            Self::Committed(active) => AbilityLifecycleEvent::Committed(active.to_owned_active()),
             Self::Started(active) => AbilityLifecycleEvent::Started(active.to_owned_active()),
             Self::Canceled(active) => AbilityLifecycleEvent::Canceled(active.to_owned_active()),
             Self::Revoked(active) => AbilityLifecycleEvent::Revoked(active.to_owned_active()),

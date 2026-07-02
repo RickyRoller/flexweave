@@ -7,19 +7,21 @@ mod ids;
 mod store;
 
 pub use definition::{
-    AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError, AbilityDefinitionRegistryError,
-    AbilityDefinitions,
+    AbilityDefinition, AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions,
 };
 pub use events::{
-    AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationCommit,
-    AbilityActivationCommitView, AbilityActivationRejection, AbilityActivationRejectionReason,
-    AbilityActivationRejectionView, AbilityLifecycleEvent, AbilityLifecycleEventView,
-    ActiveAbility, ActiveAbilityView,
+    AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationRejection,
+    AbilityActivationRejectionReason, AbilityActivationRejectionView, AbilityLifecycleEvent,
+    AbilityLifecycleEventView, ActiveAbility, ActiveAbilityView,
 };
-pub use hooks::{AbilityActivationDecision, AbilityHooks};
+pub use hooks::{
+    AbilityActivationDecision, AbilityActivationGate, AbilityCommitAction, AllowActivation,
+    NoCommitAction,
+};
 pub use ids::{AbilityActivationId, AbilityId};
 pub use store::{
-    AbilityActivationError, AbilityCancelOutcome, AbilityCommitOutcome, AbilityEndOutcome,
-    AbilityEndOutcomeResult, AbilityError, AbilityGrantError, AbilityHookPhase, AbilityStore,
-    Grant, GrantedAbility, RegisteredAbilityActivationError, RevokedOwnerAbilities,
+    AbilityBeginError, AbilityCancelOutcome, AbilityCommitError, AbilityCommitOutcome,
+    AbilityEndError, AbilityEndOutcome, AbilityError, AbilityGrantError, AbilityRollbackError,
+    AbilityRollbackOutcome, AbilityStore, Grant, GrantedAbility, RegisteredAbilityActivationError,
+    RevokedOwnerAbilities,
 };

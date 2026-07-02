@@ -1,18 +1,49 @@
 mod common;
 
-use common::{TestAtom, block_on};
+use common::TestAtom;
 use flexweave::{
-    AbilityActivationDecision, AbilityActivationError, AbilityActivationRejectionReason,
-    AbilityCancelOutcome, AbilityCommitOutcome, AbilityCommitTiming, AbilityDefinition,
-    AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndOutcome, AbilityGrantError,
-    AbilityHookPhase, AbilityHooks, AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView,
-    AbilityStore, ActiveAbilityView, EffectApplicationDecision, EffectApplicationInput,
-    EffectDefinition, EffectLifecycleEvent, EffectPipeline, EventChannel, EventChannelDefinition,
-    EventRetention, Grant, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId,
-    ObjectStore, Tag, TagSet,
+    AbilityActivationDecision, AbilityActivationGate, AbilityActivationRejectionReason,
+    AbilityBeginError, AbilityCancelOutcome, AbilityCommitAction, AbilityCommitError,
+    AbilityCommitOutcome, AbilityDefinition, AbilityDefinitionRegistryError, AbilityDefinitions,
+    AbilityEndError, AbilityEndOutcome, AbilityGrantError, AbilityId, AbilityLifecycleEvent,
+    AbilityLifecycleEventView, AbilityRollbackError, AbilityRollbackOutcome, AbilityStore,
+    ActiveAbilityView, EffectApplicationDecision, EffectApplicationInput, EffectDefinition,
+    EffectLifecycleEvent, EffectPipeline, EventChannel, EventChannelDefinition, EventRetention,
+    Grant, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId, ObjectStore, Tag,
+    TagSet,
 };
 use std::cell::Cell;
 use std::rc::Rc;
+
+#[test]
+fn begin_without_gate_emits_attempted_and_started() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Payload;
+
+    let mut abilities = AbilityStore::new();
+    let ability_id = grant_payload(&mut abilities, Payload);
+    let mut events = Vec::new();
+
+    let activation_id = abilities
+        .begin_activation_with_events(ability_id, |event| events.push(event))
+        .unwrap();
+
+    assert_eq!(activation_id.get(), 1);
+    assert_eq!(abilities.active_activation_count(), 1);
+    assert!(
+        !abilities
+            .get_active_activation(activation_id)
+            .unwrap()
+            .committed
+    );
+    assert_eq!(
+        lifecycle_kinds(&events),
+        vec![
+            LifecycleEventKind::AbilityActivationAttempted,
+            LifecycleEventKind::AbilityActivationStarted,
+        ]
+    );
+}
 
 #[test]
 fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
@@ -34,7 +65,7 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
     }
 
     #[derive(Debug, Eq, PartialEq)]
-    enum HookError {
+    enum CommitError {
         Effect,
     }
 
@@ -44,21 +75,19 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
         events: Vec<&'static str>,
     }
 
-    struct Hooks {
+    struct Gate {
         cost: u8,
-        cooldown_units: u64,
     }
 
-    impl AbilityHooks<Runtime, TagSet<TestAtom>, AbilityPayload> for Hooks {
-        type Error = HookError;
+    impl AbilityActivationGate<Runtime, TagSet<TestAtom>, AbilityPayload> for Gate {
+        type Error = ();
         type BlockReason = BlockReason;
 
-        async fn can_activate(
+        fn can_activate(
             &mut self,
-            context: &mut Runtime,
+            context: &Runtime,
             attempt: flexweave::AbilityActivationAttemptView<'_, TagSet<TestAtom>, AbilityPayload>,
         ) -> Result<AbilityActivationDecision<Self::BlockReason>, Self::Error> {
-            context.events.push("can_activate");
             if context.effects.has_tag(attempt.owner_id, &cooldown_tag()) {
                 return Ok(AbilityActivationDecision::Block(BlockReason::Cooldown));
             }
@@ -67,22 +96,23 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
             }
             Ok(AbilityActivationDecision::Allow)
         }
+    }
 
-        async fn on_start(
-            &mut self,
-            context: &mut Runtime,
-            _active: ActiveAbilityView<'_, TagSet<TestAtom>, AbilityPayload>,
-        ) -> Result<(), Self::Error> {
-            context.events.push("start");
-            Ok(())
-        }
+    struct Commit {
+        cost: u8,
+        cooldown_units: u64,
+    }
 
-        async fn on_commit(
+    impl AbilityCommitAction<Runtime, TagSet<TestAtom>, AbilityPayload> for Commit {
+        type Error = CommitError;
+
+        fn apply_commit(
             &mut self,
             context: &mut Runtime,
             active: ActiveAbilityView<'_, TagSet<TestAtom>, AbilityPayload>,
         ) -> Result<(), Self::Error> {
             context.events.push("commit");
+            assert!(!active.committed);
             context
                 .effects
                 .apply_with_events(
@@ -102,7 +132,7 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
                         }
                     },
                 )
-                .map_err(|_| HookError::Effect)?;
+                .map_err(|_| CommitError::Effect)?;
             context
                 .effects
                 .apply(
@@ -115,16 +145,7 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
                         decision: EffectApplicationDecision::Accept,
                     },
                 )
-                .map_err(|_| HookError::Effect)?;
-            Ok(())
-        }
-
-        async fn on_end(
-            &mut self,
-            context: &mut Runtime,
-            _active: ActiveAbilityView<'_, TagSet<TestAtom>, AbilityPayload>,
-        ) -> Result<(), Self::Error> {
-            context.events.push("end");
+                .map_err(|_| CommitError::Effect)?;
             Ok(())
         }
     }
@@ -141,30 +162,35 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
         effects: EffectPipeline::new(),
         events: Vec::new(),
     };
-    let mut hooks = Hooks {
+    let mut gate = Gate { cost: 3 };
+    let mut commit = Commit {
         cost: 3,
         cooldown_units: 1000,
     };
     let mut events = Vec::new();
 
-    let activation_id = block_on(abilities.begin_activation_with_events(
-        ability_id,
-        AbilityCommitTiming::OnStart,
-        &mut runtime,
-        &mut hooks,
-        |event| events.push(event),
-    ))
-    .unwrap();
-    let ended =
-        block_on(abilities.end_activation_with(activation_id, &mut runtime, &mut hooks)).unwrap();
+    let activation_id = abilities
+        .begin_activation_with_gate_events(ability_id, &runtime, &mut gate, |event| {
+            events.push(event)
+        })
+        .unwrap();
+    assert_eq!(
+        abilities
+            .commit_activation_with_action_events(
+                activation_id,
+                &mut runtime,
+                &mut commit,
+                |event| events.push(event),
+            )
+            .unwrap(),
+        AbilityCommitOutcome::Committed
+    );
+    let ended = abilities.end_activation(activation_id).unwrap();
 
     assert!(matches!(ended, AbilityEndOutcome::Ended(_)));
     assert_eq!(runtime.mana, 7);
     assert!(runtime.effects.has_tag(owner, &cooldown_tag()));
-    assert_eq!(
-        runtime.events,
-        vec!["can_activate", "start", "commit", "end"]
-    );
+    assert_eq!(runtime.events, vec!["commit"]);
     assert_eq!(
         lifecycle_kinds(&events),
         vec![
@@ -173,17 +199,18 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
             LifecycleEventKind::AbilityActivationCommitted,
         ]
     );
+    let [_, _, AbilityLifecycleEvent::Committed(committed)] = events.as_slice() else {
+        panic!("commit should emit committed active state");
+    };
+    assert_eq!(committed.activation_id, activation_id);
+    assert!(committed.committed);
 
     let mut blocked_events = Vec::new();
     assert_eq!(
-        block_on(abilities.begin_activation_with_events(
-            ability_id,
-            AbilityCommitTiming::OnStart,
-            &mut runtime,
-            &mut hooks,
-            |event| blocked_events.push(event),
-        )),
-        Err(AbilityActivationError::Blocked(BlockReason::Cooldown))
+        abilities.begin_activation_with_gate_events(ability_id, &runtime, &mut gate, |event| {
+            blocked_events.push(event)
+        }),
+        Err(AbilityBeginError::Blocked(BlockReason::Cooldown))
     );
     let [_, AbilityLifecycleEvent::Rejected(rejected)] = blocked_events.as_slice() else {
         panic!("blocked activation should emit attempted and rejected");
@@ -193,134 +220,207 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
     runtime.effects.tick(1000);
     assert!(!runtime.effects.has_tag(owner, &cooldown_tag()));
 
-    let activation_id = block_on(abilities.begin_activation_with(
-        ability_id,
-        AbilityCommitTiming::OnStart,
-        &mut runtime,
-        &mut hooks,
-    ))
-    .unwrap();
-    block_on(abilities.end_activation_with(activation_id, &mut runtime, &mut hooks)).unwrap();
+    let activation_id = abilities
+        .begin_activation_with_gate(ability_id, &runtime, &mut gate)
+        .unwrap();
+    abilities
+        .commit_activation_with_action(activation_id, &mut runtime, &mut commit)
+        .unwrap();
+    abilities.end_activation(activation_id).unwrap();
     assert_eq!(runtime.mana, 4);
 }
 
 #[test]
-fn manual_commit_and_cancel_are_separate_lifecycle_commands() {
+fn begin_gate_error_emits_rejection_without_active_state() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     struct Payload;
 
-    struct Runtime {
-        events: Vec<&'static str>,
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum GateError {
+        Unavailable,
     }
 
-    struct Hooks;
+    struct Gate;
 
-    impl AbilityHooks<Runtime, TagSet<TestAtom>, Payload> for Hooks {
-        type Error = ();
-        type BlockReason = &'static str;
+    impl AbilityActivationGate<(), TagSet<TestAtom>, Payload> for Gate {
+        type Error = GateError;
+        type BlockReason = ();
 
-        async fn on_commit(
+        fn can_activate(
             &mut self,
-            context: &mut Runtime,
-            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
-        ) -> Result<(), Self::Error> {
-            context.events.push("commit");
-            Ok(())
-        }
-
-        async fn on_cancel(
-            &mut self,
-            context: &mut Runtime,
-            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
-        ) -> Result<(), Self::Error> {
-            context.events.push("cancel");
-            Ok(())
+            _context: &(),
+            _attempt: flexweave::AbilityActivationAttemptView<'_, TagSet<TestAtom>, Payload>,
+        ) -> Result<AbilityActivationDecision<Self::BlockReason>, Self::Error> {
+            Err(GateError::Unavailable)
         }
     }
 
     let mut abilities = AbilityStore::new();
-    let first = grant_payload(&mut abilities, Payload);
-    let second = grant_payload(&mut abilities, Payload);
-    let mut runtime = Runtime { events: Vec::new() };
-    let mut hooks = Hooks;
+    let ability_id = grant_payload(&mut abilities, Payload);
+    let mut gate = Gate;
     let mut events = Vec::new();
 
-    let activation_id = block_on(abilities.begin_activation_with_events(
-        first,
-        AbilityCommitTiming::Manual,
-        &mut runtime,
-        &mut hooks,
-        |event| events.push(event),
-    ))
-    .unwrap();
-    assert!(
-        !abilities
-            .get_active_activation(activation_id)
-            .unwrap()
-            .committed
-    );
     assert_eq!(
-        block_on(abilities.commit_activation_with_events(
+        abilities.begin_activation_with_gate_events(ability_id, &(), &mut gate, |event| {
+            events.push(event)
+        }),
+        Err(AbilityBeginError::Gate(GateError::Unavailable))
+    );
+
+    assert_eq!(abilities.active_activation_count(), 0);
+    let [_, AbilityLifecycleEvent::Rejected(rejected)] = events.as_slice() else {
+        panic!("gate error should emit attempted and rejected");
+    };
+    assert_eq!(rejected.reason, AbilityActivationRejectionReason::Gate);
+}
+
+#[test]
+fn commit_action_failure_rolls_back_active_state() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Payload;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum CommitError {
+        Failed,
+    }
+
+    struct Commit;
+
+    impl AbilityCommitAction<(), TagSet<TestAtom>, Payload> for Commit {
+        type Error = CommitError;
+
+        fn apply_commit(
+            &mut self,
+            _context: &mut (),
+            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
+        ) -> Result<(), Self::Error> {
+            Err(CommitError::Failed)
+        }
+    }
+
+    let mut abilities = AbilityStore::new();
+    let ability_id = grant_payload(&mut abilities, Payload);
+    let activation_id = abilities.begin_activation(ability_id).unwrap();
+    let mut commit = Commit;
+    let mut events = Vec::new();
+
+    assert_eq!(
+        abilities.commit_activation_with_action_events(
             activation_id,
-            &mut runtime,
-            &mut hooks,
+            &mut (),
+            &mut commit,
             |event| events.push(event),
-        ))
-        .unwrap(),
+        ),
+        Err(AbilityCommitError::Action(CommitError::Failed))
+    );
+
+    assert_eq!(abilities.active_activation_count(), 0);
+    let [AbilityLifecycleEvent::RolledBack(rolled_back)] = events.as_slice() else {
+        panic!("failed commit action should emit a rollback fact");
+    };
+    assert_eq!(rolled_back.activation_id, activation_id);
+    assert!(!rolled_back.committed);
+}
+
+#[test]
+fn explicit_commit_end_cancel_and_rollback_have_separate_lifecycle_contracts() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Payload;
+
+    let mut abilities = AbilityStore::new();
+    let first = grant_payload(&mut abilities, Payload);
+    let second = grant_payload(&mut abilities, Payload);
+    let third = grant_payload(&mut abilities, Payload);
+    let fourth = grant_payload(&mut abilities, Payload);
+    let mut events = Vec::new();
+
+    let activation_id = abilities.begin_activation(first).unwrap();
+    assert_eq!(
+        abilities.end_activation(activation_id),
+        Err(AbilityEndError::UncommittedActivation)
+    );
+    assert!(abilities.get_active_activation(activation_id).is_some());
+    assert_eq!(
+        abilities
+            .commit_activation_with_events(activation_id, |event| events.push(event))
+            .unwrap(),
         AbilityCommitOutcome::Committed
     );
     assert_eq!(
-        block_on(abilities.commit_activation_with(activation_id, &mut runtime, &mut hooks,))
-            .unwrap(),
+        abilities.commit_activation(activation_id).unwrap(),
         AbilityCommitOutcome::AlreadyCommitted
     );
-    let ended =
-        block_on(abilities.end_activation_with(activation_id, &mut runtime, &mut hooks)).unwrap();
+    let ended = abilities
+        .end_activation_with_events(activation_id, |event| events.push(event))
+        .unwrap();
     assert!(matches!(ended, AbilityEndOutcome::Ended(_)));
 
-    let cancel_activation_id = block_on(abilities.begin_activation_with(
-        second,
-        AbilityCommitTiming::Manual,
-        &mut runtime,
-        &mut hooks,
-    ))
-    .unwrap();
-    let canceled = block_on(abilities.cancel_activation_with_events(
-        cancel_activation_id,
-        &mut runtime,
-        &mut hooks,
-        |event| events.push(event),
-    ))
-    .unwrap();
-    let AbilityCancelOutcome::Canceled(canceled) = canceled else {
-        panic!("active activation should cancel");
-    };
+    let uncommitted_cancel_id = abilities.begin_activation(second).unwrap();
+    let committed_cancel_id = abilities.begin_activation(third).unwrap();
+    abilities.commit_activation(committed_cancel_id).unwrap();
+    let canceled_uncommitted =
+        abilities.cancel_activation_with_events(uncommitted_cancel_id, |event| events.push(event));
+    let canceled_committed =
+        abilities.cancel_activation_with_events(committed_cancel_id, |event| events.push(event));
+    assert!(matches!(
+        canceled_uncommitted,
+        AbilityCancelOutcome::Canceled(_)
+    ));
+    assert!(matches!(
+        canceled_committed,
+        AbilityCancelOutcome::Canceled(_)
+    ));
 
-    assert_eq!(canceled.activation_id, cancel_activation_id);
-    assert_eq!(runtime.events, vec!["commit", "cancel"]);
-    assert_eq!(abilities.active_activation_count(), 0);
+    let rollback_id = abilities.begin_activation(fourth).unwrap();
+    let rolled_back = abilities
+        .rollback_activation_with_events(rollback_id, |event| events.push(event))
+        .unwrap();
+    let AbilityRollbackOutcome::RolledBack(rolled_back) = rolled_back;
+    assert_eq!(rolled_back.activation_id, rollback_id);
+
+    assert_eq!(
+        abilities.end_activation(rollback_id),
+        Err(AbilityEndError::MissingActivation)
+    );
     assert_eq!(
         lifecycle_kinds(&events),
         vec![
-            LifecycleEventKind::AbilityActivationAttempted,
-            LifecycleEventKind::AbilityActivationStarted,
             LifecycleEventKind::AbilityActivationCommitted,
+            LifecycleEventKind::AbilityActivationEnded,
             LifecycleEventKind::AbilityActivationCanceled,
+            LifecycleEventKind::AbilityActivationCanceled,
+            LifecycleEventKind::AbilityActivationRolledBack,
         ]
     );
 }
 
 #[test]
-fn checked_grant_and_owner_activation_reject_invalid_object_references_before_hooks() {
+fn rollback_rejects_committed_activation_and_leaves_state() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     struct Payload;
 
-    struct Hooks;
+    let mut abilities = AbilityStore::new();
+    let ability_id = grant_payload(&mut abilities, Payload);
+    let activation_id = abilities.begin_activation(ability_id).unwrap();
 
-    impl AbilityHooks<(), TagSet<TestAtom>, Payload> for Hooks {
-        type Error = ();
-        type BlockReason = ();
-    }
+    abilities.commit_activation(activation_id).unwrap();
+
+    assert_eq!(
+        abilities.rollback_activation(activation_id),
+        Err(AbilityRollbackError::AlreadyCommitted)
+    );
+    assert!(
+        abilities
+            .get_active_activation(activation_id)
+            .unwrap()
+            .committed
+    );
+}
+
+#[test]
+fn checked_grant_and_owner_activation_reject_invalid_object_references_before_gate() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Payload;
 
     let mut objects = ObjectStore::new();
     let live_owner = objects.create();
@@ -344,20 +444,12 @@ fn checked_grant_and_owner_activation_reject_invalid_object_references_before_ho
             Grant::new(live_owner, TagSet::new([tag]), Payload),
         )
         .unwrap();
-    let mut hooks = Hooks;
-    let mut context = ();
     let mut events = Vec::new();
 
     assert_eq!(
-        block_on(abilities.begin_activation_for_owner_with_events(
-            other_owner,
-            ability_id,
-            AbilityCommitTiming::OnStart,
-            &mut context,
-            &mut hooks,
-            |event| events.push(event),
-        )),
-        Err(AbilityActivationError::Ability(
+        abilities.begin_activation_for_owner_with_events(other_owner, ability_id, |event| events
+            .push(event),),
+        Err(AbilityBeginError::Ability(
             flexweave::AbilityError::OwnerMismatch {
                 expected_owner_id: other_owner,
                 actual_owner_id: live_owner,
@@ -374,20 +466,11 @@ fn checked_grant_and_owner_activation_reject_invalid_object_references_before_ho
 }
 
 #[test]
-fn registered_definitions_provide_activation_timing_without_cost_or_cooldown_state() {
+fn registered_definitions_validate_key_without_orchestration_metadata() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     struct Payload;
 
-    struct Hooks;
-
-    impl AbilityHooks<(), TagSet<TestAtom>, Payload> for Hooks {
-        type Error = ();
-        type BlockReason = ();
-    }
-
-    let definitions =
-        AbilityDefinitions::new([ability_definition("channel", AbilityCommitTiming::OnEnd)])
-            .unwrap();
+    let definitions = AbilityDefinitions::new([ability_definition("channel")]).unwrap();
     let mut abilities = AbilityStore::new();
     let ability_id = abilities
         .grant_registered(
@@ -400,31 +483,27 @@ fn registered_definitions_provide_activation_timing_without_cost_or_cooldown_sta
             ),
         )
         .unwrap();
-    let mut hooks = Hooks;
-    let mut context = ();
     let mut events = Vec::new();
 
-    let activation_id = block_on(abilities.begin_registered_activation_with_events(
-        &definitions,
-        ability_id,
-        &mut context,
-        &mut hooks,
-        |event| events.push(event),
-    ))
-    .unwrap();
+    let activation_id = abilities
+        .begin_registered_activation_with_events(&definitions, ability_id, |event| {
+            events.push(event)
+        })
+        .unwrap();
 
     let active = abilities.get_active_activation(activation_id).unwrap();
     assert_eq!(active.definition_key.as_deref(), Some("channel"));
-    assert_eq!(active.commit_timing, AbilityCommitTiming::OnEnd);
     assert!(!active.committed);
-
-    block_on(abilities.end_activation_with_events(
-        activation_id,
-        &mut context,
-        &mut hooks,
-        |event| events.push(event),
-    ))
-    .unwrap();
+    assert_eq!(
+        abilities.end_activation(activation_id),
+        Err(AbilityEndError::UncommittedActivation)
+    );
+    abilities
+        .commit_activation_with_events(activation_id, |event| events.push(event))
+        .unwrap();
+    abilities
+        .end_activation_with_events(activation_id, |event| events.push(event))
+        .unwrap();
 
     assert_eq!(
         lifecycle_kinds(&events),
@@ -438,20 +517,18 @@ fn registered_definitions_provide_activation_timing_without_cost_or_cooldown_sta
 }
 
 #[test]
-fn ability_definition_metadata_supports_async_lifecycle_timing() {
+fn ability_definition_metadata_supports_lifecycle_channels() {
     assert_eq!(
-        AbilityDefinition::new("ability", "payload/schema")
-            .with_commit_timing(AbilityCommitTiming::OnEnd),
+        AbilityDefinition::new("ability", "payload/schema"),
         AbilityDefinition {
             key: "ability".to_owned(),
-            commit_timing: AbilityCommitTiming::OnEnd,
             emits_lifecycle: false,
             emitted_channel_keys: Vec::new(),
             payload_schema: "payload/schema",
         }
     );
 
-    let definition = ability_definition("channel", AbilityCommitTiming::Manual);
+    let definition = ability_definition("channel");
     definition.validate().unwrap();
     definition
         .validate_channels(&["abilities/lifecycle"])
@@ -478,17 +555,8 @@ fn caller_publishes_ability_lifecycle_events_to_named_channels() {
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     struct Payload;
 
-    struct Hooks;
-
-    impl AbilityHooks<(), TagSet<TestAtom>, Payload> for Hooks {
-        type Error = ();
-        type BlockReason = ();
-    }
-
     let mut abilities = AbilityStore::new();
     let ability_id = grant_payload(&mut abilities, Payload);
-    let mut hooks = Hooks;
-    let mut context = ();
     let channel_definition = EventChannelDefinition::new(
         "abilities/lifecycle",
         [
@@ -500,14 +568,12 @@ fn caller_publishes_ability_lifecycle_events_to_named_channels() {
     .unwrap();
     let mut channel = EventChannel::with_retention(channel_definition, EventRetention::Retain);
 
-    block_on(abilities.begin_activation_with_events(
-        ability_id,
-        AbilityCommitTiming::OnStart,
-        &mut context,
-        &mut hooks,
-        |event| channel.publish(event).unwrap(),
-    ))
-    .unwrap();
+    let activation_id = abilities
+        .begin_activation_with_events(ability_id, |event| channel.publish(event).unwrap())
+        .unwrap();
+    abilities
+        .commit_activation_with_events(activation_id, |event| channel.publish(event).unwrap())
+        .unwrap();
 
     let retained = channel.drain_retained();
     assert_eq!(
@@ -521,82 +587,7 @@ fn caller_publishes_ability_lifecycle_events_to_named_channels() {
 }
 
 #[test]
-fn start_hook_failure_rolls_back_active_activation_without_cancel_hook() {
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    struct Payload;
-
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    enum HookError {
-        Start,
-        Cancel,
-    }
-
-    struct Runtime {
-        cancel_calls: usize,
-    }
-
-    struct Hooks;
-
-    impl AbilityHooks<Runtime, TagSet<TestAtom>, Payload> for Hooks {
-        type Error = HookError;
-        type BlockReason = ();
-
-        async fn on_start(
-            &mut self,
-            _context: &mut Runtime,
-            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
-        ) -> Result<(), Self::Error> {
-            Err(HookError::Start)
-        }
-
-        async fn on_cancel(
-            &mut self,
-            context: &mut Runtime,
-            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
-        ) -> Result<(), Self::Error> {
-            context.cancel_calls += 1;
-            Err(HookError::Cancel)
-        }
-    }
-
-    let mut abilities = AbilityStore::new();
-    let ability_id = grant_payload(&mut abilities, Payload);
-    let mut runtime = Runtime { cancel_calls: 0 };
-    let mut hooks = Hooks;
-    let mut events = Vec::new();
-
-    assert_eq!(
-        block_on(abilities.begin_activation_with_events(
-            ability_id,
-            AbilityCommitTiming::Manual,
-            &mut runtime,
-            &mut hooks,
-            |event| events.push(event),
-        )),
-        Err(AbilityActivationError::Hook {
-            phase: AbilityHookPhase::Start,
-            error: HookError::Start,
-        })
-    );
-
-    assert_eq!(runtime.cancel_calls, 0);
-    assert_eq!(abilities.active_activation_count(), 0);
-    assert_eq!(
-        lifecycle_kinds(&events),
-        vec![
-            LifecycleEventKind::AbilityActivationAttempted,
-            LifecycleEventKind::AbilityActivationStarted,
-            LifecycleEventKind::AbilityActivationRolledBack,
-        ]
-    );
-    let [_, _, AbilityLifecycleEvent::RolledBack(rolled_back)] = events.as_slice() else {
-        panic!("start failure should emit a rollback fact");
-    };
-    assert_eq!(rolled_back.ability_id, ability_id);
-}
-
-#[test]
-fn borrowed_ability_attempt_event_does_not_clone_payload_for_publication() {
+fn borrowed_ability_events_do_not_clone_payload_for_publication() {
     #[derive(Debug)]
     struct Payload {
         clone_count: Rc<Cell<usize>>,
@@ -611,13 +602,6 @@ fn borrowed_ability_attempt_event_does_not_clone_payload_for_publication() {
         }
     }
 
-    struct Hooks;
-
-    impl AbilityHooks<(), TagSet<TestAtom>, Payload> for Hooks {
-        type Error = ();
-        type BlockReason = ();
-    }
-
     let clone_count = Rc::new(Cell::new(0));
     let mut abilities = AbilityStore::new();
     let ability_id = abilities.grant(Grant::new(
@@ -627,16 +611,10 @@ fn borrowed_ability_attempt_event_does_not_clone_payload_for_publication() {
             clone_count: Rc::clone(&clone_count),
         },
     ));
-    let mut hooks = Hooks;
-    let mut context = ();
     let mut kinds = Vec::new();
 
-    let activation_id = block_on(abilities.begin_activation_with_borrowed_events(
-        ability_id,
-        AbilityCommitTiming::OnStart,
-        &mut context,
-        &mut hooks,
-        |event| {
+    let activation_id = abilities
+        .begin_activation_with_borrowed_events(ability_id, |event| {
             match &event {
                 AbilityLifecycleEventView::Attempted(attempt) => {
                     assert_eq!(attempt.payload.clone_count.get(), 0);
@@ -644,238 +622,36 @@ fn borrowed_ability_attempt_event_does_not_clone_payload_for_publication() {
                 AbilityLifecycleEventView::Started(active) => {
                     assert_eq!(active.payload.clone_count.get(), 1);
                 }
-                AbilityLifecycleEventView::Committed(commit) => {
-                    assert_eq!(commit.attempt.payload.clone_count.get(), 3);
-                }
                 _ => panic!("unexpected borrowed ability event"),
             }
             kinds.push(event.lifecycle_event_kind());
-        },
-    ))
-    .unwrap();
+        })
+        .unwrap();
+    abilities
+        .commit_activation_with_borrowed_events(activation_id, |event| {
+            let AbilityLifecycleEventView::Committed(active) = event else {
+                panic!("commit should emit committed active state");
+            };
+            assert_eq!(active.payload.clone_count.get(), 1);
+        })
+        .unwrap();
+    abilities
+        .end_activation_with_borrowed_events(activation_id, |event| {
+            let AbilityLifecycleEventView::Ended(active) = event else {
+                panic!("end should emit an ended event");
+            };
+            assert_eq!(active.payload.clone_count.get(), 1);
+        })
+        .unwrap();
 
-    assert_eq!(clone_count.get(), 3);
+    assert_eq!(clone_count.get(), 1);
     assert_eq!(
         kinds,
         vec![
             LifecycleEventKind::AbilityActivationAttempted,
             LifecycleEventKind::AbilityActivationStarted,
-            LifecycleEventKind::AbilityActivationCommitted,
         ]
     );
-
-    block_on(abilities.end_activation_with_borrowed_events(
-        activation_id,
-        &mut context,
-        &mut hooks,
-        |event| {
-            let AbilityLifecycleEventView::Ended(active) = event else {
-                panic!("end should emit an ended event");
-            };
-            assert_eq!(active.payload.clone_count.get(), 4);
-        },
-    ))
-    .unwrap();
-
-    assert_eq!(clone_count.get(), 4);
-}
-
-#[test]
-fn instant_activation_rollback_preserves_execute_error_when_cancel_hook_fails() {
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    struct Payload;
-
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    enum HookError {
-        Execute,
-        Cancel,
-    }
-
-    struct Runtime {
-        cancel_calls: usize,
-    }
-
-    struct Hooks;
-
-    impl AbilityHooks<Runtime, TagSet<TestAtom>, Payload> for Hooks {
-        type Error = HookError;
-        type BlockReason = ();
-
-        async fn on_cancel(
-            &mut self,
-            context: &mut Runtime,
-            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
-        ) -> Result<(), Self::Error> {
-            context.cancel_calls += 1;
-            Err(HookError::Cancel)
-        }
-    }
-
-    let mut abilities = AbilityStore::new();
-    let ability_id = grant_payload(&mut abilities, Payload);
-    let mut runtime = Runtime { cancel_calls: 0 };
-    let mut hooks = Hooks;
-    let mut events = Vec::new();
-
-    assert_eq!(
-        block_on(abilities.activate_instant_with_events(
-            ability_id,
-            AbilityCommitTiming::Manual,
-            &mut runtime,
-            &mut hooks,
-            |_context, _active| Err(HookError::Execute),
-            |event| events.push(event),
-        )),
-        Err(AbilityActivationError::Hook {
-            phase: AbilityHookPhase::ExecuteInstant,
-            error: HookError::Execute,
-        })
-    );
-
-    assert_eq!(runtime.cancel_calls, 0);
-    assert_eq!(abilities.active_activation_count(), 0);
-    assert_eq!(
-        lifecycle_kinds(&events),
-        vec![
-            LifecycleEventKind::AbilityActivationAttempted,
-            LifecycleEventKind::AbilityActivationStarted,
-            LifecycleEventKind::AbilityActivationRolledBack,
-        ]
-    );
-    let [_, _, AbilityLifecycleEvent::RolledBack(rolled_back)] = events.as_slice() else {
-        panic!("instant execute failure should emit a rollback fact");
-    };
-    assert_eq!(rolled_back.ability_id, ability_id);
-}
-
-#[test]
-fn on_start_auto_commit_failure_rolls_back_begin_activation() {
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    struct Payload;
-
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    enum HookError {
-        Commit,
-    }
-
-    struct Hooks;
-
-    impl AbilityHooks<(), TagSet<TestAtom>, Payload> for Hooks {
-        type Error = HookError;
-        type BlockReason = ();
-
-        async fn on_commit(
-            &mut self,
-            _context: &mut (),
-            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
-        ) -> Result<(), Self::Error> {
-            Err(HookError::Commit)
-        }
-    }
-
-    let mut abilities = AbilityStore::new();
-    let ability_id = grant_payload(&mut abilities, Payload);
-    let mut hooks = Hooks;
-    let mut context = ();
-    let mut events = Vec::new();
-
-    assert_eq!(
-        block_on(abilities.begin_activation_with_events(
-            ability_id,
-            AbilityCommitTiming::OnStart,
-            &mut context,
-            &mut hooks,
-            |event| events.push(event),
-        )),
-        Err(AbilityActivationError::Hook {
-            phase: AbilityHookPhase::Commit,
-            error: HookError::Commit,
-        })
-    );
-
-    assert_eq!(abilities.active_activation_count(), 0);
-    assert_eq!(
-        lifecycle_kinds(&events),
-        vec![
-            LifecycleEventKind::AbilityActivationAttempted,
-            LifecycleEventKind::AbilityActivationStarted,
-            LifecycleEventKind::AbilityActivationRolledBack,
-        ]
-    );
-    let [_, _, AbilityLifecycleEvent::RolledBack(rolled_back)] = events.as_slice() else {
-        panic!("auto-commit failure should emit a rollback fact");
-    };
-    assert_eq!(rolled_back.ability_id, ability_id);
-}
-
-#[test]
-fn on_start_auto_commit_failure_rolls_back_instant_activation_before_execute() {
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    struct Payload;
-
-    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-    enum HookError {
-        Commit,
-        Execute,
-    }
-
-    struct Runtime {
-        execute_calls: usize,
-    }
-
-    struct Hooks;
-
-    impl AbilityHooks<Runtime, TagSet<TestAtom>, Payload> for Hooks {
-        type Error = HookError;
-        type BlockReason = ();
-
-        async fn on_commit(
-            &mut self,
-            _context: &mut Runtime,
-            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
-        ) -> Result<(), Self::Error> {
-            Err(HookError::Commit)
-        }
-    }
-
-    let mut abilities = AbilityStore::new();
-    let ability_id = grant_payload(&mut abilities, Payload);
-    let mut runtime = Runtime { execute_calls: 0 };
-    let mut hooks = Hooks;
-    let mut events = Vec::new();
-
-    assert_eq!(
-        block_on(abilities.activate_instant_with_events(
-            ability_id,
-            AbilityCommitTiming::OnStart,
-            &mut runtime,
-            &mut hooks,
-            |context, _active| {
-                context.execute_calls += 1;
-                Err(HookError::Execute)
-            },
-            |event| events.push(event),
-        )),
-        Err(AbilityActivationError::Hook {
-            phase: AbilityHookPhase::Commit,
-            error: HookError::Commit,
-        })
-    );
-
-    assert_eq!(runtime.execute_calls, 0);
-    assert_eq!(abilities.active_activation_count(), 0);
-    assert_eq!(
-        lifecycle_kinds(&events),
-        vec![
-            LifecycleEventKind::AbilityActivationAttempted,
-            LifecycleEventKind::AbilityActivationStarted,
-            LifecycleEventKind::AbilityActivationRolledBack,
-        ]
-    );
-    let [_, _, AbilityLifecycleEvent::RolledBack(rolled_back)] = events.as_slice() else {
-        panic!("instant auto-commit failure should emit a rollback fact");
-    };
-    assert_eq!(rolled_back.ability_id, ability_id);
 }
 
 fn grant_payload<Payload>(
@@ -893,13 +669,8 @@ fn cooldown_tag() -> Tag<TestAtom> {
     Tag::new([TestAtom::Ability, TestAtom::Variant])
 }
 
-fn ability_definition(
-    key: &str,
-    commit_timing: AbilityCommitTiming,
-) -> AbilityDefinition<&'static str> {
-    AbilityDefinition::new(key, "test/payload")
-        .with_commit_timing(commit_timing)
-        .with_lifecycle_channels(["abilities/lifecycle"])
+fn ability_definition(key: &str) -> AbilityDefinition<&'static str> {
+    AbilityDefinition::new(key, "test/payload").with_lifecycle_channels(["abilities/lifecycle"])
 }
 
 fn lifecycle_kinds<Payload>(

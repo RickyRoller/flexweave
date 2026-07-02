@@ -1,15 +1,15 @@
 mod common;
 
-use common::{TestAtom, block_on};
+use common::TestAtom;
 use flexweave::{
-    AbilityCommitTiming, AbilityHooks, AbilityStore, ActiveAbilityView, ActiveEffectId, Clock,
-    ClockUnits, DefinitionRegistryEntry, EffectApplicationDecision, EffectApplicationInput,
-    EffectClockPolicy, EffectDefinition as FlexEffectDefinition, EffectKind, EffectLifecycleEvent,
-    EffectPipeline, EffectRouting, EventChannel, EventChannelDefinition,
-    EventChannelDefinitionError, EventChannelDefinitions, EventChannelError,
-    EventChannelRouteDefinition, EventConnectionHandle, EventRetention, FixedStepClock, Grant,
-    LifecycleEvent, LifecycleEventKind, LocalLifecycleEvent, MechanicsDriver, ObjectId,
-    ObjectStore, RealtimeClock, RealtimeClockAccumulator, Registry, RegistryEntry, Tag, TagSet,
+    AbilityCommitAction, AbilityStore, ActiveAbilityView, ActiveEffectId, Clock, ClockUnits,
+    DefinitionRegistryEntry, EffectApplicationDecision, EffectApplicationInput, EffectClockPolicy,
+    EffectDefinition as FlexEffectDefinition, EffectKind, EffectLifecycleEvent, EffectPipeline,
+    EffectRouting, EventChannel, EventChannelDefinition, EventChannelDefinitionError,
+    EventChannelDefinitions, EventChannelError, EventChannelRouteDefinition, EventConnectionHandle,
+    EventRetention, FixedStepClock, Grant, LifecycleEvent, LifecycleEventKind, LocalLifecycleEvent,
+    MechanicsDriver, ObjectId, ObjectStore, RealtimeClock, RealtimeClockAccumulator, Registry,
+    RegistryEntry, Tag, TagSet,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -98,16 +98,14 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
         application_events: Vec<EffectLifecycleEvent<TagSet<TestAtom>, EffectPayload>>,
     }
 
-    struct Hooks {
+    struct Commit {
         abilities: Registry<'static, AbilityDefinition>,
-        effects: Registry<'static, EffectDefinition>,
     }
 
-    impl AbilityHooks<Runtime, TagSet<TestAtom>, AbilityPayload> for Hooks {
+    impl AbilityCommitAction<Runtime, TagSet<TestAtom>, AbilityPayload> for Commit {
         type Error = HookError;
-        type BlockReason = ();
 
-        async fn on_commit(
+        fn apply_commit(
             &mut self,
             context: &mut Runtime,
             active: ActiveAbilityView<'_, TagSet<TestAtom>, AbilityPayload>,
@@ -150,29 +148,25 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
         cooldowns: EffectPipeline::new(),
         application_events: Vec::new(),
     };
-    let mut hooks = Hooks {
+    let mut commit = Commit {
         abilities: Registry::new(ABILITY_DEFINITIONS),
-        effects: Registry::new(EFFECT_DEFINITIONS),
     };
+    let effects = Registry::new(EFFECT_DEFINITIONS);
 
-    let activation_id = block_on(abilities.begin_activation_with(
-        ability_id,
-        AbilityCommitTiming::OnStart,
-        &mut runtime,
-        &mut hooks,
-    ))
-    .unwrap();
+    let activation_id = abilities.begin_activation(ability_id).unwrap();
+    abilities
+        .commit_activation_with_action(activation_id, &mut runtime, &mut commit)
+        .unwrap();
     let active = abilities
         .get_active_activation(activation_id)
         .unwrap()
         .clone();
-    let ability_definition = hooks
+    let ability_definition = commit
         .abilities
         .definition(active.payload.definition_key)
         .ok_or(HookError::MissingAbilityDefinition)
         .unwrap();
-    let effect_definition = hooks
-        .effects
+    let effect_definition = effects
         .definition(ability_definition.effect_key)
         .ok_or(HookError::MissingEffectDefinition)
         .unwrap();
@@ -190,7 +184,7 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
             |event| runtime.application_events.push(event),
         )
         .unwrap();
-    block_on(abilities.end_activation_with(activation_id, &mut runtime, &mut hooks)).unwrap();
+    abilities.end_activation(activation_id).unwrap();
 
     assert_eq!(runtime.effects.count(), 1);
     assert_eq!(runtime.cooldowns.count(), 1);

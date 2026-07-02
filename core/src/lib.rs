@@ -23,8 +23,9 @@
 #![doc = "outcome enums so callers can distinguish command results without"]
 #![doc = "inspecting emitted lifecycle facts."]
 #![doc = ""]
-#![doc = "The crate is fully safe Rust. Caller-owned hooks and closures carry domain"]
-#![doc = "logic at the edges while Flexweave owns the reusable lifecycle shape."]
+#![doc = "The crate is fully safe Rust. Caller-owned gates, actions, and closures"]
+#![doc = "carry domain logic at the edges while Flexweave owns the reusable"]
+#![doc = "lifecycle shape."]
 #![doc = ""]
 #![doc = "## Lifecycle Facts, Channels, and Signals"]
 #![doc = ""]
@@ -162,15 +163,15 @@ pub mod signal;
 pub mod tag;
 
 pub use ability::{
-    AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationCommit,
-    AbilityActivationCommitView, AbilityActivationDecision, AbilityActivationError,
-    AbilityActivationId, AbilityActivationRejection, AbilityActivationRejectionReason,
-    AbilityActivationRejectionView, AbilityCancelOutcome, AbilityCommitOutcome,
-    AbilityCommitTiming, AbilityDefinition, AbilityDefinitionError, AbilityDefinitionRegistryError,
-    AbilityDefinitions, AbilityEndOutcome, AbilityEndOutcomeResult, AbilityError,
-    AbilityGrantError, AbilityHookPhase, AbilityHooks, AbilityId, AbilityLifecycleEvent,
-    AbilityLifecycleEventView, AbilityStore, ActiveAbility, ActiveAbilityView, Grant,
-    GrantedAbility, RegisteredAbilityActivationError, RevokedOwnerAbilities,
+    AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationDecision,
+    AbilityActivationGate, AbilityActivationId, AbilityActivationRejection,
+    AbilityActivationRejectionReason, AbilityActivationRejectionView, AbilityBeginError,
+    AbilityCancelOutcome, AbilityCommitAction, AbilityCommitError, AbilityCommitOutcome,
+    AbilityDefinition, AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions,
+    AbilityEndError, AbilityEndOutcome, AbilityError, AbilityGrantError, AbilityId,
+    AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityRollbackError, AbilityRollbackOutcome,
+    AbilityStore, ActiveAbility, ActiveAbilityView, AllowActivation, Grant, GrantedAbility,
+    NoCommitAction, RegisteredAbilityActivationError, RevokedOwnerAbilities,
 };
 pub use attribute::{
     Attribute, AttributeChange, AttributeMutation, AttributeMutationDecision,

@@ -26,7 +26,6 @@ classes: {
 authoring: Authoring model {
   definition: AbilityDefinition {
     key: String
-    commit_timing: AbilityCommitTiming
     emits_lifecycle: bool
     emitted_channel_keys: "Vec<String>"
     payload_schema: PayloadSchema
@@ -75,7 +74,6 @@ runtime: Runtime store {
     owner_id: ObjectId
     tags: Tags
     payload: Payload
-    commit_timing: AbilityCommitTiming
     committed: bool
   }
   active.class: artifact
@@ -101,18 +99,20 @@ caller: Caller boundary {
   objects: ObjectStore
   objects.class: boundary
 
-  hooks: AbilityHooks {
+  gate: AbilityActivationGate {
     shape: class
     can_activate(context, attempt): "Result<AbilityActivationDecision, Error>"
-    on_start(context, active): "Result<(), Error>"
-    on_commit(context, active): "Result<(), Error>"
-    on_end(context, active): "Result<(), Error>"
-    on_cancel(context, active): "Result<(), Error>"
   }
-  hooks.class: artifact
+  gate.class: artifact
 
-  executor: Instant executor
-  executor.class: boundary
+  commit_action: AbilityCommitAction {
+    shape: class
+    apply_commit(context, active): "Result<(), Error>"
+  }
+  commit_action.class: artifact
+
+  runtime: Runtime adapter
+  runtime.class: boundary
 
   channel: EventChannel
   channel.class: boundary
@@ -122,7 +122,7 @@ events: AbilityLifecycleEvent {
   shape: class
   Attempted: AbilityActivationAttempt
   Rejected: AbilityActivationRejection
-  Committed: AbilityActivationCommit
+  Committed: ActiveAbility
   Started: ActiveAbility
   Canceled: ActiveAbility
   Revoked: ActiveAbility
@@ -134,6 +134,7 @@ events.class: artifact
 authoring.definition -> runtime.grant_input: grant_with_definition validates metadata
 authoring.definitions -> runtime.grant_input: grant_registered requires key
 runtime.grant_input -> caller.objects: grant_checked validates live owner
-runtime.store -> caller.hooks: can_activate owns activation blocking
-runtime.active -> caller.executor: instant activation passes ActiveAbility
+runtime.store -> caller.gate: optional begin-time activation check
+runtime.active -> caller.commit_action: optional commit-time action
+caller.runtime -> runtime.store: composes begin, commit, end, cancel, rollback
 events -> caller.channel: caller publishes owned facts

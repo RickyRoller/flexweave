@@ -43,74 +43,83 @@ owner_mismatch.class: failure
 attempted: Emit Attempted
 attempted.class: side_effect
 
-can_activate: hooks.can_activate
+gate_choice: Activation gate?
+gate_choice.class: decision
+
+can_activate: gate.can_activate
 can_activate.class: caller
 
 blocked_reject: Reject Blocked
 blocked_reject.class: failure
 
-hook_reject: Reject Hook CanActivate
-hook_reject.class: failure
+gate_reject: Reject Gate error
+gate_reject.class: failure
 
-active_state: Push ActiveAbility
+active_state: Push ActiveAbility {committed: false}
 active_state.class: state
 
 started: Emit Started
 started.class: side_effect
 
-start_hook: hooks.on_start
-start_hook.class: caller
-
-start_failed: Rollback after start hook failure
-start_failed.class: failure
-
-commit_timing: Commit timing
-commit_timing.class: decision
-
-commit_now: Commit at start
-commit_now.class: side_effect
-
-commit_deferred: Defer commit
-commit_deferred.class: state
-
 active_ready: Active remains stored
 active_ready.class: state
 
-manual_command: Manual commit command
-manual_command.class: caller
+commit_command: Commit command
+commit_command.class: caller
 
-end_command: End command
-end_command.class: caller
-
-cancel_command: Cancel command
-cancel_command.class: caller
-
-revoke_owner: Revoke owner
-revoke_owner.class: caller
+commit_state: Active committed?
+commit_state.class: decision
 
 already_committed: AlreadyCommitted outcome
 already_committed.class: state
 
-commit_late: Commit before end or manual commit
-commit_late.class: side_effect
+commit_action_choice: Commit action?
+commit_action_choice.class: decision
 
-end_hook: hooks.on_end
-end_hook.class: caller
+commit_action: action.apply_commit
+commit_action.class: caller
 
-cancel_hook: hooks.on_cancel
-cancel_hook.class: caller
+commit_action_failed: Action error
+commit_action_failed.class: failure
+
+committed: Set committed and emit Committed
+committed.class: side_effect
+
+end_command: End command
+end_command.class: caller
+
+end_state: Active committed?
+end_state.class: decision
+
+end_uncommitted: UncommittedActivation error
+end_uncommitted.class: failure
 
 ended: Remove active and emit Ended
 ended.class: side_effect
 
+cancel_command: Cancel command
+cancel_command.class: caller
+
 canceled: Remove active and emit Canceled
 canceled.class: side_effect
 
-revoked: Remove active and emit Revoked
-revoked.class: side_effect
+rollback_command: Rollback command
+rollback_command.class: caller
+
+rollback_state: Active committed?
+rollback_state.class: decision
+
+rollback_committed: AlreadyCommitted error
+rollback_committed.class: failure
 
 rolled_back: Remove active and emit RolledBack
 rolled_back.class: side_effect
+
+revoke_owner: Revoke owner
+revoke_owner.class: caller
+
+revoked: Remove active and emit Revoked
+revoked.class: side_effect
 
 begin -> owner_gate: optional checked path
 owner_gate -> invalid_owner: invalid owner id
@@ -118,56 +127,38 @@ owner_gate -> missing_ability: ability id not found
 owner_gate -> owner_mismatch: grant belongs to another owner
 owner_gate -> attempted: valid owner or unchecked path
 
-attempted -> can_activate: caller policy
+attempted -> gate_choice: begin command
+gate_choice -> active_state: no gate
+gate_choice -> can_activate: gate-backed begin
 can_activate -> blocked_reject: Block(reason)
-can_activate -> hook_reject: hook error
+can_activate -> gate_reject: gate error
 can_activate -> active_state: Allow
 active_state -> started: assign AbilityActivationId
-started -> start_hook: active snapshot
-start_hook -> start_failed: hook error
-start_failed -> rolled_back: remove active and emit RolledBack
-start_hook -> commit_timing: hook ok
+started -> active_ready: active stored
 
-commit_timing -> commit_now: OnStart
-commit_timing -> commit_deferred: OnEnd or Manual
-commit_now -> active_ready: hooks.on_commit + emit Committed
-commit_deferred -> active_ready: no commit yet
-
-active_ready -> manual_command: command later {class: async_edge}
-active_ready -> end_command: command later {class: async_edge}
-active_ready -> cancel_command: command later {class: async_edge}
+active_ready -> commit_command: runtime reaches point of no return {class: async_edge}
+active_ready -> end_command: runtime completes normally {class: async_edge}
+active_ready -> cancel_command: runtime aborts or interrupts {class: async_edge}
+active_ready -> rollback_command: runtime setup fails before commit {class: async_edge}
 active_ready -> revoke_owner: owner cleanup {class: async_edge}
 
-manual_command -> already_committed: active.committed is true
-manual_command -> commit_late: not committed
+commit_command -> commit_state: find active activation
+commit_state -> already_committed: committed true
+commit_state -> commit_action_choice: committed false
+commit_action_choice -> committed: no action
+commit_action_choice -> commit_action: action-backed commit
+commit_action -> committed: Ok
+commit_action -> commit_action_failed: Err
+commit_action_failed -> rolled_back: remove active and emit RolledBack
 
-end_command -> commit_late: OnEnd and not committed
-end_command -> end_hook: already committed or Manual
-commit_late -> end_hook: set committed and emit Committed
-end_hook -> ended: hook ok
+end_command -> end_state: find active activation
+end_state -> end_uncommitted: committed false
+end_state -> ended: committed true
 
-cancel_command -> cancel_hook: active exists
-cancel_hook -> canceled: hook ok
-revoke_owner -> revoked: active activations for owner
+cancel_command -> canceled: active exists
 
-instant: Instant helper overlay {
-  instant_begin: activate_instant_with
-  instant_begin.class: caller
+rollback_command -> rollback_state: find active activation
+rollback_state -> rollback_committed: committed true
+rollback_state -> rolled_back: committed false
 
-  instant_execute: caller executor
-  instant_execute.class: caller
-
-  instant_success_end: end active activation
-  instant_success_end.class: side_effect
-
-  instant_failure_rollback: rollback on execute or end failure
-  instant_failure_rollback.class: failure
-
-  instant_begin -> _.begin: delegates to begin_activation
-  _.started -> instant_execute: transient active state
-  instant_execute -> instant_failure_rollback: ExecuteInstant hook error
-  instant_execute -> instant_success_end: executor ok
-  instant_success_end -> _.ended: end ok
-  instant_success_end -> instant_failure_rollback: end or deferred commit fails
-  instant_failure_rollback -> _.rolled_back: remove active and emit RolledBack
-}
+revoke_owner -> revoked: remove owner activations regardless of committed state

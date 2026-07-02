@@ -3,14 +3,6 @@ use std::fmt;
 
 use crate::registry::{DefinitionRegistryEntry, RegistryEntry};
 
-/// When the ability lifecycle should run its commit phase automatically.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AbilityCommitTiming {
-    OnStart,
-    OnEnd,
-    Manual,
-}
-
 /// Authorable ability definition metadata.
 ///
 /// `emitted_channel_keys` are metadata for validation and caller-owned adapter
@@ -19,7 +11,6 @@ pub enum AbilityCommitTiming {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AbilityDefinition<PayloadSchema = ()> {
     pub key: String,
-    pub commit_timing: AbilityCommitTiming,
     pub emits_lifecycle: bool,
     pub emitted_channel_keys: Vec<String>,
     pub payload_schema: PayloadSchema,
@@ -98,17 +89,10 @@ impl<PayloadSchema> AbilityDefinition<PayloadSchema> {
     pub fn new(key: impl Into<String>, payload_schema: PayloadSchema) -> Self {
         Self {
             key: key.into(),
-            commit_timing: AbilityCommitTiming::OnStart,
             emits_lifecycle: false,
             emitted_channel_keys: Vec::new(),
             payload_schema,
         }
-    }
-
-    #[must_use]
-    pub fn with_commit_timing(mut self, commit_timing: AbilityCommitTiming) -> Self {
-        self.commit_timing = commit_timing;
-        self
     }
 
     /// Enables lifecycle publication metadata and replaces emitted channel keys.
