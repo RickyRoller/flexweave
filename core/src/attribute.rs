@@ -66,36 +66,15 @@ pub struct AttributeDefinition {
     pub domain: AttributeDomain,
     pub default_value: AttributeDefaultValue,
     pub emitted_channel_keys: Vec<String>,
-    pub policy_payload_schema: String,
 }
 
-/// Authorable Attribute mutation policy metadata.
-///
-/// Lifecycle emission flags and channel keys describe what caller code may
-/// publish after mutation. Attribute stores do not publish to channels by
-/// themselves.
-#[derive(Clone, Debug, PartialEq)]
-pub struct AttributePolicyDefinition {
-    pub key: String,
-    pub clamp_domain: Option<AttributeDomain>,
-    pub reject_domain: Option<AttributeDomain>,
-    pub has_transform: bool,
-    pub has_post_change: bool,
-    pub emits_lifecycle: bool,
-    pub emitted_channel_keys: Vec<String>,
-    pub payload_schema: String,
-}
-
-/// Attribute definition or policy validation failures.
+/// Attribute definition validation failures.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AttributeDefinitionError {
     EmptyKey,
     InvalidDomain,
     DefaultOutsideDomain,
-    MissingPolicyPayloadSchema { key: String },
-    MissingEmittedChannelKey { key: String },
     EmptyEmittedChannelKey { key: String },
-    ConflictingClampAndReject { key: String },
 }
 
 impl fmt::Display for AttributeDefinitionError {
@@ -106,21 +85,9 @@ impl fmt::Display for AttributeDefinitionError {
             Self::DefaultOutsideDomain => {
                 formatter.write_str("attribute default value is outside its domain")
             }
-            Self::MissingPolicyPayloadSchema { key } => write!(
-                formatter,
-                "attribute definition `{key}` is missing a policy payload schema"
-            ),
-            Self::MissingEmittedChannelKey { key } => write!(
-                formatter,
-                "attribute policy definition `{key}` emits lifecycle but has no emitted channel keys"
-            ),
             Self::EmptyEmittedChannelKey { key } => write!(
                 formatter,
                 "attribute definition `{key}` has an empty emitted channel key"
-            ),
-            Self::ConflictingClampAndReject { key } => write!(
-                formatter,
-                "attribute policy definition `{key}` has conflicting clamp and reject domains"
             ),
         }
     }
@@ -141,50 +108,6 @@ impl AttributeDefinition {
             return Err(AttributeDefinitionError::DefaultOutsideDomain);
         }
         validate_channel_keys(&self.key, &self.emitted_channel_keys)?;
-        if self.policy_payload_schema.is_empty() {
-            return Err(AttributeDefinitionError::MissingPolicyPayloadSchema {
-                key: self.key.clone(),
-            });
-        }
-        Ok(())
-    }
-}
-
-impl AttributePolicyDefinition {
-    /// Validates Attribute mutation policy metadata before runtime use.
-    pub fn validate(&self) -> Result<(), AttributeDefinitionError> {
-        if self.key.is_empty() {
-            return Err(AttributeDefinitionError::EmptyKey);
-        }
-        if let Some(domain) = self.clamp_domain {
-            domain.validate()?;
-        }
-        if let Some(domain) = self.reject_domain {
-            domain.validate()?;
-        }
-        if self.emits_lifecycle && self.emitted_channel_keys.is_empty() {
-            return Err(AttributeDefinitionError::MissingEmittedChannelKey {
-                key: self.key.clone(),
-            });
-        }
-        validate_channel_keys(&self.key, &self.emitted_channel_keys)?;
-        if self.payload_schema.is_empty() {
-            return Err(AttributeDefinitionError::MissingPolicyPayloadSchema {
-                key: self.key.clone(),
-            });
-        }
-        if let (Some(clamp), Some(reject)) = (self.clamp_domain, self.reject_domain)
-            && (clamp
-                .minimum
-                .is_some_and(|minimum| !reject.contains(minimum))
-                || clamp
-                    .maximum
-                    .is_some_and(|maximum| !reject.contains(maximum)))
-        {
-            return Err(AttributeDefinitionError::ConflictingClampAndReject {
-                key: self.key.clone(),
-            });
-        }
         Ok(())
     }
 }

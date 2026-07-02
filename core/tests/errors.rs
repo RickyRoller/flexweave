@@ -62,11 +62,11 @@ fn definition_errors_include_relevant_keys_in_display_messages() {
         "ability definition `dash` references unknown emitted channel `ability-events`"
     );
     assert_eq!(
-        AttributeDefinitionError::ConflictingClampAndReject {
+        AttributeDefinitionError::EmptyEmittedChannelKey {
             key: "speed".to_owned(),
         }
         .to_string(),
-        "attribute policy definition `speed` has conflicting clamp and reject domains"
+        "attribute definition `speed` has an empty emitted channel key"
     );
     assert_eq!(
         EffectDefinitionError::DurationRequired {

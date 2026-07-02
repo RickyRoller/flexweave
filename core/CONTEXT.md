@@ -33,6 +33,10 @@ stored as source data.
 **Attribute change**:
 A reported transition from a previous attribute value to a current value.
 
+**Attribute mutation hook**:
+A caller-owned runtime behavior surface around an attribute mutation that may
+allow, transform, reject, or react to the mutation.
+
 **Tag**:
 A caller-defined label attached to an object for deterministic grouping and
 selection.

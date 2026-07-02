@@ -8,8 +8,9 @@ theme (`theme-id: 200`) for consistent contrast.
 ## Scope
 
 The ability system covers authorable ability definitions, runtime grants,
-activation attempts, commit timing, cooldowns, active execution state,
-cancellation, revocation, rollback, ending, and lifecycle facts.
+activation attempts, commit timing, active execution state, cancellation,
+revocation, rollback, ending, and lifecycle facts. Cooldowns are modeled through
+caller-owned effects, tags, and hooks rather than ability-owned state.
 
 Flexweave owns deterministic primitive state and lifecycle facts. Caller code
 owns hook behavior, resource semantics, event-channel publication, runtime
@@ -42,8 +43,8 @@ Each D2 file has a same-name `.svg` render beside it.
 
 ## Implementation Notes
 
-- `AbilityDefinition` validates authoring metadata for definition identity,
-  commit timing, payload schema, and lifecycle routing.
+- `AbilityDefinition` validates authoring metadata for definition identity and
+  lifecycle routing. Payload schema is carried as caller-owned metadata.
 - `begin_registered_activation_*` uses a granted definition key to choose
   `commit_timing`; other definition fields remain metadata or validation hints.
 - Ability lifecycle facts are returned through callbacks. Channel keys on

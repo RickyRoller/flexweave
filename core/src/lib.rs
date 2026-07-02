@@ -176,7 +176,7 @@ pub use attribute::{
     Attribute, AttributeChange, AttributeDefaultValue, AttributeDefinition,
     AttributeDefinitionError, AttributeDomain, AttributeMutation, AttributeMutationDecision,
     AttributeMutationHooks, AttributeMutationRejection, AttributeMutationRequest,
-    AttributeMutationResult, AttributePolicyDefinition, AttributeValue,
+    AttributeMutationResult, AttributeValue,
 };
 pub use clock::{Clock, ClockUnits, FixedStepClock, RealtimeClock, RealtimeClockAccumulator};
 pub use data_store::DataStore;

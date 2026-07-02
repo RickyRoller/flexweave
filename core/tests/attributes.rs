@@ -1,9 +1,9 @@
 use flexweave::{
     Attribute, AttributeDefaultValue, AttributeDefinition, AttributeDefinitionError,
     AttributeDomain, AttributeMutationDecision, AttributeMutationHooks, AttributeMutationRequest,
-    AttributeMutationResult, AttributePolicyDefinition, AttributeValue, DataStore,
-    DerivedAttribute, EventChannel, EventChannelDefinition, EventRetention, LifecycleEvent,
-    LifecycleEventKind, ObjectId, ObjectStore,
+    AttributeMutationResult, AttributeValue, DataStore, DerivedAttribute, EventChannel,
+    EventChannelDefinition, EventRetention, LifecycleEvent, LifecycleEventKind, ObjectId,
+    ObjectStore,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -275,7 +275,7 @@ fn attribute_mutation_hooks_do_not_emit_when_final_value_is_unchanged() {
 }
 
 #[test]
-fn attribute_definition_and_policy_validation_reject_invalid_authoring_shapes() {
+fn attribute_definition_validation_rejects_invalid_authoring_shapes() {
     let invalid_domain = AttributeDefinition {
         key: "health".to_owned(),
         domain: AttributeDomain {
@@ -284,7 +284,6 @@ fn attribute_definition_and_policy_validation_reject_invalid_authoring_shapes() 
         },
         default_value: AttributeDefaultValue::None,
         emitted_channel_keys: Vec::new(),
-        policy_payload_schema: "attribute/policy".to_owned(),
     };
     assert_eq!(
         invalid_domain.validate().unwrap_err(),
@@ -299,50 +298,25 @@ fn attribute_definition_and_policy_validation_reject_invalid_authoring_shapes() 
         },
         default_value: AttributeDefaultValue::Value(12.0),
         emitted_channel_keys: Vec::new(),
-        policy_payload_schema: "attribute/policy".to_owned(),
     };
     assert_eq!(
         default_outside_domain.validate().unwrap_err(),
         AttributeDefinitionError::DefaultOutsideDomain
     );
 
-    let missing_channel = AttributePolicyDefinition {
-        key: "health-clamp".to_owned(),
-        clamp_domain: None,
-        reject_domain: None,
-        has_transform: true,
-        has_post_change: true,
-        emits_lifecycle: true,
-        emitted_channel_keys: Vec::new(),
-        payload_schema: "attribute/policy".to_owned(),
-    };
-    assert_eq!(
-        missing_channel.validate().unwrap_err(),
-        AttributeDefinitionError::MissingEmittedChannelKey {
-            key: "health-clamp".to_owned(),
-        }
-    );
-
-    let conflicting = AttributePolicyDefinition {
-        key: "health-policy".to_owned(),
-        clamp_domain: Some(AttributeDomain {
-            minimum: Some(-10.0),
-            maximum: Some(20.0),
-        }),
-        reject_domain: Some(AttributeDomain {
+    let empty_channel_key = AttributeDefinition {
+        key: "health".to_owned(),
+        domain: AttributeDomain {
             minimum: Some(0.0),
             maximum: Some(10.0),
-        }),
-        has_transform: true,
-        has_post_change: false,
-        emits_lifecycle: false,
-        emitted_channel_keys: Vec::new(),
-        payload_schema: "attribute/policy".to_owned(),
+        },
+        default_value: AttributeDefaultValue::None,
+        emitted_channel_keys: vec![String::new()],
     };
     assert_eq!(
-        conflicting.validate().unwrap_err(),
-        AttributeDefinitionError::ConflictingClampAndReject {
-            key: "health-policy".to_owned(),
+        empty_channel_key.validate().unwrap_err(),
+        AttributeDefinitionError::EmptyEmittedChannelKey {
+            key: "health".to_owned(),
         }
     );
 }
