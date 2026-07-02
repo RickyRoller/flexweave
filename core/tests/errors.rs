@@ -1,9 +1,8 @@
 use flexweave::{
     AbilityActivationError, AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityError,
-    AbilityGrantError, AbilityHookPhase, AbilityId, AttributeDefinitionError, CoreError,
-    EffectApplicationError, EffectDefinitionError, EffectDefinitionRegistryError,
-    EventChannelDefinitionError, EventChannelError, LifecycleEventKind,
-    RegisteredAbilityActivationError, SignalDefinitionError,
+    AbilityGrantError, AbilityHookPhase, AbilityId, CoreError, EffectApplicationError,
+    EffectDefinitionError, EffectDefinitionRegistryError, EventChannelDefinitionError,
+    EventChannelError, LifecycleEventKind, RegisteredAbilityActivationError, SignalDefinitionError,
 };
 use std::fmt;
 
@@ -33,7 +32,6 @@ fn public_flexweave_errors_implement_std_error() {
     assert_error::<AbilityGrantError>();
     assert_error::<AbilityActivationError<HookError>>();
     assert_error::<RegisteredAbilityActivationError<HookError>>();
-    assert_error::<AttributeDefinitionError>();
     assert_error::<EffectApplicationError>();
     assert_error::<EffectDefinitionError>();
     assert_error::<EffectDefinitionRegistryError>();
@@ -60,13 +58,6 @@ fn definition_errors_include_relevant_keys_in_display_messages() {
         }
         .to_string(),
         "ability definition `dash` references unknown emitted channel `ability-events`"
-    );
-    assert_eq!(
-        AttributeDefinitionError::EmptyEmittedChannelKey {
-            key: "speed".to_owned(),
-        }
-        .to_string(),
-        "attribute definition `speed` has an empty emitted channel key"
     );
     assert_eq!(
         EffectDefinitionError::DurationRequired {

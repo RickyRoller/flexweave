@@ -173,8 +173,7 @@ pub use ability::{
     GrantedAbility, RegisteredAbilityActivationError, RevokedOwnerAbilities,
 };
 pub use attribute::{
-    Attribute, AttributeChange, AttributeDefaultValue, AttributeDefinition,
-    AttributeDefinitionError, AttributeDomain, AttributeMutation, AttributeMutationDecision,
+    Attribute, AttributeChange, AttributeMutation, AttributeMutationDecision,
     AttributeMutationHooks, AttributeMutationRejection, AttributeMutationRequest,
     AttributeMutationResult, AttributeValue,
 };

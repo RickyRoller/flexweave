@@ -1,6 +1,5 @@
 use flexweave::{
-    Attribute, AttributeDefaultValue, AttributeDefinition, AttributeDefinitionError,
-    AttributeDomain, AttributeMutationDecision, AttributeMutationHooks, AttributeMutationRequest,
+    Attribute, AttributeMutationDecision, AttributeMutationHooks, AttributeMutationRequest,
     AttributeMutationResult, AttributeValue, DataStore, DerivedAttribute, EventChannel,
     EventChannelDefinition, EventRetention, LifecycleEvent, LifecycleEventKind, ObjectId,
     ObjectStore,
@@ -272,53 +271,6 @@ fn attribute_mutation_hooks_do_not_emit_when_final_value_is_unchanged() {
     assert_eq!(result, AttributeMutationResult::Unchanged(5.0));
     assert!(emitted.is_empty());
     assert_eq!(attribute.get(target), Some(5.0));
-}
-
-#[test]
-fn attribute_definition_validation_rejects_invalid_authoring_shapes() {
-    let invalid_domain = AttributeDefinition {
-        key: "health".to_owned(),
-        domain: AttributeDomain {
-            minimum: Some(10.0),
-            maximum: Some(0.0),
-        },
-        default_value: AttributeDefaultValue::None,
-        emitted_channel_keys: Vec::new(),
-    };
-    assert_eq!(
-        invalid_domain.validate().unwrap_err(),
-        AttributeDefinitionError::InvalidDomain
-    );
-
-    let default_outside_domain = AttributeDefinition {
-        key: "health".to_owned(),
-        domain: AttributeDomain {
-            minimum: Some(0.0),
-            maximum: Some(10.0),
-        },
-        default_value: AttributeDefaultValue::Value(12.0),
-        emitted_channel_keys: Vec::new(),
-    };
-    assert_eq!(
-        default_outside_domain.validate().unwrap_err(),
-        AttributeDefinitionError::DefaultOutsideDomain
-    );
-
-    let empty_channel_key = AttributeDefinition {
-        key: "health".to_owned(),
-        domain: AttributeDomain {
-            minimum: Some(0.0),
-            maximum: Some(10.0),
-        },
-        default_value: AttributeDefaultValue::None,
-        emitted_channel_keys: vec![String::new()],
-    };
-    assert_eq!(
-        empty_channel_key.validate().unwrap_err(),
-        AttributeDefinitionError::EmptyEmittedChannelKey {
-            key: "health".to_owned(),
-        }
-    );
 }
 
 #[test]
