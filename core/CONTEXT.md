@@ -68,6 +68,10 @@ Runtime effect state attached to an object for a finite or indefinite lifetime.
 A lifecycle fact exported through a caller-selected retention and projection
 policy.
 
+**Signal reinvocation**:
+A signal-specific lifecycle fact used to project while-active signals from
+active effect instances.
+
 **Query**:
 A deterministic selection over live object ids using caller-owned predicates and
 required data checks.

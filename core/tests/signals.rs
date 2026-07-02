@@ -202,7 +202,7 @@ fn reinvoking_active_signals_emits_while_active_without_execution_duplicates() {
         signal_definition(
             "loop",
             SignalKind::WhileActive,
-            vec![LifecycleEventKind::EffectActiveCreated],
+            vec![LifecycleEventKind::SignalReinvoked],
             SignalTagMatch::Any,
         ),
         signal_definition(
@@ -229,6 +229,23 @@ fn reinvoking_active_signals_emits_while_active_without_execution_duplicates() {
         facts[0].source_lifecycle_event_kind,
         LifecycleEventKind::SignalReinvoked
     );
+}
+
+#[test]
+fn reinvoking_active_signals_requires_signal_reinvoked_lifecycle_kind() {
+    let definitions = SignalDefinitions::new([signal_definition(
+        "loop",
+        SignalKind::WhileActive,
+        vec![LifecycleEventKind::EffectAdvanced],
+        SignalTagMatch::Any,
+    )])
+    .unwrap();
+    let projection = SignalProjection::new(definitions);
+    let effect = effect_instance(SourcePayload::Buff);
+
+    let facts = projection.reinvoke_effect_instances([&effect]);
+
+    assert!(facts.is_empty());
 }
 
 #[test]

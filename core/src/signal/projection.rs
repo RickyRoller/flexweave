@@ -43,6 +43,9 @@ where
 
     /// Reinvokes while-active Signal facts for currently active pipeline effects.
     ///
+    /// Only definitions that declare [`LifecycleEventKind::SignalReinvoked`]
+    /// are eligible for reinvocation projection.
+    ///
     /// The returned facts are not automatically routed.
     #[must_use]
     pub fn reinvoke_effect_instances<'a, SourcePayload, I>(
@@ -98,10 +101,9 @@ where
             if definition.signal_kind != signal_kind {
                 continue;
             }
-            if context.source_lifecycle_event_kind != LifecycleEventKind::SignalReinvoked
-                && !definition
-                    .lifecycle_event_kinds
-                    .contains(&context.source_lifecycle_event_kind)
+            if !definition
+                .lifecycle_event_kinds
+                .contains(&context.source_lifecycle_event_kind)
             {
                 continue;
             }

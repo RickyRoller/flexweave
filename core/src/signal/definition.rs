@@ -64,6 +64,10 @@ impl<Atom> SignalTagMatch<Atom> {
 /// `channel_key` names the caller-owned channel or adapter target that should
 /// receive projected facts. The key is metadata and a validation hint; it does
 /// not cause automatic routing.
+///
+/// `lifecycle_event_kinds` is the complete source-kind whitelist for this
+/// definition. While-active reinvocation requires
+/// [`LifecycleEventKind::SignalReinvoked`] in this list.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SignalDefinition<Atom, PayloadSchema = ()> {
     pub key: String,
