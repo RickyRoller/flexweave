@@ -18,7 +18,7 @@ classes: {
   side_effect
   failure
   caller
-  async_edge: {
+  command_edge: {
     style: {
       stroke-dash: 4
     }
@@ -136,11 +136,11 @@ can_activate -> active_state: Allow
 active_state -> started: assign AbilityActivationId
 started -> active_ready: active stored
 
-active_ready -> commit_command: runtime reaches point of no return {class: async_edge}
-active_ready -> end_command: runtime completes normally {class: async_edge}
-active_ready -> cancel_command: runtime aborts or interrupts {class: async_edge}
-active_ready -> rollback_command: runtime setup fails before commit {class: async_edge}
-active_ready -> revoke_owner: owner cleanup {class: async_edge}
+active_ready -> commit_command: caller reaches point of no return {class: command_edge}
+active_ready -> end_command: caller completes normally {class: command_edge}
+active_ready -> cancel_command: caller aborts or interrupts {class: command_edge}
+active_ready -> rollback_command: caller setup fails before commit {class: command_edge}
+active_ready -> revoke_owner: owner cleanup {class: command_edge}
 
 commit_command -> commit_state: find active activation
 commit_state -> already_committed: committed true

@@ -50,8 +50,8 @@ Each D2 file has a same-name `.svg` render beside it.
   registered; definition fields remain metadata or validation hints.
 - Ability lifecycle facts are returned through callbacks. Channel keys on
   definitions do not auto-route events into `EventChannel`.
-- `AbilityActivationGate::can_activate` is the begin-time runtime boundary
-  where caller code decides activation blocking, including required tags,
+- `AbilityActivationGate::can_activate` is the begin-time synchronous caller
+  hook where caller code decides activation blocking, including required tags,
   resource checks, cooldown override, authority, and targeting.
 - `AbilityCommitAction::apply_commit` owns point-of-no-return side effects.
   End, cancel, revocation, and rollback commands do not accept caller
