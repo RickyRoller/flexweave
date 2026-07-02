@@ -748,6 +748,136 @@ fn instant_activation_rollback_preserves_execute_error_when_cancel_hook_fails() 
     assert_eq!(rolled_back.ability_id, ability_id);
 }
 
+#[test]
+fn on_start_auto_commit_failure_rolls_back_begin_activation() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Payload;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum HookError {
+        Commit,
+    }
+
+    struct Hooks;
+
+    impl AbilityHooks<(), TagSet<TestAtom>, Payload> for Hooks {
+        type Error = HookError;
+        type BlockReason = ();
+
+        async fn on_commit(
+            &mut self,
+            _context: &mut (),
+            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
+        ) -> Result<(), Self::Error> {
+            Err(HookError::Commit)
+        }
+    }
+
+    let mut abilities = AbilityStore::new();
+    let ability_id = grant_payload(&mut abilities, Payload);
+    let mut hooks = Hooks;
+    let mut context = ();
+    let mut events = Vec::new();
+
+    assert_eq!(
+        block_on(abilities.begin_activation_with_events(
+            ability_id,
+            AbilityCommitTiming::OnStart,
+            &mut context,
+            &mut hooks,
+            |event| events.push(event),
+        )),
+        Err(AbilityActivationError::Hook {
+            phase: AbilityHookPhase::Commit,
+            error: HookError::Commit,
+        })
+    );
+
+    assert_eq!(abilities.active_activation_count(), 0);
+    assert_eq!(
+        lifecycle_kinds(&events),
+        vec![
+            LifecycleEventKind::AbilityActivationAttempted,
+            LifecycleEventKind::AbilityActivationStarted,
+            LifecycleEventKind::AbilityActivationRolledBack,
+        ]
+    );
+    let [_, _, AbilityLifecycleEvent::RolledBack(rolled_back)] = events.as_slice() else {
+        panic!("auto-commit failure should emit a rollback fact");
+    };
+    assert_eq!(rolled_back.ability_id, ability_id);
+}
+
+#[test]
+fn on_start_auto_commit_failure_rolls_back_instant_activation_before_execute() {
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct Payload;
+
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum HookError {
+        Commit,
+        Execute,
+    }
+
+    struct Runtime {
+        execute_calls: usize,
+    }
+
+    struct Hooks;
+
+    impl AbilityHooks<Runtime, TagSet<TestAtom>, Payload> for Hooks {
+        type Error = HookError;
+        type BlockReason = ();
+
+        async fn on_commit(
+            &mut self,
+            _context: &mut Runtime,
+            _active: ActiveAbilityView<'_, TagSet<TestAtom>, Payload>,
+        ) -> Result<(), Self::Error> {
+            Err(HookError::Commit)
+        }
+    }
+
+    let mut abilities = AbilityStore::new();
+    let ability_id = grant_payload(&mut abilities, Payload);
+    let mut runtime = Runtime { execute_calls: 0 };
+    let mut hooks = Hooks;
+    let mut events = Vec::new();
+
+    assert_eq!(
+        block_on(abilities.activate_instant_with_events(
+            ability_id,
+            AbilityCommitTiming::OnStart,
+            &mut runtime,
+            &mut hooks,
+            |context, _active| {
+                context.execute_calls += 1;
+                Err(HookError::Execute)
+            },
+            |event| events.push(event),
+        )),
+        Err(AbilityActivationError::Hook {
+            phase: AbilityHookPhase::Commit,
+            error: HookError::Commit,
+        })
+    );
+
+    assert_eq!(runtime.execute_calls, 0);
+    assert_eq!(abilities.active_activation_count(), 0);
+    assert_eq!(
+        lifecycle_kinds(&events),
+        vec![
+            LifecycleEventKind::AbilityActivationAttempted,
+            LifecycleEventKind::AbilityActivationStarted,
+            LifecycleEventKind::AbilityActivationRolledBack,
+        ]
+    );
+    let [_, _, AbilityLifecycleEvent::RolledBack(rolled_back)] = events.as_slice() else {
+        panic!("instant auto-commit failure should emit a rollback fact");
+    };
+    assert_eq!(rolled_back.ability_id, ability_id);
+}
+
 fn grant_payload<Payload>(
     abilities: &mut AbilityStore<TagSet<TestAtom>, Payload>,
     payload: Payload,

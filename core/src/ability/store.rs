@@ -684,8 +684,13 @@ where
         }
 
         if commit_timing == AbilityCommitTiming::OnStart {
-            self.commit_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)
-                .await?;
+            if let Err(error) = self
+                .commit_activation_with_borrowed_events(activation_id, context, hooks, &mut emit)
+                .await
+            {
+                self.rollback_active_with_borrowed_event(activation_id, &mut emit);
+                return Err(error);
+            }
         }
 
         Ok(activation_id)
