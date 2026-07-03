@@ -36,25 +36,17 @@ where
     }
 
     pub(super) fn get(&self, ability_id: AbilityId) -> Option<&GrantedAbility<Tags, Payload>> {
-        self.index_of(ability_id).map(|index| self.get_at(index))
+        let index = self.index_by_id.get(&ability_id).copied()?;
+        self.records.get(index)
     }
 
-    pub(super) fn get_at(&self, index: usize) -> &GrantedAbility<Tags, Payload> {
-        &self.records[index]
-    }
-
-    pub(super) fn index_of(&self, ability_id: AbilityId) -> Option<usize> {
-        self.index_by_id.get(&ability_id).copied()
-    }
-
-    pub(super) fn push(&mut self, ability: GrantedAbility<Tags, Payload>) -> usize {
+    pub(super) fn push(&mut self, ability: GrantedAbility<Tags, Payload>) {
         let index = self.records.len();
         self.index_by_id.insert(ability.id, index);
         self.records.push(ability);
-        index
     }
 
-    pub(super) fn remove_at(&mut self, index: usize) -> GrantedAbility<Tags, Payload> {
+    fn remove_at(&mut self, index: usize) -> GrantedAbility<Tags, Payload> {
         let removed = self.records.remove(index);
         self.index_by_id.remove(&removed.id);
         self.reindex_from(index);
@@ -116,30 +108,38 @@ where
         &self,
         activation_id: AbilityActivationId,
     ) -> Option<&ActiveAbility<Tags, Payload>> {
-        self.index_of(activation_id).map(|index| self.get_at(index))
+        let index = self.index_by_activation_id.get(&activation_id).copied()?;
+        self.records.get(index)
     }
 
-    pub(super) fn get_at(&self, index: usize) -> &ActiveAbility<Tags, Payload> {
-        &self.records[index]
+    pub(super) fn get_mut(
+        &mut self,
+        activation_id: AbilityActivationId,
+    ) -> Option<&mut ActiveAbility<Tags, Payload>> {
+        let index = self.index_by_activation_id.get(&activation_id).copied()?;
+        self.records.get_mut(index)
     }
 
-    pub(super) fn get_mut_at(&mut self, index: usize) -> &mut ActiveAbility<Tags, Payload> {
-        &mut self.records[index]
-    }
-
-    pub(super) fn index_of(&self, activation_id: AbilityActivationId) -> Option<usize> {
-        self.index_by_activation_id.get(&activation_id).copied()
-    }
-
-    pub(super) fn push(&mut self, active: ActiveAbility<Tags, Payload>) -> usize {
+    pub(super) fn push(
+        &mut self,
+        active: ActiveAbility<Tags, Payload>,
+    ) -> &ActiveAbility<Tags, Payload> {
         let index = self.records.len();
         self.index_by_activation_id
             .insert(active.activation_id, index);
         self.records.push(active);
-        index
+        &self.records[index]
     }
 
-    pub(super) fn remove_at(&mut self, index: usize) -> ActiveAbility<Tags, Payload> {
+    pub(super) fn remove(
+        &mut self,
+        activation_id: AbilityActivationId,
+    ) -> Option<ActiveAbility<Tags, Payload>> {
+        let index = self.index_by_activation_id.get(&activation_id).copied()?;
+        Some(self.remove_at(index))
+    }
+
+    fn remove_at(&mut self, index: usize) -> ActiveAbility<Tags, Payload> {
         let removed = self.records.remove(index);
         self.index_by_activation_id.remove(&removed.activation_id);
         self.reindex_from(index);

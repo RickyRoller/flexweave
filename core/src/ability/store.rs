@@ -720,29 +720,30 @@ where
         Action: AbilityCommitAction<Context, Tags, Payload>,
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
-        let active_index = self
-            .find_active_index(activation_id)
+        let active = self
+            .find_active(activation_id)
             .ok_or(AbilityCommitError::Ability(AbilityError::MissingActivation))?;
-        if self.active_abilities.get_at(active_index).committed {
+        if active.committed {
             return Ok(AbilityCommitOutcome::AlreadyCommitted);
         }
 
-        let active_view = ActiveAbilityView::from(self.active_abilities.get_at(active_index));
+        let active_view = ActiveAbilityView::from(active);
         if let Err(error) = action.apply_commit(context, active_view) {
             self.remove_active_for_transition(
-                active_index,
+                activation_id,
                 ActiveAbilityTransition::RolledBack,
                 &mut emit,
-            );
+            )
+            .expect("active ability exists after commit action");
             return Err(AbilityCommitError::Action(error));
         }
 
-        self.active_abilities.get_mut_at(active_index).committed = true;
-        Self::emit_active_transition(
-            ActiveAbilityTransition::Committed,
-            self.active_abilities.get_at(active_index),
-            &mut emit,
-        );
+        let active = self
+            .active_abilities
+            .get_mut(activation_id)
+            .expect("active ability exists after commit action");
+        active.committed = true;
+        Self::emit_active_transition(ActiveAbilityTransition::Committed, active, &mut emit);
         Ok(AbilityCommitOutcome::Committed)
     }
 
@@ -776,18 +777,16 @@ where
     where
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
-        let Some(active_index) = self.find_active_index(activation_id) else {
+        let Some(active) = self.find_active(activation_id) else {
             return Err(AbilityEndError::MissingActivation);
         };
-        if !self.active_abilities.get_at(active_index).committed {
+        if !active.committed {
             return Err(AbilityEndError::UncommittedActivation);
         }
 
-        let active = self.remove_active_for_transition(
-            active_index,
-            ActiveAbilityTransition::Ended,
-            &mut emit,
-        );
+        let active = self
+            .remove_active_for_transition(activation_id, ActiveAbilityTransition::Ended, &mut emit)
+            .expect("active ability exists after commit check");
         Ok(AbilityEndOutcome::Ended(active))
     }
 
@@ -824,14 +823,13 @@ where
     where
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
-        let Some(active_index) = self.find_active_index(activation_id) else {
-            return AbilityCancelOutcome::MissingActivation;
-        };
-        let active = self.remove_active_for_transition(
-            active_index,
+        let Some(active) = self.remove_active_for_transition(
+            activation_id,
             ActiveAbilityTransition::Canceled,
             &mut emit,
-        );
+        ) else {
+            return AbilityCancelOutcome::MissingActivation;
+        };
         AbilityCancelOutcome::Canceled(active)
     }
 
@@ -868,18 +866,20 @@ where
     where
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
-        let Some(active_index) = self.find_active_index(activation_id) else {
+        let Some(active) = self.find_active(activation_id) else {
             return Err(AbilityRollbackError::MissingActivation);
         };
-        if self.active_abilities.get_at(active_index).committed {
+        if active.committed {
             return Err(AbilityRollbackError::AlreadyCommitted);
         }
 
-        let active = self.remove_active_for_transition(
-            active_index,
-            ActiveAbilityTransition::RolledBack,
-            &mut emit,
-        );
+        let active = self
+            .remove_active_for_transition(
+                activation_id,
+                ActiveAbilityTransition::RolledBack,
+                &mut emit,
+            )
+            .expect("active ability exists after rollback check");
         Ok(AbilityRollbackOutcome::RolledBack(active))
     }
 
@@ -951,27 +951,23 @@ where
         let activation_id = self.next_activation_id;
         self.next_activation_id = AbilityActivationId::new(self.next_activation_id.get() + 1);
         let active = seed.into_active(activation_id);
-        let active_index = self.active_abilities.push(active);
-        Self::emit_active_transition(
-            ActiveAbilityTransition::Started,
-            self.active_abilities.get_at(active_index),
-            emit,
-        );
+        let active = self.active_abilities.push(active);
+        Self::emit_active_transition(ActiveAbilityTransition::Started, active, emit);
         activation_id
     }
 
     fn remove_active_for_transition<F>(
         &mut self,
-        active_index: usize,
+        activation_id: AbilityActivationId,
         transition: ActiveAbilityTransition,
         emit: &mut F,
-    ) -> ActiveAbility<Tags, Payload>
+    ) -> Option<ActiveAbility<Tags, Payload>>
     where
         F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
     {
-        let active = self.active_abilities.remove_at(active_index);
+        let active = self.active_abilities.remove(activation_id)?;
         Self::emit_active_transition(transition, &active, emit);
-        active
+        Some(active)
     }
 
     fn emit_active_transition<F>(
@@ -993,10 +989,6 @@ where
         activation_id: AbilityActivationId,
     ) -> Option<&ActiveAbility<Tags, Payload>> {
         self.active_abilities.get(activation_id)
-    }
-
-    fn find_active_index(&self, activation_id: AbilityActivationId) -> Option<usize> {
-        self.active_abilities.index_of(activation_id)
     }
 }
 
