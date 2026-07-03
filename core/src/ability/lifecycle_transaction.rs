@@ -31,3 +31,14 @@ impl ActiveAbilityTransition {
         }
     }
 }
+
+pub(super) fn emit_active_transition<Tags, Payload, F>(
+    transition: ActiveAbilityTransition,
+    active: &ActiveAbility<Tags, Payload>,
+    emit: &mut F,
+) where
+    Tags: TagCollection,
+    F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
+{
+    emit(transition.event(active));
+}
