@@ -56,7 +56,6 @@ where
     pub(super) fn into_active(
         self,
         activation_id: AbilityActivationId,
-        committed: bool,
     ) -> ActiveAbility<Tags, Payload> {
         ActiveAbility {
             activation_id,
@@ -65,7 +64,7 @@ where
             owner_id: self.owner_id,
             tags: self.tags,
             payload: self.payload,
-            committed,
+            committed: false,
         }
     }
 }

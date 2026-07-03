@@ -950,7 +950,7 @@ where
     {
         let activation_id = self.next_activation_id;
         self.next_activation_id = AbilityActivationId::new(self.next_activation_id.get() + 1);
-        let active = seed.into_active(activation_id, false);
+        let active = seed.into_active(activation_id);
         let active_index = self.active_abilities.push(active);
         Self::emit_active_transition(
             ActiveAbilityTransition::Started,
