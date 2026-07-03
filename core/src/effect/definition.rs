@@ -268,24 +268,7 @@ impl<PayloadSchema> EffectDefinition<PayloadSchema> {
             return Err(EffectDefinitionError::EmptyKey);
         }
 
-        match self.kind {
-            EffectKind::Instant => {
-                self.reject_duration()?;
-                self.reject_period()?;
-            }
-            EffectKind::Duration => {
-                self.require_duration()?;
-                self.reject_period()?;
-            }
-            EffectKind::Periodic => {
-                self.require_duration()?;
-                self.require_period()?;
-            }
-            EffectKind::Indefinite => {
-                self.reject_duration()?;
-                self.reject_period()?;
-            }
-        }
+        self.validate_clock_shape(self.duration, self.period)?;
 
         if self.routing.requires_lifecycle_channel && self.routing.lifecycle_channel_keys.is_empty()
         {
@@ -317,12 +300,40 @@ impl<PayloadSchema> EffectDefinition<PayloadSchema> {
         Ok(())
     }
 
-    fn require_duration(&self) -> Result<EffectClockPolicy, EffectDefinitionError> {
-        let duration = self
-            .duration
-            .ok_or_else(|| EffectDefinitionError::DurationRequired {
-                key: self.key.clone(),
-            })?;
+    pub(crate) fn validate_clock_shape(
+        &self,
+        duration: Option<EffectClockPolicy>,
+        period: Option<EffectClockPolicy>,
+    ) -> Result<(), EffectDefinitionError> {
+        match self.kind {
+            EffectKind::Instant => {
+                self.reject_duration(duration)?;
+                self.reject_period(period)?;
+            }
+            EffectKind::Duration => {
+                self.require_duration(duration)?;
+                self.reject_period(period)?;
+            }
+            EffectKind::Periodic => {
+                self.require_duration(duration)?;
+                self.require_period(period)?;
+            }
+            EffectKind::Indefinite => {
+                self.reject_duration(duration)?;
+                self.reject_period(period)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn require_duration(
+        &self,
+        duration: Option<EffectClockPolicy>,
+    ) -> Result<EffectClockPolicy, EffectDefinitionError> {
+        let duration = duration.ok_or_else(|| EffectDefinitionError::DurationRequired {
+            key: self.key.clone(),
+        })?;
         if duration.units == 0 {
             return Err(EffectDefinitionError::InvalidDuration {
                 key: self.key.clone(),
@@ -331,12 +342,13 @@ impl<PayloadSchema> EffectDefinition<PayloadSchema> {
         Ok(duration)
     }
 
-    fn require_period(&self) -> Result<EffectClockPolicy, EffectDefinitionError> {
-        let period = self
-            .period
-            .ok_or_else(|| EffectDefinitionError::PeriodRequired {
-                key: self.key.clone(),
-            })?;
+    fn require_period(
+        &self,
+        period: Option<EffectClockPolicy>,
+    ) -> Result<EffectClockPolicy, EffectDefinitionError> {
+        let period = period.ok_or_else(|| EffectDefinitionError::PeriodRequired {
+            key: self.key.clone(),
+        })?;
         if period.units == 0 {
             return Err(EffectDefinitionError::InvalidPeriod {
                 key: self.key.clone(),
@@ -345,8 +357,11 @@ impl<PayloadSchema> EffectDefinition<PayloadSchema> {
         Ok(period)
     }
 
-    fn reject_duration(&self) -> Result<(), EffectDefinitionError> {
-        if self.duration.is_some() {
+    fn reject_duration(
+        &self,
+        duration: Option<EffectClockPolicy>,
+    ) -> Result<(), EffectDefinitionError> {
+        if duration.is_some() {
             Err(EffectDefinitionError::DurationNotAllowed {
                 key: self.key.clone(),
             })
@@ -355,8 +370,11 @@ impl<PayloadSchema> EffectDefinition<PayloadSchema> {
         }
     }
 
-    fn reject_period(&self) -> Result<(), EffectDefinitionError> {
-        if self.period.is_some() {
+    fn reject_period(
+        &self,
+        period: Option<EffectClockPolicy>,
+    ) -> Result<(), EffectDefinitionError> {
+        if period.is_some() {
             Err(EffectDefinitionError::PeriodNotAllowed {
                 key: self.key.clone(),
             })

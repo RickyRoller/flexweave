@@ -5,9 +5,10 @@ use flexweave::{
     AbilityActivationId, AbilityId, ActiveAbility, ActiveEffectId, EffectApplicationDecision,
     EffectApplicationDraft, EffectApplicationError, EffectApplicationInput, EffectApplyOutcome,
     EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError,
-    EffectDefinitions, EffectInitializer, EffectKind, EffectLifecycleEvent,
-    EffectLifecycleEventView, EffectPipeline, EffectRouting, EffectSourcePolicy, EventChannel,
-    EventChannelDefinition, EventRetention, LifecycleEventKind, ObjectId, ObjectStore, Tag, TagSet,
+    EffectDefinitions, EffectInitializationError, EffectInitializer, EffectKind,
+    EffectLifecycleEvent, EffectLifecycleEventView, EffectPipeline, EffectRouting,
+    EffectSourcePolicy, EventChannel, EventChannelDefinition, EventRetention, LifecycleEventKind,
+    ObjectId, ObjectStore, Tag, TagSet,
 };
 
 #[test]
@@ -205,6 +206,48 @@ fn effect_initializer_can_adjust_payload_and_duration_from_context() {
     assert_eq!(accepted.payload.amount, 15);
     assert_eq!(created.payload.amount, 15);
     assert_eq!(created.remaining_units, Some(200));
+}
+
+#[test]
+fn effect_initializer_revalidates_runtime_clock_shape() {
+    struct Initializer;
+
+    impl EffectInitializer<(), TagSet<TestAtom>, ()> for Initializer {
+        type Error = &'static str;
+
+        fn initialize(
+            &mut self,
+            _context: &mut (),
+            mut draft: EffectApplicationDraft<'_, TagSet<TestAtom>, ()>,
+        ) -> Result<(), Self::Error> {
+            draft.set_period_units(Some(10));
+            Ok(())
+        }
+    }
+
+    let mut pipeline = EffectPipeline::<TagSet<TestAtom>, ()>::new();
+    let mut initializer = Initializer;
+
+    let error = pipeline
+        .apply_initialized(
+            &EffectDefinition::duration("buff", 100, ()),
+            EffectApplicationInput::accept(
+                Some(ObjectId::new(1)),
+                ObjectId::new(2),
+                TagSet::new([Tag::new([TestAtom::Category])]),
+                (),
+            ),
+            &mut (),
+            &mut initializer,
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        EffectInitializationError::Definition(EffectDefinitionError::PeriodNotAllowed {
+            key: "buff".to_owned(),
+        })
+    );
 }
 
 #[test]

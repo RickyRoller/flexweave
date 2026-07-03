@@ -317,7 +317,7 @@ where
             prepared
                 .initialize(context, initializer)
                 .map_err(EffectInitializationError::Initialize)?;
-            validate_effect_runtime_clocks(definition, prepared.duration, prepared.period)?;
+            definition.validate_clock_shape(prepared.duration, prepared.period)?;
         }
         Ok(self.apply_prepared_with_borrowed_events(prepared, on_event))
     }
@@ -799,72 +799,5 @@ where
         });
     }
 
-    Ok(())
-}
-
-fn validate_effect_runtime_clocks<Schema>(
-    definition: &EffectDefinition<Schema>,
-    duration: Option<super::definition::EffectClockPolicy>,
-    period: Option<super::definition::EffectClockPolicy>,
-) -> Result<(), EffectDefinitionError> {
-    match definition.kind {
-        EffectKind::Instant => {
-            if duration.is_some() {
-                return Err(EffectDefinitionError::DurationNotAllowed {
-                    key: definition.key.clone(),
-                });
-            }
-            if period.is_some() {
-                return Err(EffectDefinitionError::PeriodNotAllowed {
-                    key: definition.key.clone(),
-                });
-            }
-        }
-        EffectKind::Duration => {
-            let duration = duration.ok_or_else(|| EffectDefinitionError::DurationRequired {
-                key: definition.key.clone(),
-            })?;
-            if duration.units == 0 {
-                return Err(EffectDefinitionError::InvalidDuration {
-                    key: definition.key.clone(),
-                });
-            }
-            if period.is_some() {
-                return Err(EffectDefinitionError::PeriodNotAllowed {
-                    key: definition.key.clone(),
-                });
-            }
-        }
-        EffectKind::Periodic => {
-            let duration = duration.ok_or_else(|| EffectDefinitionError::DurationRequired {
-                key: definition.key.clone(),
-            })?;
-            if duration.units == 0 {
-                return Err(EffectDefinitionError::InvalidDuration {
-                    key: definition.key.clone(),
-                });
-            }
-            let period = period.ok_or_else(|| EffectDefinitionError::PeriodRequired {
-                key: definition.key.clone(),
-            })?;
-            if period.units == 0 {
-                return Err(EffectDefinitionError::InvalidPeriod {
-                    key: definition.key.clone(),
-                });
-            }
-        }
-        EffectKind::Indefinite => {
-            if duration.is_some() {
-                return Err(EffectDefinitionError::DurationNotAllowed {
-                    key: definition.key.clone(),
-                });
-            }
-            if period.is_some() {
-                return Err(EffectDefinitionError::PeriodNotAllowed {
-                    key: definition.key.clone(),
-                });
-            }
-        }
-    }
     Ok(())
 }
