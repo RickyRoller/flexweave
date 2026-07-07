@@ -6,9 +6,10 @@
 //! projects, publishes, exports, or adapts emitted facts.
 
 use crate::clock::{Clock, ClockUnits};
-use crate::effect::{EffectLifecycleEvent, EffectPipeline};
+use crate::effect::{EffectLifecycleEvent, EffectPipeline, EffectTick, NoEffectExecutor};
 use crate::lifecycle::LocalLifecycleEvent;
 use crate::tag::TagCollection;
+use std::convert::Infallible;
 
 /// A mechanics store that can advance itself for one elapsed tick.
 pub trait MechanicsStore<Event> {
@@ -106,7 +107,11 @@ where
         elapsed_units: ClockUnits,
         emit: &mut dyn FnMut(EffectLifecycleEvent<Tags, Payload>),
     ) {
-        self.tick_with_events(elapsed_units, emit);
+        let mut context = ();
+        let mut executor = NoEffectExecutor::new().with_owned_events(emit);
+        EffectTick::new(elapsed_units)
+            .run_with_executor(self, &mut context, &mut executor)
+            .unwrap_or_else(infallible_error);
     }
 }
 
@@ -121,8 +126,16 @@ where
         elapsed_units: ClockUnits,
         emit: &mut dyn FnMut(LocalLifecycleEvent<Tags, Payload>),
     ) {
-        self.tick_with_events(elapsed_units, |event| {
+        let mut context = ();
+        let mut executor = NoEffectExecutor::new().with_owned_events(|event| {
             emit(LocalLifecycleEvent::Effect(event));
         });
+        EffectTick::new(elapsed_units)
+            .run_with_executor(self, &mut context, &mut executor)
+            .unwrap_or_else(infallible_error);
     }
+}
+
+fn infallible_error<T>(error: Infallible) -> T {
+    match error {}
 }

@@ -1,279 +1,136 @@
-# Effect API Overload Patterns
+# Effect Operation Builder Pattern
 
-This note looks at the effect pipeline overload growth in the
-`effect-execution-actions` worktree and summarizes Rust API patterns that can
-control it without losing the synchronous author-callback boundary.
+Flexweave used to encode independent runtime choices into method suffixes:
+direct versus registered definitions, checked versus unchecked references,
+initialized versus non-initialized effects, executor-backed callbacks, and
+owned versus borrowed lifecycle events. Adding author callbacks made that shape
+multiply too quickly.
 
-## Current Shape After Cleanup
+The public API now uses operation builders plus executors instead of overload
+families.
 
-The effect pipeline previously exposed separate methods for several independent
-axes. The action-support cleanup now keeps the existing event conveniences but
-does not add another action/event cross-product:
+## What Changed
 
-- Event retention: no event callback, owned lifecycle events, or borrowed event
-  views. The borrowed path remains the implementation primitive, with owned
-  methods converting through `to_owned_event`.
-  Source: [`core/src/effect/pipeline.rs`](../../core/src/effect/pipeline.rs),
-  [`core/src/effect/events.rs`](../../core/src/effect/events.rs).
-- Execution behavior: common paths use `NoEffectExecutor`; action-backed paths
-  configure `EffectActionExecutor` with a caller-owned `EffectExecutionAction`
-  implemented by a named type or closure. Executors can also carry lifecycle
-  sinks for owned, borrowed, or discarded facts.
-  Source: [`core/src/effect/application.rs`](../../core/src/effect/application.rs).
-- Application preparation: direct definition, initialized application, registered
-  definition lookup, and checked object-reference validation. These still have
-  convenience methods because they predate the executor cleanup.
-  Source: [`core/src/effect/pipeline.rs`](../../core/src/effect/pipeline.rs).
-- Periodic execution on ticking uses `tick_with_executor` for action-backed
-  execution and keeps `tick_with_events` / `tick_with_borrowed_events` as
-  convenience wrappers.
-  Source: [`core/src/effect/pipeline.rs`](../../core/src/effect/pipeline.rs).
-- Operation builders now provide the preferred composition point for the
-  application axes. `EffectApply` carries direct versus registered definitions,
-  optional checked reference validation, optional initialization, and executor
-  selection. `EffectTick` carries tick execution through the same executor
-  shape.
-  Source: [`core/src/effect/operation.rs`](../../core/src/effect/operation.rs).
+- `EffectPipeline` no longer exposes public `apply*` or `tick*` method families.
+  Use `EffectApply` and `EffectTick`.
+- `AbilityStore` no longer exposes public `begin_activation*`,
+  `begin_registered_activation*`, or `commit_activation*` method families. Use
+  `AbilityActivation` and `AbilityCommit`.
+- Effect application failures are consolidated under `EffectApplyError`.
+- Callback behavior and lifecycle event sinks live in executors:
+  `NoEffectExecutor`, `EffectActionExecutor`, `NoAbilityActivationExecutor`,
+  `AbilityGateExecutor`, `NoAbilityCommitExecutor`, and
+  `AbilityCommitActionExecutor`.
+- Owned event emission is an explicit adapter over borrowed lifecycle facts
+  through `with_owned_events`; borrowed event emission uses
+  `with_borrowed_events`.
 
-The ability system already uses the better part of this design: a small named
-trait, a no-op implementation, and a blanket closure implementation for the
-caller-owned behavior. ADR 0007 explicitly records that ability gates and commit
-actions use named public traits plus closure blanket impls.
-Source: [`core/src/ability/hooks.rs`](../../core/src/ability/hooks.rs),
-[`core/docs/adr/0007-split-ability-gate-from-commit-action.md`](../../core/docs/adr/0007-split-ability-gate-from-commit-action.md).
+The store and pipeline still own deterministic state transitions. Operation
+builders own command composition. Executors own caller code and lifecycle event
+delivery.
 
-The same operation-builder shape now exists for abilities. `AbilityActivation`
-composes direct versus registered activation, optional owner checking, gates,
-and lifecycle sinks through an activation executor. `AbilityCommit` composes
-commit actions and lifecycle sinks through a commit executor.
-Source: [`core/src/ability/operation.rs`](../../core/src/ability/operation.rs),
-[`core/src/ability/hooks.rs`](../../core/src/ability/hooks.rs).
+## Rust Pattern Rationale
 
-The weak point was not the callback trait. It was encoding every independent
-choice into the method name, so each new axis multiplied the public surface.
-
-## Rust Patterns
-
-### Use One Borrowed Event Primitive
-
-Rust's API Guidelines say callers should decide where data is copied, and
-functions should not clone when a borrow is enough.
-Source: [Rust API Guidelines, C-CALLER-CONTROL](https://rust-lang.github.io/api-guidelines/flexibility.html#caller-decides-where-to-copy-and-place-data-c-caller-control).
-
-That supports making borrowed lifecycle views the canonical callback shape:
-
-```rust
-for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>)
-```
-
-Higher-ranked trait bounds are the right language feature when a callback must
-accept a value borrowed for any short callback lifetime.
-Source: [Rust Reference, higher-ranked trait bounds](https://doc.rust-lang.org/reference/trait-bounds.html#higher-ranked-trait-bounds).
-
-Owned events should be an explicit adapter over the borrowed primitive, not a
-separate method suffix everywhere. This keeps clone requirements local to the
-owned adapter instead of spreading `Tags: Clone, Payload: Clone` across multiple
-operation variants.
-
-### Keep Named Behavior Traits
-
-The current `EffectExecutionAction` mirrors `AbilityCommitAction` well.
-`FnMut` is the standard callback bound when a function-like value may be called
-repeatedly and mutate captured state.
-Source: [std::ops::FnMut](https://doc.rust-lang.org/std/ops/trait.FnMut.html).
-
-The API Guidelines also prefer generic bounds when they express the minimum
-assumptions needed by the function; this preserves static dispatch and lets
-closures remain lightweight.
-Source: [Rust API Guidelines, C-GENERIC](https://rust-lang.github.io/api-guidelines/flexibility.html#functions-minimize-assumptions-about-parameters-by-using-generics-c-generic).
-
-So the action trait is not the thing to remove. It should remain the named
-contract for author code, with closure support as an ergonomic implementation.
-
-### Move Combinations Into Builders Or Command Objects
-
-The Rust API Guidelines recommend builders when construction involves many
-inputs, optional configuration, or a choice between several flavors, because
-otherwise APIs drift toward many constructors with many arguments.
+The Rust API Guidelines recommend builders when construction has many inputs,
+optional configuration, or several flavors that would otherwise become many
+constructors or functions. They also call out builders as especially appropriate
+when the terminal operation has side effects. Flexweave operations fit that
+shape because applying an effect, ticking effects, activating an ability, and
+committing an ability all mutate store state and may run caller code.
 Source: [Rust API Guidelines, C-BUILDER](https://rust-lang.github.io/api-guidelines/type-safety.html#builders-enable-construction-of-complex-values-c-builder).
 
-The standard library uses this shape for APIs with multiple independent options.
-`std::process::Command` is a process builder with required data in `new`,
-configuration methods, and terminal methods such as `spawn`/`output`.
-Source: [std::process::Command](https://doc.rust-lang.org/std/process/struct.Command.html).
-`std::fs::OpenOptions` similarly chains independent file-open options and then
-calls `open`.
-Source: [std::fs::OpenOptions](https://doc.rust-lang.org/std/fs/struct.OpenOptions.html).
+The Rust Design Patterns builder note makes the same tradeoff explicit:
+builders prevent constructor proliferation and support both one-line and
+incremental configuration, at the cost of a slightly larger API concept.
+Source: [Rust Design Patterns, Builder](https://rust-unofficial.github.io/patterns/patterns/creational/builder.html).
 
-For Flexweave, this points to operation builders or command objects rather than
-more method suffixes:
+Flexweave uses consuming command builders because operation configuration is
+normally one-shot and includes owned runtime input. That keeps call sites compact
+and keeps the terminal `run*` method responsible for validation and side
+effects.
 
-```rust
-EffectApply::definition(definition, input)
-    .checked(objects, EffectSourcePolicy::RequireLiveSource)
-    .initialized(context, initializer)
-    .execute_with(context, action)
-    .events(effect_events::owned(|event| events.push(event)))
-```
+## Effect Examples
 
-and:
+Apply a direct definition with the default no-op executor:
 
 ```rust
-EffectTick::new(elapsed_units)
-    .execute_with(context, action)
-    .events(effect_events::borrowed(|event| publish(event)))
+let outcome = EffectApply::definition(&definition, input).run(&mut effects)?;
 ```
 
-The implemented API names differ slightly from the sketch because executors
-carry both behavior and event sinks:
+Apply a registered definition and retain owned lifecycle facts:
+
+```rust
+let mut context = ();
+let mut executor =
+    NoEffectExecutor::new().with_owned_events(|event| lifecycle_events.push(event));
+
+let outcome = EffectApply::registered(&effect_definitions, "enemy/wasp/poison", input)
+    .run_with_executor(&mut effects, &mut context, &mut executor)?;
+```
+
+Apply an initialized, checked effect with caller-owned execution:
 
 ```rust
 let mut executor =
     EffectActionExecutor::new(&mut action).with_owned_events(|event| events.push(event));
 
-EffectApply::definition(definition, input)
-    .checked(objects, EffectSourcePolicy::RequireLiveSource)
+let outcome = EffectApply::definition(&definition, input)
+    .checked(&objects, EffectSourcePolicy::RequireLiveSource)
     .initialized(&mut initializer)
-    .run_with_executor(&mut pipeline, &mut context, &mut executor)?;
+    .run_with_executor(&mut effects, &mut runtime, &mut executor)?;
 ```
 
-For abilities:
+Advance active effects with caller-owned periodic execution:
+
+```rust
+let mut executor =
+    EffectActionExecutor::new(&mut action).with_borrowed_events(|event| publish(event));
+
+EffectTick::new(elapsed_units)
+    .run_with_executor(&mut effects, &mut runtime, &mut executor)?;
+```
+
+## Ability Examples
+
+Activate a granted ability:
+
+```rust
+let activation_id = AbilityActivation::new(ability_id).run(&mut abilities)?;
+```
+
+Activate a registered ability for an expected owner while running a caller-owned
+gate and retaining lifecycle facts:
 
 ```rust
 let mut executor =
     AbilityGateExecutor::new(&mut gate).with_owned_events(|event| events.push(event));
 
-let activation_id = AbilityActivation::registered(definitions, ability_id)
+let activation_id = AbilityActivation::registered(&ability_definitions, ability_id)
     .for_owner(owner_id)
     .run_with_executor(&mut abilities, &runtime, &mut executor)?;
 ```
 
-The important shape is one terminal execution path per operation family, with
-independent configuration represented as builder state.
+Commit an activation with caller-owned side effects:
 
-### Use Custom Types For Meaningful Choices
+```rust
+let mut executor =
+    AbilityCommitActionExecutor::new(&mut commit_action)
+        .with_owned_events(|event| events.push(event));
 
-The API Guidelines prefer deliberate types over ambiguous primitive flags.
-Source: [Rust API Guidelines, C-CUSTOM-TYPE](https://rust-lang.github.io/api-guidelines/type-safety.html#arguments-convey-meaning-through-types-not-bool-or-option-c-custom-type).
+let outcome = AbilityCommit::new(activation_id)
+    .run_with_executor(&mut abilities, &mut runtime, &mut executor)?;
+```
 
-Flexweave is already doing this with `EffectSourcePolicy`. Keep that style for
-new axes: event retention should be an event sink adapter type, and application
-source should be a definition source type, not a pile of boolean parameters.
+## Design Rules Going Forward
 
-If a builder or command object is public, keep fields private unless it is truly
-a passive data record. Private fields preserve invariants and leave room for
-future validation.
-Source: [Rust API Guidelines, C-STRUCT-PRIVATE](https://rust-lang.github.io/api-guidelines/future-proofing.html#structs-have-private-fields-c-struct-private).
-
-### Avoid Conversion Traits For Callback Ownership
-
-`Borrow` is for owned and borrowed representations that behave equivalently for
-traits such as `Eq`, `Ord`, and `Hash`; `AsRef` is for cheap reference
-conversion.
-Source: [std::borrow::Borrow](https://doc.rust-lang.org/std/borrow/trait.Borrow.html),
-[Rust API Guidelines, C-CONV-TRAITS](https://rust-lang.github.io/api-guidelines/interoperability.html#conversions-use-the-standard-traits-from-asref-asmut-c-conv-traits).
-
-Those traits do not model "this callback wants an owned event" versus "this
-callback wants a borrowed event view". Use explicit sink adapters such as
-`OwnedEffectLifecycleEvents`, `DiscardEffectLifecycleEvents`, or a borrowed-view
-`FnMut` instead of trying to infer that choice through conversion traits.
-
-### Keep No-Op Defaults
-
-No-op executors and initializer types are useful because they let the core
-implementation share one generic path. `Infallible` is the standard error type
-for errors that cannot happen in a generic `Result`.
-Source: [std::convert::Infallible](https://doc.rust-lang.org/std/convert/enum.Infallible.html).
-
-For option-like configuration structs, `Default` is the standard way to expose a
-useful baseline and override individual options.
-Source: [std::default::Default](https://doc.rust-lang.org/std/default/trait.Default.html).
-
-### Use Trait Objects Only As An Escape Hatch
-
-Trait objects can reduce monomorphization and store heterogeneous callbacks, but
-they add dynamic dispatch and restrict generic methods.
-Source: [Rust API Guidelines, C-OBJECT](https://rust-lang.github.io/api-guidelines/flexibility.html#traits-are-object-safe-if-they-may-be-useful-as-a-trait-object-c-object).
-
-Flexweave core is small, deterministic, and hot-path oriented, and action error
-types are currently generic. Static generic traits remain the better default.
-Consider trait objects only for a higher-level runtime adapter that wants to
-store heterogeneous effect handlers behind one erased error type.
-
-## Options For Flexweave
-
-### Option A: Document Borrowed Methods As Canonical
-
-Keep the current API, but document borrowed event methods as the primitive and
-owned event methods as convenience wrappers.
-
-Tradeoff: low migration cost, but it does not stop the next axis from adding
-another set of suffixes.
-
-### Option B: Add Executor And Event Sink Adapters
-
-Introduce one executor and event sink concept with explicit adapters:
-
-- `EffectActionExecutor::new(action)` adapts an execution action.
-- `NoEffectExecutor::new()` covers no-action paths.
-- `with_borrowed_events(f)` calls `f` with `EffectLifecycleEventView`.
-- `with_owned_events(f)` converts each view with `to_owned_event`.
-- `DiscardEffectLifecycleEvents` ignores events.
-
-Then new APIs accept an executor parameter rather than encoding
-action/no-action and owned/borrowed/no events in the method name.
-
-Tradeoff: this removes one major multiplier and keeps clone costs explicit, but
-it still leaves direct/checked/registered/initialized as method-name axes unless
-paired with a command object.
-
-### Option C: Add Operation Builders
-
-Add `EffectApply` and `EffectTick` command objects that carry the optional axes
-and execute through one pipeline entry point per operation family.
-
-Keep small convenience methods only for common default cases:
-
-- `apply`
-- `apply_checked`
-- `apply_registered`
-- `apply_initialized`
-- `tick`
-
-Move action, event sink, checked validation, registered lookup, and
-initialization composition into the command object.
-
-Tradeoff: this is the strongest fix for API growth, but generic builders that
-borrow context, initializers, actions, and event sinks will need careful lifetime
-and error-type design. A staged implementation can start with event sink
-adapters and add builders after the desired call shape is proven in tests.
-
-## Recommendation
-
-Use Option C as the long-term public shape, with Option B's executor and sink
-adapters as the shared implementation mechanism.
-
-Flexweave should treat borrowed lifecycle views as the canonical event stream,
-provide explicit executor/event-sink adapters, and stop adding public methods
-for every action/no-action and owned-vs-borrowed event combination. New
-multi-axis operations should be exposed as command builders, not suffix-heavy
-method families.
-
-This fits the existing Flexweave boundary:
-
-- It preserves synchronous author-owned actions.
-- It keeps static dispatch and caller-owned error types.
-- It keeps clone costs under caller control.
-- It aligns effects and abilities around named action traits plus operation
-  builders.
-- It limits the public surface before effects gain more runtime hooks.
-
-Suggested migration:
-
-1. Add executor and event sink adapters and make new APIs use borrowed views internally.
-2. Add `EffectApply`, `EffectTick`, `AbilityActivation`, and `AbilityCommit`
-   command objects as additive APIs.
-3. Update examples/tests to prefer command objects for action-backed,
-   gate-backed, or event-backed flows.
-4. Keep existing suffix methods during transition, then deprecate the most
-   combinatorial variants once the command APIs are stable.
+- Add new runtime axes to operation builders, not to `EffectPipeline` or
+  `AbilityStore` method suffixes.
+- Keep callback contracts as named traits with closure blanket impls when the
+  contract is meaningful, such as `EffectExecutionAction`,
+  `AbilityActivationGate`, and `AbilityCommitAction`.
+- Keep borrowed lifecycle views as the primitive event shape. Use explicit sink
+  adapters for owned events, borrowed events, and discarded events.
+- Keep no-op executors for the default path so the implementation has one
+  generic execution route.
+- Use specific domain types for meaningful choices, such as
+  `EffectSourcePolicy`, instead of boolean flags.

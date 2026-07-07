@@ -54,14 +54,15 @@ Each D2 file has a same-name `.svg` render beside it.
   preserves declaration order for registered lookups.
 - `EffectPipeline` emits lifecycle facts through callbacks. Routing keys do not
   auto-publish lifecycle events or projected signal facts.
-- `apply_checked_*` validates `source_id` and `target_id` against `ObjectStore`
-  before any lifecycle fact is emitted. Raw apply paths copy references as-is.
+- `EffectApply::checked` validates `source_id` and `target_id` against
+  `ObjectStore` before any lifecycle fact is emitted. Unchecked application
+  paths copy references as-is.
 - `EffectApplicationDecision` is caller-owned: rejection emits a rejection fact
   and stores no active effect.
 - Instant effects emit `ApplicationAccepted` and `Executed` without active
   storage. Duration, periodic, and indefinite effects create `EffectInstance`
   state.
-- `tick_with_*` advances active effects in deterministic application order.
+- `EffectTick` advances active effects in deterministic application order.
   Periodic executions are capped to the active lifetime, and natural timeout
   emits `Expired` after the final advance and periodic executions.
 - Manual removal and object-keyed cleanup emit `Removed`; natural timeout emits

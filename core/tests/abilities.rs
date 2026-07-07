@@ -14,6 +14,7 @@ use flexweave::{
     NoAbilityActivationExecutor, NoAbilityCommitExecutor, ObjectId, ObjectStore, Tag, TagSet,
 };
 use std::cell::Cell;
+use std::convert::Infallible;
 use std::rc::Rc;
 
 #[test]
@@ -281,10 +282,12 @@ fn begin_gate_error_emits_rejection_without_active_state() {
     let mut events = Vec::new();
 
     assert_eq!(
-        abilities.begin_activation_with_gate_events(ability_id, &(), &mut gate, |event| {
+        activate_ability_with_gate_events(&mut abilities, ability_id, &mut gate, |event| {
             events.push(event)
         }),
-        Err(AbilityBeginError::Gate(GateError::Unavailable))
+        Err(AbilityActivationError::Activation(AbilityBeginError::Gate(
+            GateError::Unavailable
+        )))
     );
 
     assert_eq!(abilities.active_activation_count(), 0);
@@ -320,12 +323,13 @@ fn commit_action_failure_rolls_back_active_state() {
 
     let mut abilities = AbilityStore::new();
     let ability_id = grant_payload(&mut abilities, Payload);
-    let activation_id = abilities.begin_activation(ability_id).unwrap();
+    let activation_id = activate_ability(&mut abilities, ability_id).unwrap();
     let mut commit = Commit;
     let mut events = Vec::new();
 
     assert_eq!(
-        abilities.commit_activation_with_action_events(
+        commit_ability_with_action_events(
+            &mut abilities,
             activation_id,
             &mut (),
             &mut commit,
@@ -354,20 +358,19 @@ fn explicit_commit_end_cancel_and_rollback_have_separate_lifecycle_contracts() {
     let fourth = grant_payload(&mut abilities, Payload);
     let mut events = Vec::new();
 
-    let activation_id = abilities.begin_activation(first).unwrap();
+    let activation_id = activate_ability(&mut abilities, first).unwrap();
     assert_eq!(
         abilities.end_activation(activation_id),
         Err(AbilityEndError::UncommittedActivation)
     );
     assert!(abilities.get_active_activation(activation_id).is_some());
     assert_eq!(
-        abilities
-            .commit_activation_with_events(activation_id, |event| events.push(event))
+        commit_ability_with_events(&mut abilities, activation_id, |event| events.push(event))
             .unwrap(),
         AbilityCommitOutcome::Committed
     );
     assert_eq!(
-        abilities.commit_activation(activation_id).unwrap(),
+        commit_ability(&mut abilities, activation_id).unwrap(),
         AbilityCommitOutcome::AlreadyCommitted
     );
     let ended = abilities
@@ -375,9 +378,9 @@ fn explicit_commit_end_cancel_and_rollback_have_separate_lifecycle_contracts() {
         .unwrap();
     assert!(matches!(ended, AbilityEndOutcome::Ended(_)));
 
-    let uncommitted_cancel_id = abilities.begin_activation(second).unwrap();
-    let committed_cancel_id = abilities.begin_activation(third).unwrap();
-    abilities.commit_activation(committed_cancel_id).unwrap();
+    let uncommitted_cancel_id = activate_ability(&mut abilities, second).unwrap();
+    let committed_cancel_id = activate_ability(&mut abilities, third).unwrap();
+    commit_ability(&mut abilities, committed_cancel_id).unwrap();
     let canceled_uncommitted =
         abilities.cancel_activation_with_events(uncommitted_cancel_id, |event| events.push(event));
     let canceled_committed =
@@ -391,7 +394,7 @@ fn explicit_commit_end_cancel_and_rollback_have_separate_lifecycle_contracts() {
         AbilityCancelOutcome::Canceled(_)
     ));
 
-    let rollback_id = abilities.begin_activation(fourth).unwrap();
+    let rollback_id = activate_ability(&mut abilities, fourth).unwrap();
     let rolled_back = abilities
         .rollback_activation_with_events(rollback_id, |event| events.push(event))
         .unwrap();
@@ -421,9 +424,9 @@ fn rollback_rejects_committed_activation_and_leaves_state() {
 
     let mut abilities = AbilityStore::new();
     let ability_id = grant_payload(&mut abilities, Payload);
-    let activation_id = abilities.begin_activation(ability_id).unwrap();
+    let activation_id = activate_ability(&mut abilities, ability_id).unwrap();
 
-    abilities.commit_activation(activation_id).unwrap();
+    commit_ability(&mut abilities, activation_id).unwrap();
 
     assert_eq!(
         abilities.rollback_activation(activation_id),
@@ -600,12 +603,14 @@ fn caller_publishes_ability_lifecycle_events_to_named_channels() {
     .unwrap();
     let mut channel = EventChannel::with_retention(channel_definition, EventRetention::Retain);
 
-    let activation_id = abilities
-        .begin_activation_with_events(ability_id, |event| channel.publish(event).unwrap())
-        .unwrap();
-    abilities
-        .commit_activation_with_events(activation_id, |event| channel.publish(event).unwrap())
-        .unwrap();
+    let activation_id = activate_ability_with_events(&mut abilities, ability_id, |event| {
+        channel.publish(event).unwrap()
+    })
+    .unwrap();
+    commit_ability_with_events(&mut abilities, activation_id, |event| {
+        channel.publish(event).unwrap()
+    })
+    .unwrap();
 
     let retained = channel.drain_retained();
     assert_eq!(
@@ -645,8 +650,8 @@ fn borrowed_ability_events_do_not_clone_payload_for_publication() {
     ));
     let mut kinds = Vec::new();
 
-    let activation_id = abilities
-        .begin_activation_with_borrowed_events(ability_id, |event| {
+    let activation_id =
+        activate_ability_with_borrowed_events(&mut abilities, ability_id, |event| {
             match &event {
                 AbilityLifecycleEventView::Attempted(attempt) => {
                     assert_eq!(attempt.payload.clone_count.get(), 0);
@@ -659,14 +664,13 @@ fn borrowed_ability_events_do_not_clone_payload_for_publication() {
             kinds.push(event.lifecycle_event_kind());
         })
         .unwrap();
-    abilities
-        .commit_activation_with_borrowed_events(activation_id, |event| {
-            let AbilityLifecycleEventView::Committed(active) = event else {
-                panic!("commit should emit committed active state");
-            };
-            assert_eq!(active.payload.clone_count.get(), 1);
-        })
-        .unwrap();
+    commit_ability_with_borrowed_events(&mut abilities, activation_id, |event| {
+        let AbilityLifecycleEventView::Committed(active) = event else {
+            panic!("commit should emit committed active state");
+        };
+        assert_eq!(active.payload.clone_count.get(), 1);
+    })
+    .unwrap();
     abilities
         .end_activation_with_borrowed_events(activation_id, |event| {
             let AbilityLifecycleEventView::Ended(active) = event else {
@@ -684,6 +688,107 @@ fn borrowed_ability_events_do_not_clone_payload_for_publication() {
             LifecycleEventKind::AbilityActivationStarted,
         ]
     );
+}
+
+fn activate_ability<Payload>(
+    abilities: &mut AbilityStore<TagSet<TestAtom>, Payload>,
+    ability_id: AbilityId,
+) -> Result<flexweave::AbilityActivationId, AbilityActivationError<Infallible, Infallible>>
+where
+    Payload: Clone,
+{
+    AbilityActivation::new(ability_id).run(abilities)
+}
+
+fn activate_ability_with_events<Payload, F>(
+    abilities: &mut AbilityStore<TagSet<TestAtom>, Payload>,
+    ability_id: AbilityId,
+    emit: F,
+) -> Result<flexweave::AbilityActivationId, AbilityActivationError<Infallible, Infallible>>
+where
+    Payload: Clone,
+    F: FnMut(AbilityLifecycleEvent<TagSet<TestAtom>, Payload>),
+{
+    let mut executor = NoAbilityActivationExecutor::new().with_owned_events(emit);
+    AbilityActivation::new(ability_id).run_with_executor(abilities, &(), &mut executor)
+}
+
+fn activate_ability_with_borrowed_events<Payload, F>(
+    abilities: &mut AbilityStore<TagSet<TestAtom>, Payload>,
+    ability_id: AbilityId,
+    emit: F,
+) -> Result<flexweave::AbilityActivationId, AbilityActivationError<Infallible, Infallible>>
+where
+    Payload: Clone,
+    F: for<'event> FnMut(AbilityLifecycleEventView<'event, TagSet<TestAtom>, Payload>),
+{
+    let mut executor = NoAbilityActivationExecutor::new().with_borrowed_events(emit);
+    AbilityActivation::new(ability_id).run_with_executor(abilities, &(), &mut executor)
+}
+
+fn activate_ability_with_gate_events<Payload, Gate, F>(
+    abilities: &mut AbilityStore<TagSet<TestAtom>, Payload>,
+    ability_id: AbilityId,
+    gate: &mut Gate,
+    emit: F,
+) -> Result<flexweave::AbilityActivationId, AbilityActivationError<Gate::Error, Gate::BlockReason>>
+where
+    Payload: Clone,
+    Gate: AbilityActivationGate<(), TagSet<TestAtom>, Payload>,
+    F: FnMut(AbilityLifecycleEvent<TagSet<TestAtom>, Payload>),
+{
+    let mut executor = AbilityGateExecutor::new(gate).with_owned_events(emit);
+    AbilityActivation::new(ability_id).run_with_executor(abilities, &(), &mut executor)
+}
+
+fn commit_ability<Payload>(
+    abilities: &mut AbilityStore<TagSet<TestAtom>, Payload>,
+    activation_id: flexweave::AbilityActivationId,
+) -> Result<AbilityCommitOutcome, AbilityCommitError<Infallible>> {
+    AbilityCommit::new(activation_id).run(abilities)
+}
+
+fn commit_ability_with_events<Payload, F>(
+    abilities: &mut AbilityStore<TagSet<TestAtom>, Payload>,
+    activation_id: flexweave::AbilityActivationId,
+    emit: F,
+) -> Result<AbilityCommitOutcome, AbilityCommitError<Infallible>>
+where
+    Payload: Clone,
+    F: FnMut(AbilityLifecycleEvent<TagSet<TestAtom>, Payload>),
+{
+    let mut context = ();
+    let mut executor = NoAbilityCommitExecutor::new().with_owned_events(emit);
+    AbilityCommit::new(activation_id).run_with_executor(abilities, &mut context, &mut executor)
+}
+
+fn commit_ability_with_borrowed_events<Payload, F>(
+    abilities: &mut AbilityStore<TagSet<TestAtom>, Payload>,
+    activation_id: flexweave::AbilityActivationId,
+    emit: F,
+) -> Result<AbilityCommitOutcome, AbilityCommitError<Infallible>>
+where
+    F: for<'event> FnMut(AbilityLifecycleEventView<'event, TagSet<TestAtom>, Payload>),
+{
+    let mut context = ();
+    let mut executor = NoAbilityCommitExecutor::new().with_borrowed_events(emit);
+    AbilityCommit::new(activation_id).run_with_executor(abilities, &mut context, &mut executor)
+}
+
+fn commit_ability_with_action_events<Context, Payload, Action, F>(
+    abilities: &mut AbilityStore<TagSet<TestAtom>, Payload>,
+    activation_id: flexweave::AbilityActivationId,
+    context: &mut Context,
+    action: &mut Action,
+    emit: F,
+) -> Result<AbilityCommitOutcome, AbilityCommitError<Action::Error>>
+where
+    Action: AbilityCommitAction<Context, TagSet<TestAtom>, Payload>,
+    Payload: Clone,
+    F: FnMut(AbilityLifecycleEvent<TagSet<TestAtom>, Payload>),
+{
+    let mut executor = AbilityCommitActionExecutor::new(action).with_owned_events(emit);
+    AbilityCommit::new(activation_id).run_with_executor(abilities, context, &mut executor)
 }
 
 fn grant_payload<Payload>(

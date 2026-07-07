@@ -254,7 +254,7 @@ impl EffectTick {
         Tags: TagCollection,
         Executor: EffectExecutor<Context, Tags, Payload>,
     {
-        pipeline.tick_with_executor(self.elapsed_units, context, executor)
+        pipeline.advance_with_executor(self.elapsed_units, context, executor)
     }
 }
 

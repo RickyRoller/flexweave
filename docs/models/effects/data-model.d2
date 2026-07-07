@@ -190,9 +190,9 @@ caller: Caller boundary {
   signal_projection.class: boundary
 }
 
-authoring.definitions -> runtime.input: apply_registered requires key
+authoring.definitions -> runtime.input: EffectApply::registered requires key
 authoring.definition -> runtime.input: raw and checked apply use definition
-caller.objects -> runtime.input: apply_checked validates source and target
+caller.objects -> runtime.input: EffectApply::checked validates source and target
 caller.active_ability -> runtime.input: accept_from_active_ability copies source_id
 runtime.pipeline -> events: emits borrowed or owned lifecycle facts
 events -> caller.event_channel: caller publishes lifecycle facts

@@ -246,7 +246,7 @@ impl AbilityCommit {
         Tags: TagCollection,
         Executor: AbilityCommitExecutor<Context, Tags, Payload>,
     {
-        store.commit_activation_with_executor(self.activation_id, context, executor)
+        store.commit_with_executor(self.activation_id, context, executor)
     }
 }
 

@@ -91,7 +91,7 @@ emit_created.class: side_effect
 active_state: Active effect stored
 active_state.class: state
 
-tick: tick_with_events elapsed_units
+tick: EffectTick elapsed_units
 tick.class: caller
 
 zero_elapsed: Elapsed is zero?
@@ -157,15 +157,15 @@ remove_cleanup.class: side_effect
 object_driver: ObjectDestructionDriver cleanup store
 object_driver.class: caller
 
-apply -> registered_lookup: optional registered helper
+apply -> registered_lookup: optional registered builder source
 registered_lookup -> missing_definition: key absent
 registered_lookup -> checked_path: definition found or raw definition supplied
 
-checked_path -> source_policy: checked apply
+checked_path -> source_policy: EffectApply.checked
 source_policy -> missing_source: RequireLiveSource and source_id None
 source_policy -> invalid_source: explicit source_id is not live
 source_policy -> invalid_target: target_id is not live
-checked_path -> validate_definition: unchecked apply
+checked_path -> validate_definition: unchecked EffectApply
 source_policy -> validate_definition: source and target valid
 
 validate_definition -> invalid_definition: invalid kind duration period or routing

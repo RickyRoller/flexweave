@@ -188,16 +188,14 @@ pub use derived_attribute::{DerivedAttribute, DerivedChange};
 pub use effect::{
     ActiveEffectId, DiscardEffectLifecycleEvents, EffectActionExecutor, EffectAdvance,
     EffectAdvanceView, EffectApplication, EffectApplicationDecision, EffectApplicationDraft,
-    EffectApplicationError, EffectApplicationExecutionError, EffectApplicationInput,
-    EffectApplicationRejection, EffectApplicationRejectionView, EffectApplicationView, EffectApply,
-    EffectApplyError, EffectApplyOutcome, EffectClockPolicy, EffectDefinition,
-    EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions, EffectExecution,
-    EffectExecutionAction, EffectExecutionView, EffectExecutor, EffectInitializationError,
-    EffectInitializationExecutionError, EffectInitializer, EffectInstance, EffectInstanceView,
+    EffectApplicationError, EffectApplicationInput, EffectApplicationRejection,
+    EffectApplicationRejectionView, EffectApplicationView, EffectApply, EffectApplyError,
+    EffectApplyOutcome, EffectClockPolicy, EffectDefinition, EffectDefinitionError,
+    EffectDefinitionRegistryError, EffectDefinitions, EffectExecution, EffectExecutionAction,
+    EffectExecutionView, EffectExecutor, EffectInitializer, EffectInstance, EffectInstanceView,
     EffectKind, EffectLifecycleEvent, EffectLifecycleEventView, EffectLifecycleSink,
-    EffectObjectRemovalPolicy, EffectPipeline, EffectRegisteredExecutionError, EffectRouting,
-    EffectSourcePolicy, EffectTick, NoEffectExecutor, NoopEffectInitializer,
-    OwnedEffectLifecycleEvents,
+    EffectObjectRemovalPolicy, EffectPipeline, EffectRouting, EffectSourcePolicy, EffectTick,
+    NoEffectExecutor, NoopEffectInitializer, OwnedEffectLifecycleEvents,
 };
 pub use errors::CoreError;
 pub use identity::{INVALID_OBJECT_ID, ObjectId, ObjectStore};

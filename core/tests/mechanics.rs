@@ -2,14 +2,16 @@ mod common;
 
 use common::TestAtom;
 use flexweave::{
-    AbilityCommitAction, AbilityStore, ActiveAbilityView, ActiveEffectId, Clock, ClockUnits,
-    DefinitionRegistryEntry, EffectApplicationDecision, EffectApplicationInput, EffectClockPolicy,
-    EffectDefinition as FlexEffectDefinition, EffectKind, EffectLifecycleEvent, EffectPipeline,
-    EffectRouting, EventChannel, EventChannelDefinition, EventChannelDefinitionError,
-    EventChannelDefinitions, EventChannelError, EventChannelRouteDefinition, EventConnectionHandle,
-    EventRetention, FixedStepClock, Grant, LifecycleEvent, LifecycleEventKind, LocalLifecycleEvent,
-    MechanicsDriver, ObjectId, ObjectStore, RealtimeClock, RealtimeClockAccumulator, Registry,
-    RegistryEntry, Tag, TagSet,
+    AbilityActivation, AbilityCommit, AbilityCommitAction, AbilityCommitActionExecutor,
+    AbilityStore, ActiveAbilityView, ActiveEffectId, Clock, ClockUnits, DefinitionRegistryEntry,
+    EffectApplicationDecision, EffectApplicationInput, EffectApply, EffectApplyError,
+    EffectApplyOutcome, EffectClockPolicy, EffectDefinition as FlexEffectDefinition, EffectKind,
+    EffectLifecycleEvent, EffectPipeline, EffectRouting, EventChannel, EventChannelDefinition,
+    EventChannelDefinitionError, EventChannelDefinitions, EventChannelError,
+    EventChannelRouteDefinition, EventConnectionHandle, EventRetention, FixedStepClock, Grant,
+    LifecycleEvent, LifecycleEventKind, LocalLifecycleEvent, MechanicsDriver, NoEffectExecutor,
+    ObjectId, ObjectStore, RealtimeClock, RealtimeClockAccumulator, Registry, RegistryEntry, Tag,
+    TagSet,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -114,19 +116,18 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
                 .abilities
                 .definition(active.payload.definition_key)
                 .ok_or(HookError::MissingAbilityDefinition)?;
-            context
-                .cooldowns
-                .apply(
-                    &duration_effect_definition("spark_cooldown", definition.cooldown_units),
-                    EffectApplicationInput {
-                        source_id: Some(active.source_id()),
-                        target_id: active.owner_id,
-                        tags: TagSet::new([cooldown_tag()]),
-                        payload: EffectPayload { amount: 0 },
-                        decision: EffectApplicationDecision::Accept,
-                    },
-                )
-                .map_err(|_| HookError::MissingEffectDefinition)?;
+            apply_effect(
+                &mut context.cooldowns,
+                &duration_effect_definition("spark_cooldown", definition.cooldown_units),
+                EffectApplicationInput {
+                    source_id: Some(active.source_id()),
+                    target_id: active.owner_id,
+                    tags: TagSet::new([cooldown_tag()]),
+                    payload: EffectPayload { amount: 0 },
+                    decision: EffectApplicationDecision::Accept,
+                },
+            )
+            .map_err(|_| HookError::MissingEffectDefinition)?;
             Ok(())
         }
     }
@@ -153,9 +154,12 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
     };
     let effects = Registry::new(EFFECT_DEFINITIONS);
 
-    let activation_id = abilities.begin_activation(ability_id).unwrap();
-    abilities
-        .commit_activation_with_action(activation_id, &mut runtime, &mut commit)
+    let activation_id = AbilityActivation::new(ability_id)
+        .run(&mut abilities)
+        .unwrap();
+    let mut executor = AbilityCommitActionExecutor::new(&mut commit);
+    AbilityCommit::new(activation_id)
+        .run_with_executor(&mut abilities, &mut runtime, &mut executor)
         .unwrap();
     let active = abilities
         .get_active_activation(activation_id)
@@ -170,20 +174,19 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
         .definition(ability_definition.effect_key)
         .ok_or(HookError::MissingEffectDefinition)
         .unwrap();
-    runtime
-        .effects
-        .apply_with_events(
-            &duration_effect_definition(effect_definition.key, effect_definition.duration_units),
-            EffectApplicationInput {
-                source_id: Some(active.owner_id),
-                target_id: runtime.target_id,
-                tags: effect_definition.tags(),
-                payload: effect_definition.payload,
-                decision: EffectApplicationDecision::Accept,
-            },
-            |event| runtime.application_events.push(event),
-        )
-        .unwrap();
+    apply_effect_with_events(
+        &mut runtime.effects,
+        &duration_effect_definition(effect_definition.key, effect_definition.duration_units),
+        EffectApplicationInput {
+            source_id: Some(active.owner_id),
+            target_id: runtime.target_id,
+            tags: effect_definition.tags(),
+            payload: effect_definition.payload,
+            decision: EffectApplicationDecision::Accept,
+        },
+        |event| runtime.application_events.push(event),
+    )
+    .unwrap();
     abilities.end_activation(activation_id).unwrap();
 
     assert_eq!(runtime.effects.count(), 1);
@@ -259,30 +262,30 @@ fn lifecycle_events_emit_in_registration_order_through_mechanics_driver() {
 
     let mut first = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
     let mut second = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
-    first
-        .apply(
-            &duration_effect_definition("first", 100),
-            EffectApplicationInput {
-                source_id: Some(ObjectId::new(1)),
-                target_id: ObjectId::new(2),
-                tags: TagSet::new([Tag::new([TestAtom::Category])]),
-                payload: Payload::First,
-                decision: EffectApplicationDecision::Accept,
-            },
-        )
-        .unwrap();
-    second
-        .apply(
-            &duration_effect_definition("second", 100),
-            EffectApplicationInput {
-                source_id: Some(ObjectId::new(3)),
-                target_id: ObjectId::new(4),
-                tags: TagSet::new([Tag::new([TestAtom::Group])]),
-                payload: Payload::Second,
-                decision: EffectApplicationDecision::Accept,
-            },
-        )
-        .unwrap();
+    apply_effect(
+        &mut first,
+        &duration_effect_definition("first", 100),
+        EffectApplicationInput {
+            source_id: Some(ObjectId::new(1)),
+            target_id: ObjectId::new(2),
+            tags: TagSet::new([Tag::new([TestAtom::Category])]),
+            payload: Payload::First,
+            decision: EffectApplicationDecision::Accept,
+        },
+    )
+    .unwrap();
+    apply_effect(
+        &mut second,
+        &duration_effect_definition("second", 100),
+        EffectApplicationInput {
+            source_id: Some(ObjectId::new(3)),
+            target_id: ObjectId::new(4),
+            tags: TagSet::new([Tag::new([TestAtom::Group])]),
+            payload: Payload::Second,
+            decision: EffectApplicationDecision::Accept,
+        },
+    )
+    .unwrap();
 
     let events = MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
         .with_store(&mut first)
@@ -312,18 +315,18 @@ fn zero_elapsed_lifecycle_tick_emits_no_events() {
     }
 
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
-    effects
-        .apply(
-            &duration_effect_definition("timed", 100),
-            EffectApplicationInput {
-                source_id: None,
-                target_id: ObjectId::new(1),
-                tags: TagSet::new([Tag::new([TestAtom::Category])]),
-                payload: Payload::Timed,
-                decision: EffectApplicationDecision::Accept,
-            },
-        )
-        .unwrap();
+    apply_effect(
+        &mut effects,
+        &duration_effect_definition("timed", 100),
+        EffectApplicationInput {
+            source_id: None,
+            target_id: ObjectId::new(1),
+            tags: TagSet::new([Tag::new([TestAtom::Category])]),
+            payload: Payload::Timed,
+            decision: EffectApplicationDecision::Accept,
+        },
+    )
+    .unwrap();
 
     let events = MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
         .with_store(&mut effects)
@@ -381,19 +384,19 @@ fn caller_publishes_effect_lifecycle_events_to_named_retained_channel() {
     let source = ObjectId::new(11);
     let target = ObjectId::new(12);
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
-    effects
-        .apply_with_events(
-            &duration_effect_definition("buff", 100),
-            EffectApplicationInput {
-                source_id: Some(source),
-                target_id: target,
-                tags: TagSet::new([Tag::new([TestAtom::Category, TestAtom::Variant])]),
-                payload: Payload { amount: 9 },
-                decision: EffectApplicationDecision::Accept,
-            },
-            |event| channel.publish(event.into()).unwrap(),
-        )
-        .unwrap();
+    apply_effect_with_events(
+        &mut effects,
+        &duration_effect_definition("buff", 100),
+        EffectApplicationInput {
+            source_id: Some(source),
+            target_id: target,
+            tags: TagSet::new([Tag::new([TestAtom::Category, TestAtom::Variant])]),
+            payload: Payload { amount: 9 },
+            decision: EffectApplicationDecision::Accept,
+        },
+        |event| channel.publish(event.into()).unwrap(),
+    )
+    .unwrap();
     MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
         .with_store(&mut effects)
         .tick_with(100, |event| channel.publish(event).unwrap());
@@ -465,18 +468,18 @@ fn event_channel_disconnects_handles_during_emission_without_reordering() {
     *later_handle.lock().unwrap() = Some(second.clone());
 
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
-    effects
-        .apply(
-            &duration_effect_definition("tick", 10),
-            EffectApplicationInput {
-                source_id: None,
-                target_id: ObjectId::new(1),
-                tags: TagSet::new([Tag::new([TestAtom::Category])]),
-                payload: Payload::Tick,
-                decision: EffectApplicationDecision::Accept,
-            },
-        )
-        .unwrap();
+    apply_effect(
+        &mut effects,
+        &duration_effect_definition("tick", 10),
+        EffectApplicationInput {
+            source_id: None,
+            target_id: ObjectId::new(1),
+            tags: TagSet::new([Tag::new([TestAtom::Category])]),
+            payload: Payload::Tick,
+            decision: EffectApplicationDecision::Accept,
+        },
+    )
+    .unwrap();
     let mut events = MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
         .with_store(&mut effects)
         .tick(1);
@@ -624,25 +627,25 @@ fn turn_based_clock_advances_effect_lifetimes_in_turns() {
     let source = ObjectId::new(1);
     let target = ObjectId::new(2);
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
-    effects
-        .apply(
-            &FlexEffectDefinition {
-                key: "turn_shield".to_owned(),
-                kind: EffectKind::Periodic,
-                duration: Some(EffectClockPolicy::from_clock(&turn_clock, 3)),
-                period: Some(EffectClockPolicy::from_clock(&turn_clock, 1)),
-                routing: EffectRouting::default(),
-                payload_schema: (),
-            },
-            EffectApplicationInput {
-                source_id: Some(source),
-                target_id: target,
-                tags: TagSet::new([Tag::new([TestAtom::Category])]),
-                payload: Payload::Shield,
-                decision: EffectApplicationDecision::Accept,
-            },
-        )
-        .unwrap();
+    apply_effect(
+        &mut effects,
+        &FlexEffectDefinition {
+            key: "turn_shield".to_owned(),
+            kind: EffectKind::Periodic,
+            duration: Some(EffectClockPolicy::from_clock(&turn_clock, 3)),
+            period: Some(EffectClockPolicy::from_clock(&turn_clock, 1)),
+            routing: EffectRouting::default(),
+            payload_schema: (),
+        },
+        EffectApplicationInput {
+            source_id: Some(source),
+            target_id: target,
+            tags: TagSet::new([Tag::new([TestAtom::Category])]),
+            payload: Payload::Shield,
+            decision: EffectApplicationDecision::Accept,
+        },
+    )
+    .unwrap();
 
     let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
         .with_store(&mut effects)
@@ -686,31 +689,31 @@ fn realtime_clock_lets_callers_choose_duration_to_unit_scale() {
 
     let realtime = RealtimeClock::new(1000);
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
-    effects
-        .apply(
-            &FlexEffectDefinition {
-                key: "realtime_pulse".to_owned(),
-                kind: EffectKind::Periodic,
-                duration: Some(EffectClockPolicy::from_clock(
-                    &realtime,
-                    Duration::from_secs(2),
-                )),
-                period: Some(EffectClockPolicy::from_clock(
-                    &realtime,
-                    Duration::from_millis(500),
-                )),
-                routing: EffectRouting::default(),
-                payload_schema: (),
-            },
-            EffectApplicationInput {
-                source_id: None,
-                target_id: ObjectId::new(20),
-                tags: TagSet::new([Tag::new([TestAtom::Category])]),
-                payload: Payload::Pulse,
-                decision: EffectApplicationDecision::Accept,
-            },
-        )
-        .unwrap();
+    apply_effect(
+        &mut effects,
+        &FlexEffectDefinition {
+            key: "realtime_pulse".to_owned(),
+            kind: EffectKind::Periodic,
+            duration: Some(EffectClockPolicy::from_clock(
+                &realtime,
+                Duration::from_secs(2),
+            )),
+            period: Some(EffectClockPolicy::from_clock(
+                &realtime,
+                Duration::from_millis(500),
+            )),
+            routing: EffectRouting::default(),
+            payload_schema: (),
+        },
+        EffectApplicationInput {
+            source_id: None,
+            target_id: ObjectId::new(20),
+            tags: TagSet::new([Tag::new([TestAtom::Category])]),
+            payload: Payload::Pulse,
+            decision: EffectApplicationDecision::Accept,
+        },
+    )
+    .unwrap();
 
     let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
         .with_store(&mut effects)
@@ -780,18 +783,18 @@ fn realtime_accumulator_expires_effect_duration_from_repeated_sub_unit_deltas() 
     }
 
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
-    effects
-        .apply(
-            &duration_effect_definition("brief", 1),
-            EffectApplicationInput {
-                source_id: None,
-                target_id: ObjectId::new(1),
-                tags: TagSet::new([Tag::new([TestAtom::Category])]),
-                payload: Payload::Brief,
-                decision: EffectApplicationDecision::Accept,
-            },
-        )
-        .unwrap();
+    apply_effect(
+        &mut effects,
+        &duration_effect_definition("brief", 1),
+        EffectApplicationInput {
+            source_id: None,
+            target_id: ObjectId::new(1),
+            tags: TagSet::new([Tag::new([TestAtom::Category])]),
+            payload: Payload::Brief,
+            decision: EffectApplicationDecision::Accept,
+        },
+    )
+    .unwrap();
 
     let mut accumulator = RealtimeClockAccumulator::new(60);
     let frame = Duration::from_millis(16);
@@ -826,25 +829,25 @@ fn realtime_accumulator_executes_periodic_effects_from_repeated_sub_unit_deltas(
     }
 
     let mut effects = EffectPipeline::<TagSet<TestAtom>, Payload>::new();
-    effects
-        .apply(
-            &FlexEffectDefinition {
-                key: "pulse".to_owned(),
-                kind: EffectKind::Periodic,
-                duration: Some(EffectClockPolicy::new(3)),
-                period: Some(EffectClockPolicy::new(1)),
-                routing: EffectRouting::default(),
-                payload_schema: (),
-            },
-            EffectApplicationInput {
-                source_id: None,
-                target_id: ObjectId::new(1),
-                tags: TagSet::new([Tag::new([TestAtom::Category])]),
-                payload: Payload::Pulse,
-                decision: EffectApplicationDecision::Accept,
-            },
-        )
-        .unwrap();
+    apply_effect(
+        &mut effects,
+        &FlexEffectDefinition {
+            key: "pulse".to_owned(),
+            kind: EffectKind::Periodic,
+            duration: Some(EffectClockPolicy::new(3)),
+            period: Some(EffectClockPolicy::new(1)),
+            routing: EffectRouting::default(),
+            payload_schema: (),
+        },
+        EffectApplicationInput {
+            source_id: None,
+            target_id: ObjectId::new(1),
+            tags: TagSet::new([Tag::new([TestAtom::Category])]),
+            payload: Payload::Pulse,
+            decision: EffectApplicationDecision::Accept,
+        },
+    )
+    .unwrap();
 
     let mut accumulator = RealtimeClockAccumulator::new(60);
     let frame = Duration::from_millis(16);
@@ -885,6 +888,33 @@ fn duration_effect_definition(key: &str, duration_units: ClockUnits) -> FlexEffe
         routing: EffectRouting::default(),
         payload_schema: (),
     }
+}
+
+fn apply_effect<Payload>(
+    effects: &mut EffectPipeline<TagSet<TestAtom>, Payload>,
+    definition: &FlexEffectDefinition,
+    input: EffectApplicationInput<TagSet<TestAtom>, Payload>,
+) -> Result<EffectApplyOutcome, EffectApplyError> {
+    EffectApply::definition(definition, input).run(effects)
+}
+
+fn apply_effect_with_events<Payload, F>(
+    effects: &mut EffectPipeline<TagSet<TestAtom>, Payload>,
+    definition: &FlexEffectDefinition,
+    input: EffectApplicationInput<TagSet<TestAtom>, Payload>,
+    emit: F,
+) -> Result<EffectApplyOutcome, EffectApplyError>
+where
+    Payload: Clone,
+    F: FnMut(EffectLifecycleEvent<TagSet<TestAtom>, Payload>),
+{
+    let mut context = ();
+    let mut executor = NoEffectExecutor::new().with_owned_events(emit);
+    EffectApply::definition(definition, input).run_with_executor(
+        effects,
+        &mut context,
+        &mut executor,
+    )
 }
 
 fn active_effect_advance_event<Payload>(

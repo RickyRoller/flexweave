@@ -1,5 +1,3 @@
-use std::convert::Infallible;
-
 use crate::identity::ObjectId;
 use crate::tag::TagCollection;
 
@@ -8,7 +6,7 @@ use crate::ability::event_sink::{discard_lifecycle_event, owned_lifecycle_events
 use crate::ability::events::{
     AbilityLifecycleEvent, AbilityLifecycleEventView, ActiveAbility, ActiveAbilityView,
 };
-use crate::ability::hooks::{AbilityCommitAction, AbilityCommitExecutor, NoCommitAction};
+use crate::ability::hooks::AbilityCommitExecutor;
 use crate::ability::ids::AbilityActivationId;
 use crate::ability::lifecycle_transaction::{ActiveAbilityTransition, emit_active_transition};
 use crate::ability::results::{
@@ -65,129 +63,7 @@ where
         }
     }
 
-    /// Commits an active activation with no caller-owned action.
-    pub fn commit_activation(
-        &mut self,
-        activation_id: AbilityActivationId,
-    ) -> Result<AbilityCommitOutcome, AbilityCommitError<Infallible>> {
-        self.commit_activation_with_borrowed_events(activation_id, discard_lifecycle_event)
-    }
-
-    /// Commits an active activation and emits an owned commit fact when this call commits.
-    pub fn commit_activation_with_events<F>(
-        &mut self,
-        activation_id: AbilityActivationId,
-        mut emit: F,
-    ) -> Result<AbilityCommitOutcome, AbilityCommitError<Infallible>>
-    where
-        Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
-    {
-        self.commit_activation_with_borrowed_events(
-            activation_id,
-            owned_lifecycle_events(&mut emit),
-        )
-    }
-
-    /// Commits an active activation and streams a borrowed commit fact when this call commits.
-    pub fn commit_activation_with_borrowed_events<F>(
-        &mut self,
-        activation_id: AbilityActivationId,
-        emit: F,
-    ) -> Result<AbilityCommitOutcome, AbilityCommitError<Infallible>>
-    where
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
-    {
-        let mut context = ();
-        let mut action = NoCommitAction;
-        self.commit_activation_with_action_borrowed_events(
-            activation_id,
-            &mut context,
-            &mut action,
-            emit,
-        )
-    }
-
-    /// Commits an active activation after applying a synchronous caller-owned action.
-    pub fn commit_activation_with_action<Context, Action>(
-        &mut self,
-        activation_id: AbilityActivationId,
-        context: &mut Context,
-        action: &mut Action,
-    ) -> Result<AbilityCommitOutcome, AbilityCommitError<Action::Error>>
-    where
-        Action: AbilityCommitAction<Context, Tags, Payload>,
-    {
-        self.commit_activation_with_action_borrowed_events(
-            activation_id,
-            context,
-            action,
-            discard_lifecycle_event,
-        )
-    }
-
-    /// Commits with a caller-owned action and emits owned lifecycle facts.
-    pub fn commit_activation_with_action_events<Context, Action, F>(
-        &mut self,
-        activation_id: AbilityActivationId,
-        context: &mut Context,
-        action: &mut Action,
-        mut emit: F,
-    ) -> Result<AbilityCommitOutcome, AbilityCommitError<Action::Error>>
-    where
-        Action: AbilityCommitAction<Context, Tags, Payload>,
-        Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
-    {
-        self.commit_activation_with_action_borrowed_events(
-            activation_id,
-            context,
-            action,
-            owned_lifecycle_events(&mut emit),
-        )
-    }
-
-    /// Commits with a caller-owned action and streams borrowed lifecycle facts.
-    pub fn commit_activation_with_action_borrowed_events<Context, Action, F>(
-        &mut self,
-        activation_id: AbilityActivationId,
-        context: &mut Context,
-        action: &mut Action,
-        mut emit: F,
-    ) -> Result<AbilityCommitOutcome, AbilityCommitError<Action::Error>>
-    where
-        Action: AbilityCommitAction<Context, Tags, Payload>,
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
-    {
-        let active = self
-            .find_active(activation_id)
-            .ok_or(AbilityCommitError::Ability(AbilityError::MissingActivation))?;
-        if active.committed {
-            return Ok(AbilityCommitOutcome::AlreadyCommitted);
-        }
-
-        let active_view = ActiveAbilityView::from(active);
-        if let Err(error) = action.apply_commit(context, active_view) {
-            self.remove_active_for_transition(
-                activation_id,
-                ActiveAbilityTransition::RolledBack,
-                &mut emit,
-            )
-            .expect("active ability exists after commit action");
-            return Err(AbilityCommitError::Action(error));
-        }
-
-        let active = self
-            .active_abilities
-            .get_mut(activation_id)
-            .expect("active ability exists after commit action");
-        active.committed = true;
-        emit_active_transition(ActiveAbilityTransition::Committed, active, &mut emit);
-        Ok(AbilityCommitOutcome::Committed)
-    }
-
-    /// Commits an active activation with a caller-owned executor.
-    pub fn commit_activation_with_executor<Context, Executor>(
+    pub(in crate::ability) fn commit_with_executor<Context, Executor>(
         &mut self,
         activation_id: AbilityActivationId,
         context: &mut Context,

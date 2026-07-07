@@ -22,11 +22,11 @@ cargo test -p flexweave
 
 ## Choose Lifecycle Event Shape
 
-Use borrowed lifecycle event methods for hot streaming paths where listeners
-handle the fact immediately. Use owned lifecycle event methods when the caller
-needs to retain, replay, inspect, or route materialized facts. Drop-only event
-channels can publish borrowed events; retained channels require owned events
-because they store the emitted batch.
+Use executor event sinks to choose how lifecycle facts are delivered. Borrowed
+event sinks are for hot streaming paths where listeners handle the fact
+immediately. Owned event sinks are for retained, replayed, inspected, or routed
+facts. Drop-only event channels can publish borrowed events; retained channels
+require owned events because they store the emitted batch.
 
 ## Compose Runtime Definition Bundles
 
@@ -39,7 +39,8 @@ One possible consumer-owned shape:
 
 ```rust
 use flexweave::{
-    AbilityDefinition, AbilityDefinitions, EffectDefinition, EffectDefinitions,
+    AbilityDefinition, AbilityDefinitions, EffectApply, EffectApplicationInput,
+    EffectDefinition, EffectDefinitions, Grant, NoEffectExecutor,
 };
 
 struct EnemyArchetype<AbilitySchema, EffectSchema> {
@@ -76,8 +77,8 @@ where
 }
 ```
 
-The zone runtime then passes that session-local bundle to the registered helper
-APIs and effect operation builders:
+The zone runtime then passes that session-local bundle to registered grant
+helpers and operation builders:
 
 ```rust
 let ability_id = ability_store.grant_registered(

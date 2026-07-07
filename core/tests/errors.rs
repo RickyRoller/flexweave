@@ -1,10 +1,9 @@
 use flexweave::{
     AbilityBeginError, AbilityCommitError, AbilityDefinitionError, AbilityDefinitionRegistryError,
     AbilityEndError, AbilityError, AbilityGrantError, AbilityId, AbilityRollbackError, CoreError,
-    EffectApplicationError, EffectApplicationExecutionError, EffectDefinitionError,
-    EffectDefinitionRegistryError, EffectInitializationError, EffectInitializationExecutionError,
-    EffectRegisteredExecutionError, EventChannelDefinitionError, EventChannelError,
-    LifecycleEventKind, RegisteredAbilityActivationError, SignalDefinitionError,
+    EffectApplicationError, EffectApplyError, EffectDefinitionError, EffectDefinitionRegistryError,
+    EventChannelDefinitionError, EventChannelError, LifecycleEventKind,
+    RegisteredAbilityActivationError, SignalDefinitionError,
 };
 use std::fmt;
 
@@ -37,13 +36,10 @@ fn public_flexweave_errors_implement_std_error() {
     assert_error::<AbilityEndError>();
     assert_error::<AbilityRollbackError>();
     assert_error::<RegisteredAbilityActivationError<HookError>>();
-    assert_error::<EffectApplicationExecutionError<HookError>>();
+    assert_error::<EffectApplyError<HookError, HookError>>();
     assert_error::<EffectApplicationError>();
     assert_error::<EffectDefinitionError>();
     assert_error::<EffectDefinitionRegistryError>();
-    assert_error::<EffectInitializationExecutionError<HookError, HookError>>();
-    assert_error::<EffectInitializationError<HookError>>();
-    assert_error::<EffectRegisteredExecutionError<HookError>>();
     assert_error::<EventChannelDefinitionError>();
     assert_error::<EventChannelError>();
     assert_error::<SignalDefinitionError>();
@@ -99,7 +95,7 @@ fn definition_errors_include_relevant_keys_in_display_messages() {
     );
 
     assert_eq!(
-        EffectRegisteredExecutionError::<HookError>::Definition(
+        EffectApplyError::<HookError, HookError>::RegisteredDefinition(
             EffectDefinitionRegistryError::MissingDefinition {
                 key: "burn".to_owned(),
             }
@@ -154,7 +150,7 @@ fn runtime_errors_have_contextual_display_messages_and_sources() {
         "hook denied activation"
     );
 
-    let effect_action = EffectApplicationExecutionError::Execution(HookError);
+    let effect_action = EffectApplyError::<HookError, HookError>::Execution(HookError);
     assert_eq!(
         effect_action.to_string(),
         "effect execution failed: hook denied activation"
@@ -166,11 +162,10 @@ fn runtime_errors_have_contextual_display_messages_and_sources() {
         "hook denied activation"
     );
 
-    let initialized_action =
-        EffectInitializationExecutionError::<HookError, HookError>::Execution(HookError);
+    let initialized_action = EffectApplyError::<HookError, HookError>::Initialize(HookError);
     assert_eq!(
         initialized_action.to_string(),
-        "effect execution failed: hook denied activation"
+        "effect initialization failed: hook denied activation"
     );
     assert_eq!(
         std::error::Error::source(&initialized_action)

@@ -1,7 +1,6 @@
 use crate::identity::ObjectId;
 use crate::tag::TagCollection;
 
-use super::definition::{AbilityDefinitionRegistryError, AbilityDefinitions};
 use super::events::{
     AbilityActivationAttemptView, AbilityActivationRejectionReason, ActiveAbility,
 };
@@ -123,15 +122,6 @@ where
     }
 }
 
-pub(super) enum RegisteredActivationRequestError<'ability, Tags, Payload>
-where
-    Tags: TagCollection,
-{
-    Activation(AbilityActivationRequestError<'ability, Tags, Payload>),
-    MissingGrantedDefinitionKey { ability_id: AbilityId },
-    Definition(AbilityDefinitionRegistryError),
-}
-
 pub(super) fn resolve_activation_request<'ability, Tags, Payload>(
     ability: Option<&'ability GrantedAbility<Tags, Payload>>,
 ) -> Result<
@@ -171,32 +161,6 @@ where
             ability: request.ability,
         });
     }
-
-    Ok(request)
-}
-
-pub(super) fn resolve_registered_activation_request<'ability, PayloadSchema, Tags, Payload>(
-    definitions: &AbilityDefinitions<PayloadSchema>,
-    ability_id: AbilityId,
-    ability: Option<&'ability GrantedAbility<Tags, Payload>>,
-) -> Result<
-    AbilityActivationRequest<'ability, Tags, Payload>,
-    RegisteredActivationRequestError<'ability, Tags, Payload>,
->
-where
-    Tags: TagCollection,
-{
-    let request = resolve_activation_request(ability)
-        .map_err(RegisteredActivationRequestError::Activation)?;
-    let definition_key = request
-        .ability
-        .definition_key
-        .as_deref()
-        .ok_or(RegisteredActivationRequestError::MissingGrantedDefinitionKey { ability_id })?;
-
-    definitions
-        .require(definition_key)
-        .map_err(RegisteredActivationRequestError::Definition)?;
 
     Ok(request)
 }

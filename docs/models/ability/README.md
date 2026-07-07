@@ -46,7 +46,7 @@ Each D2 file has a same-name `.svg` render beside it.
 
 - `AbilityDefinition` validates authoring metadata for definition identity and
   lifecycle routing. Payload schema is carried as caller-owned metadata.
-- `begin_registered_activation_*` validates that the granted definition key is
+- `AbilityActivation::registered` validates that the granted definition key is
   registered; definition fields remain metadata or validation hints.
 - Ability lifecycle facts are returned through callbacks. Channel keys on
   definitions do not auto-route events into `EventChannel`.
