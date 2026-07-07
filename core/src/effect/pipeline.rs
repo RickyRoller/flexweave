@@ -2,11 +2,13 @@ use crate::clock::ClockUnits;
 use crate::identity::{ObjectId, ObjectStore};
 use crate::tag::TagCollection;
 use std::collections::HashMap;
+use std::convert::Infallible;
 use std::fmt;
 
 use super::application::{
     EffectApplicationDecision, EffectApplicationDraft, EffectApplicationInput,
-    EffectApplicationRejectionView, EffectApplicationView, EffectInitializer, EffectSourcePolicy,
+    EffectApplicationRejectionView, EffectApplicationView, EffectExecutor, EffectInitializer,
+    EffectSourcePolicy, NoEffectExecutor,
 };
 use super::definition::{
     EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError,
@@ -54,6 +56,27 @@ pub enum EffectInitializationError<E> {
     Initialize(E),
 }
 
+/// Runtime effect application failures, including caller-owned execution failures.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EffectApplicationExecutionError<E> {
+    Application(EffectApplicationError),
+    Execution(E),
+}
+
+/// Runtime effect initialization failures, including caller-owned execution failures.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EffectInitializationExecutionError<InitializeError, ExecutionError> {
+    Initialization(EffectInitializationError<InitializeError>),
+    Execution(ExecutionError),
+}
+
+/// Runtime registered effect application failures, including caller-owned execution failures.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EffectRegisteredExecutionError<E> {
+    Definition(EffectDefinitionRegistryError),
+    Execution(E),
+}
+
 /// Outcome of applying an effect definition.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EffectApplyOutcome {
@@ -62,26 +85,26 @@ pub enum EffectApplyOutcome {
     ActiveCreated(ActiveEffectId),
 }
 
-struct PreparedEffectApplication<'definition, Tags, Payload>
+pub(super) struct PreparedEffectApplication<'definition, Tags, Payload>
 where
     Tags: TagCollection,
 {
-    definition_key: &'definition str,
-    kind: EffectKind,
-    duration: Option<EffectClockPolicy>,
-    period: Option<EffectClockPolicy>,
-    source_id: Option<ObjectId>,
-    target_id: ObjectId,
-    tags: Tags,
-    payload: Payload,
-    decision: EffectApplicationDecision,
+    pub(super) definition_key: &'definition str,
+    pub(super) kind: EffectKind,
+    pub(super) duration: Option<EffectClockPolicy>,
+    pub(super) period: Option<EffectClockPolicy>,
+    pub(super) source_id: Option<ObjectId>,
+    pub(super) target_id: ObjectId,
+    pub(super) tags: Tags,
+    pub(super) payload: Payload,
+    pub(super) decision: EffectApplicationDecision,
 }
 
 impl<'definition, Tags, Payload> PreparedEffectApplication<'definition, Tags, Payload>
 where
     Tags: TagCollection,
 {
-    fn new<Schema>(
+    pub(super) fn new<Schema>(
         definition: &'definition EffectDefinition<Schema>,
         input: EffectApplicationInput<Tags, Payload>,
     ) -> Self {
@@ -106,7 +129,7 @@ where
         }
     }
 
-    fn initialize<Context, Initializer>(
+    pub(super) fn initialize<Context, Initializer>(
         &mut self,
         context: &mut Context,
         initializer: &mut Initializer,
@@ -152,6 +175,46 @@ where
     }
 }
 
+impl<E> fmt::Display for EffectApplicationExecutionError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Application(error) => write!(formatter, "effect application failed: {error}"),
+            Self::Execution(error) => write!(formatter, "effect execution failed: {error}"),
+        }
+    }
+}
+
+impl<InitializeError, ExecutionError> fmt::Display
+    for EffectInitializationExecutionError<InitializeError, ExecutionError>
+where
+    InitializeError: fmt::Display,
+    ExecutionError: fmt::Display,
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Initialization(error) => write!(formatter, "{error}"),
+            Self::Execution(error) => write!(formatter, "effect execution failed: {error}"),
+        }
+    }
+}
+
+impl<E> fmt::Display for EffectRegisteredExecutionError<E>
+where
+    E: fmt::Display,
+{
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Definition(error) => {
+                write!(formatter, "registered effect application failed: {error}")
+            }
+            Self::Execution(error) => write!(formatter, "effect execution failed: {error}"),
+        }
+    }
+}
+
 impl<E> std::error::Error for EffectInitializationError<E>
 where
     E: std::error::Error + 'static,
@@ -164,8 +227,72 @@ where
     }
 }
 
+impl<E> std::error::Error for EffectApplicationExecutionError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Application(error) => Some(error),
+            Self::Execution(error) => Some(error),
+        }
+    }
+}
+
+impl<InitializeError, ExecutionError> std::error::Error
+    for EffectInitializationExecutionError<InitializeError, ExecutionError>
+where
+    InitializeError: std::error::Error + 'static,
+    ExecutionError: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Initialization(error) => Some(error),
+            Self::Execution(error) => Some(error),
+        }
+    }
+}
+
+impl<E> std::error::Error for EffectRegisteredExecutionError<E>
+where
+    E: std::error::Error + 'static,
+{
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Definition(error) => Some(error),
+            Self::Execution(error) => Some(error),
+        }
+    }
+}
+
 impl<E> From<EffectDefinitionError> for EffectInitializationError<E> {
     fn from(value: EffectDefinitionError) -> Self {
+        Self::Definition(value)
+    }
+}
+
+impl<E> From<EffectApplicationError> for EffectApplicationExecutionError<E> {
+    fn from(value: EffectApplicationError) -> Self {
+        Self::Application(value)
+    }
+}
+
+impl<E> From<EffectDefinitionError> for EffectApplicationExecutionError<E> {
+    fn from(value: EffectDefinitionError) -> Self {
+        Self::Application(EffectApplicationError::Definition(value))
+    }
+}
+
+impl<InitializeError, ExecutionError> From<EffectInitializationError<InitializeError>>
+    for EffectInitializationExecutionError<InitializeError, ExecutionError>
+{
+    fn from(value: EffectInitializationError<InitializeError>) -> Self {
+        Self::Initialization(value)
+    }
+}
+
+impl<E> From<EffectDefinitionRegistryError> for EffectRegisteredExecutionError<E> {
+    fn from(value: EffectDefinitionRegistryError) -> Self {
         Self::Definition(value)
     }
 }
@@ -260,6 +387,26 @@ where
         ))
     }
 
+    /// Applies or executes an effect with a caller-owned executor.
+    pub fn apply_with_executor<Schema, Context, Executor>(
+        &mut self,
+        definition: &EffectDefinition<Schema>,
+        input: EffectApplicationInput<Tags, Payload>,
+        context: &mut Context,
+        executor: &mut Executor,
+    ) -> Result<EffectApplyOutcome, EffectApplicationExecutionError<Executor::Error>>
+    where
+        Executor: EffectExecutor<Context, Tags, Payload>,
+    {
+        definition.validate()?;
+        self.apply_prepared_with_executor(
+            PreparedEffectApplication::new(definition, input),
+            context,
+            executor,
+        )
+        .map_err(EffectApplicationExecutionError::Execution)
+    }
+
     /// Applies or executes an effect with caller-owned initialization context.
     pub fn apply_initialized<Schema, Context, Initializer>(
         &mut self,
@@ -322,6 +469,38 @@ where
         Ok(self.apply_prepared_with_borrowed_events(prepared, on_event))
     }
 
+    /// Applies or executes an initialized effect with a caller-owned executor.
+    pub fn apply_initialized_with_executor<Schema, Context, Initializer, Executor>(
+        &mut self,
+        definition: &EffectDefinition<Schema>,
+        input: EffectApplicationInput<Tags, Payload>,
+        context: &mut Context,
+        initializer: &mut Initializer,
+        executor: &mut Executor,
+    ) -> Result<
+        EffectApplyOutcome,
+        EffectInitializationExecutionError<Initializer::Error, Executor::Error>,
+    >
+    where
+        Initializer: EffectInitializer<Context, Tags, Payload>,
+        Executor: EffectExecutor<Context, Tags, Payload>,
+    {
+        definition
+            .validate()
+            .map_err(EffectInitializationError::Definition)?;
+        let mut prepared = PreparedEffectApplication::new(definition, input);
+        if matches!(&prepared.decision, EffectApplicationDecision::Accept) {
+            prepared
+                .initialize(context, initializer)
+                .map_err(EffectInitializationError::Initialize)?;
+            definition
+                .validate_clock_shape(prepared.duration, prepared.period)
+                .map_err(EffectInitializationError::Definition)?;
+        }
+        self.apply_prepared_with_executor(prepared, context, executor)
+            .map_err(EffectInitializationExecutionError::Execution)
+    }
+
     /// Applies an effect by looking up a previously validated definition key.
     pub fn apply_registered<Schema>(
         &mut self,
@@ -368,13 +547,49 @@ where
         ))
     }
 
+    /// Applies a registered effect with a caller-owned executor.
+    pub fn apply_registered_with_executor<Schema, Context, Executor>(
+        &mut self,
+        definitions: &EffectDefinitions<Schema>,
+        key: &str,
+        input: EffectApplicationInput<Tags, Payload>,
+        context: &mut Context,
+        executor: &mut Executor,
+    ) -> Result<EffectApplyOutcome, EffectRegisteredExecutionError<Executor::Error>>
+    where
+        Executor: EffectExecutor<Context, Tags, Payload>,
+    {
+        let definition = definitions.require(key)?;
+        self.apply_prepared_with_executor(
+            PreparedEffectApplication::new(definition, input),
+            context,
+            executor,
+        )
+        .map_err(EffectRegisteredExecutionError::Execution)
+    }
+
     fn apply_prepared_with_borrowed_events<'definition, F>(
         &mut self,
         prepared: PreparedEffectApplication<'definition, Tags, Payload>,
-        mut on_event: F,
+        on_event: F,
     ) -> EffectApplyOutcome
     where
         F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
+    {
+        let mut executor = NoEffectExecutor::new().with_borrowed_events(on_event);
+        let mut context = ();
+        self.apply_prepared_with_executor(prepared, &mut context, &mut executor)
+            .unwrap_or_else(infallible_error)
+    }
+
+    pub(super) fn apply_prepared_with_executor<'definition, Context, Executor>(
+        &mut self,
+        prepared: PreparedEffectApplication<'definition, Tags, Payload>,
+        context: &mut Context,
+        executor: &mut Executor,
+    ) -> Result<EffectApplyOutcome, Executor::Error>
+    where
+        Executor: EffectExecutor<Context, Tags, Payload>,
     {
         let PreparedEffectApplication {
             definition_key,
@@ -398,19 +613,21 @@ where
 
         match decision {
             EffectApplicationDecision::Reject { reason } => {
-                on_event(EffectLifecycleEventView::ApplicationRejected(
+                executor.emit_effect_lifecycle(EffectLifecycleEventView::ApplicationRejected(
                     EffectApplicationRejectionView {
                         application,
                         reason: &reason,
                     },
                 ));
-                EffectApplyOutcome::Rejected
+                Ok(EffectApplyOutcome::Rejected)
             }
             EffectApplicationDecision::Accept => {
-                on_event(EffectLifecycleEventView::ApplicationAccepted(application));
+                executor.emit_effect_lifecycle(EffectLifecycleEventView::ApplicationAccepted(
+                    application,
+                ));
 
                 if kind == EffectKind::Instant {
-                    on_event(EffectLifecycleEventView::Executed(EffectExecutionView {
+                    let execution = EffectExecutionView {
                         active_effect_id: None,
                         definition_key: Some(definition_key),
                         source_id,
@@ -418,8 +635,20 @@ where
                         tags: &tags,
                         payload: &payload,
                         elapsed_units: None,
-                    }));
-                    return EffectApplyOutcome::ExecutedInstant;
+                    };
+                    executor.execute_effect(context, execution)?;
+                    executor.emit_effect_lifecycle(EffectLifecycleEventView::Executed(
+                        EffectExecutionView {
+                            active_effect_id: None,
+                            definition_key: Some(definition_key),
+                            source_id,
+                            target_id,
+                            tags: &tags,
+                            payload: &payload,
+                            elapsed_units: None,
+                        },
+                    ));
+                    return Ok(EffectApplyOutcome::ExecutedInstant);
                 }
 
                 let id = self.next_id;
@@ -437,8 +666,9 @@ where
                 };
                 self.push_effect(effect);
                 let effect = self.effects.last().expect("effect was just pushed");
-                on_event(EffectLifecycleEventView::ActiveCreated(effect.into()));
-                EffectApplyOutcome::ActiveCreated(id)
+                executor
+                    .emit_effect_lifecycle(EffectLifecycleEventView::ActiveCreated(effect.into()));
+                Ok(EffectApplyOutcome::ActiveCreated(id))
             }
         }
     }
@@ -496,6 +726,23 @@ where
             .map_err(EffectApplicationError::Definition)
     }
 
+    /// Applies or executes an effect with a caller-owned executor after validating references.
+    pub fn apply_checked_with_executor<Schema, Context, Executor>(
+        &mut self,
+        objects: &ObjectStore,
+        definition: &EffectDefinition<Schema>,
+        input: EffectApplicationInput<Tags, Payload>,
+        source_policy: EffectSourcePolicy,
+        context: &mut Context,
+        executor: &mut Executor,
+    ) -> Result<EffectApplyOutcome, EffectApplicationExecutionError<Executor::Error>>
+    where
+        Executor: EffectExecutor<Context, Tags, Payload>,
+    {
+        validate_application_references(objects, &input, source_policy)?;
+        self.apply_with_executor(definition, input, context, executor)
+    }
+
     /// Advances active effect instances without constructing lifecycle events.
     pub fn tick(&mut self, elapsed_units: ClockUnits) {
         self.tick_with_borrowed_events(elapsed_units, |_| {});
@@ -520,8 +767,24 @@ where
     where
         F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
     {
+        let mut executor = NoEffectExecutor::new().with_borrowed_events(&mut on_event);
+        let mut context = ();
+        self.tick_with_executor(elapsed_units, &mut context, &mut executor)
+            .unwrap_or_else(infallible_error);
+    }
+
+    /// Advances active effect instances with a caller-owned executor.
+    pub fn tick_with_executor<Context, Executor>(
+        &mut self,
+        elapsed_units: ClockUnits,
+        context: &mut Context,
+        executor: &mut Executor,
+    ) -> Result<(), Executor::Error>
+    where
+        Executor: EffectExecutor<Context, Tags, Payload>,
+    {
         if elapsed_units == 0 {
-            return;
+            return Ok(());
         }
 
         let mut index = 0;
@@ -532,19 +795,31 @@ where
                 .unwrap_or(elapsed_units);
             if let Some(previous) = previous_remaining_units {
                 self.effects[index].remaining_units = Some(previous.saturating_sub(elapsed_units));
-                on_event(EffectLifecycleEventView::Advanced(EffectAdvanceView {
-                    effect: (&self.effects[index]).into(),
-                    elapsed_units: elapsed_for_effect,
-                    previous_remaining_units,
-                }));
+                executor.emit_effect_lifecycle(EffectLifecycleEventView::Advanced(
+                    EffectAdvanceView {
+                        effect: (&self.effects[index]).into(),
+                        elapsed_units: elapsed_for_effect,
+                        previous_remaining_units,
+                    },
+                ));
             }
 
             if let Some(period) = self.effects[index].period {
                 self.effects[index].period_elapsed_units += elapsed_for_effect;
                 while self.effects[index].period_elapsed_units >= period.units {
-                    self.effects[index].period_elapsed_units -= period.units;
                     let effect = &self.effects[index];
-                    on_event(EffectLifecycleEventView::PeriodicExecuted(
+                    let execution = EffectExecutionView {
+                        active_effect_id: Some(effect.id),
+                        definition_key: effect.definition_key.as_deref(),
+                        source_id: effect.source_id,
+                        target_id: effect.target_id,
+                        tags: &effect.tags,
+                        payload: &effect.payload,
+                        elapsed_units: Some(period.units),
+                    };
+                    executor.execute_effect(context, execution)?;
+                    let effect = &self.effects[index];
+                    executor.emit_effect_lifecycle(EffectLifecycleEventView::PeriodicExecuted(
                         EffectExecutionView {
                             active_effect_id: Some(effect.id),
                             definition_key: effect.definition_key.as_deref(),
@@ -555,16 +830,20 @@ where
                             elapsed_units: Some(period.units),
                         },
                     ));
+                    self.effects[index].period_elapsed_units -= period.units;
                 }
             }
 
             if previous_remaining_units.is_some_and(|previous| elapsed_units >= previous) {
                 let expired = self.remove_effect_at_index(index);
-                on_event(EffectLifecycleEventView::Expired((&expired).into()));
+                executor
+                    .emit_effect_lifecycle(EffectLifecycleEventView::Expired((&expired).into()));
             } else {
                 index += 1;
             }
         }
+
+        Ok(())
     }
 
     /// Removes an active effect instance by id without constructing lifecycle events.
@@ -773,7 +1052,7 @@ impl EffectObjectRemovalPolicy {
     }
 }
 
-fn validate_application_references<Tags, Payload>(
+pub(super) fn validate_application_references<Tags, Payload>(
     objects: &ObjectStore,
     input: &EffectApplicationInput<Tags, Payload>,
     source_policy: EffectSourcePolicy,
@@ -800,4 +1079,8 @@ where
     }
 
     Ok(())
+}
+
+fn infallible_error<T>(error: Infallible) -> T {
+    match error {}
 }

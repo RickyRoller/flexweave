@@ -1,9 +1,10 @@
 use flexweave::{
     AbilityBeginError, AbilityCommitError, AbilityDefinitionError, AbilityDefinitionRegistryError,
     AbilityEndError, AbilityError, AbilityGrantError, AbilityId, AbilityRollbackError, CoreError,
-    EffectApplicationError, EffectDefinitionError, EffectDefinitionRegistryError,
-    EventChannelDefinitionError, EventChannelError, LifecycleEventKind,
-    RegisteredAbilityActivationError, SignalDefinitionError,
+    EffectApplicationError, EffectApplicationExecutionError, EffectDefinitionError,
+    EffectDefinitionRegistryError, EffectInitializationError, EffectInitializationExecutionError,
+    EffectRegisteredExecutionError, EventChannelDefinitionError, EventChannelError,
+    LifecycleEventKind, RegisteredAbilityActivationError, SignalDefinitionError,
 };
 use std::fmt;
 
@@ -36,9 +37,13 @@ fn public_flexweave_errors_implement_std_error() {
     assert_error::<AbilityEndError>();
     assert_error::<AbilityRollbackError>();
     assert_error::<RegisteredAbilityActivationError<HookError>>();
+    assert_error::<EffectApplicationExecutionError<HookError>>();
     assert_error::<EffectApplicationError>();
     assert_error::<EffectDefinitionError>();
     assert_error::<EffectDefinitionRegistryError>();
+    assert_error::<EffectInitializationExecutionError<HookError, HookError>>();
+    assert_error::<EffectInitializationError<HookError>>();
+    assert_error::<EffectRegisteredExecutionError<HookError>>();
     assert_error::<EventChannelDefinitionError>();
     assert_error::<EventChannelError>();
     assert_error::<SignalDefinitionError>();
@@ -92,6 +97,16 @@ fn definition_errors_include_relevant_keys_in_display_messages() {
         .to_string(),
         "effect definition `burn` is not registered"
     );
+
+    assert_eq!(
+        EffectRegisteredExecutionError::<HookError>::Definition(
+            EffectDefinitionRegistryError::MissingDefinition {
+                key: "burn".to_owned(),
+            }
+        )
+        .to_string(),
+        "registered effect application failed: effect definition `burn` is not registered"
+    );
 }
 
 #[test]
@@ -135,6 +150,31 @@ fn runtime_errors_have_contextual_display_messages_and_sources() {
     assert_eq!(
         std::error::Error::source(&commit)
             .expect("commit action error should be exposed as source")
+            .to_string(),
+        "hook denied activation"
+    );
+
+    let effect_action = EffectApplicationExecutionError::Execution(HookError);
+    assert_eq!(
+        effect_action.to_string(),
+        "effect execution failed: hook denied activation"
+    );
+    assert_eq!(
+        std::error::Error::source(&effect_action)
+            .expect("effect action error should be exposed as source")
+            .to_string(),
+        "hook denied activation"
+    );
+
+    let initialized_action =
+        EffectInitializationExecutionError::<HookError, HookError>::Execution(HookError);
+    assert_eq!(
+        initialized_action.to_string(),
+        "effect execution failed: hook denied activation"
+    );
+    assert_eq!(
+        std::error::Error::source(&initialized_action)
+            .expect("initialized effect action error should be exposed as source")
             .to_string(),
         "hook denied activation"
     );

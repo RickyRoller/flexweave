@@ -77,7 +77,7 @@ where
 ```
 
 The zone runtime then passes that session-local bundle to the registered helper
-APIs:
+APIs and effect operation builders:
 
 ```rust
 let ability_id = ability_store.grant_registered(
@@ -86,7 +86,10 @@ let ability_id = ability_store.grant_registered(
     Grant::new(enemy_id, ability_tags, ability_payload),
 )?;
 
-let active_poison = effect_pipeline.apply_registered_with_events(
+let mut effect_events =
+    NoEffectExecutor::new().with_owned_events(|event| lifecycle_events.push(event));
+let mut effect_context = ();
+let active_poison = EffectApply::registered(
     &zone_definitions.effects,
     "enemy/wasp/poison",
     EffectApplicationInput::accept(
@@ -95,8 +98,8 @@ let active_poison = effect_pipeline.apply_registered_with_events(
         effect_tags,
         effect_payload,
     ),
-    |event| lifecycle_events.push(event),
-)?;
+)
+.run_with_executor(&mut effect_pipeline, &mut effect_context, &mut effect_events)?;
 ```
 
 `AbilityDefinitions::new` and `EffectDefinitions::new` reject duplicate keys

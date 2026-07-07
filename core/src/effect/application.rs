@@ -2,8 +2,10 @@ use crate::ability::ActiveAbility;
 use crate::clock::ClockUnits;
 use crate::identity::ObjectId;
 use crate::tag::TagCollection;
+use std::convert::Infallible;
 
 use super::definition::EffectClockPolicy;
+use super::events::{EffectExecutionView, EffectLifecycleEvent, EffectLifecycleEventView};
 
 /// One effect application attempt.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -131,6 +133,232 @@ where
     Tags: TagCollection,
 {
     type Error = std::convert::Infallible;
+}
+
+impl<Context, Tags, Payload, Initializer> EffectInitializer<Context, Tags, Payload>
+    for &mut Initializer
+where
+    Tags: TagCollection,
+    Initializer: EffectInitializer<Context, Tags, Payload>,
+{
+    type Error = Initializer::Error;
+
+    fn initialize(
+        &mut self,
+        context: &mut Context,
+        draft: EffectApplicationDraft<'_, Tags, Payload>,
+    ) -> Result<(), Self::Error> {
+        (**self).initialize(context, draft)
+    }
+}
+
+/// Synchronous caller-owned action run when an effect execution completes.
+pub trait EffectExecutionAction<Context, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    type Error;
+
+    fn execute_effect(
+        &mut self,
+        context: &mut Context,
+        execution: EffectExecutionView<'_, Tags, Payload>,
+    ) -> Result<(), Self::Error>;
+}
+
+impl<Context, Tags, Payload, Error, F> EffectExecutionAction<Context, Tags, Payload> for F
+where
+    Tags: TagCollection,
+    F: for<'event> FnMut(
+        &mut Context,
+        EffectExecutionView<'event, Tags, Payload>,
+    ) -> Result<(), Error>,
+{
+    type Error = Error;
+
+    fn execute_effect(
+        &mut self,
+        context: &mut Context,
+        execution: EffectExecutionView<'_, Tags, Payload>,
+    ) -> Result<(), Self::Error> {
+        self(context, execution)
+    }
+}
+
+/// Sink for effect lifecycle facts produced while executing effect pipeline commands.
+pub trait EffectLifecycleSink<Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    fn emit_effect_lifecycle(&mut self, event: EffectLifecycleEventView<'_, Tags, Payload>);
+}
+
+/// Effect lifecycle sink that drops emitted facts.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DiscardEffectLifecycleEvents;
+
+impl<Tags, Payload> EffectLifecycleSink<Tags, Payload> for DiscardEffectLifecycleEvents
+where
+    Tags: TagCollection,
+{
+    fn emit_effect_lifecycle(&mut self, _event: EffectLifecycleEventView<'_, Tags, Payload>) {}
+}
+
+/// Effect lifecycle sink that converts borrowed facts into owned facts.
+pub struct OwnedEffectLifecycleEvents<F> {
+    emit: F,
+}
+
+impl<F> OwnedEffectLifecycleEvents<F> {
+    #[must_use]
+    pub fn new(emit: F) -> Self {
+        Self { emit }
+    }
+}
+
+impl<Tags, Payload, F> EffectLifecycleSink<Tags, Payload> for OwnedEffectLifecycleEvents<F>
+where
+    Tags: Clone + TagCollection,
+    Payload: Clone,
+    F: FnMut(EffectLifecycleEvent<Tags, Payload>),
+{
+    fn emit_effect_lifecycle(&mut self, event: EffectLifecycleEventView<'_, Tags, Payload>) {
+        (self.emit)(event.to_owned_event());
+    }
+}
+
+impl<Tags, Payload, F> EffectLifecycleSink<Tags, Payload> for F
+where
+    Tags: TagCollection,
+    F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
+{
+    fn emit_effect_lifecycle(&mut self, event: EffectLifecycleEventView<'_, Tags, Payload>) {
+        self(event);
+    }
+}
+
+/// Execution participant for effect commands.
+pub trait EffectExecutor<Context, Tags, Payload>
+where
+    Tags: TagCollection,
+{
+    type Error;
+
+    fn execute_effect(
+        &mut self,
+        context: &mut Context,
+        execution: EffectExecutionView<'_, Tags, Payload>,
+    ) -> Result<(), Self::Error>;
+
+    fn emit_effect_lifecycle(&mut self, event: EffectLifecycleEventView<'_, Tags, Payload>);
+}
+
+/// Executor for effect commands that need lifecycle facts but no caller-owned action.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct NoEffectExecutor<Sink = DiscardEffectLifecycleEvents> {
+    sink: Sink,
+}
+
+impl NoEffectExecutor {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            sink: DiscardEffectLifecycleEvents,
+        }
+    }
+}
+
+impl<Sink> NoEffectExecutor<Sink> {
+    #[must_use]
+    pub fn with_borrowed_events<F>(self, emit: F) -> NoEffectExecutor<F> {
+        NoEffectExecutor { sink: emit }
+    }
+
+    #[must_use]
+    pub fn with_owned_events<F>(self, emit: F) -> NoEffectExecutor<OwnedEffectLifecycleEvents<F>> {
+        NoEffectExecutor {
+            sink: OwnedEffectLifecycleEvents::new(emit),
+        }
+    }
+}
+
+impl<Context, Tags, Payload, Sink> EffectExecutor<Context, Tags, Payload> for NoEffectExecutor<Sink>
+where
+    Tags: TagCollection,
+    Sink: EffectLifecycleSink<Tags, Payload>,
+{
+    type Error = Infallible;
+
+    fn execute_effect(
+        &mut self,
+        _context: &mut Context,
+        _execution: EffectExecutionView<'_, Tags, Payload>,
+    ) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    fn emit_effect_lifecycle(&mut self, event: EffectLifecycleEventView<'_, Tags, Payload>) {
+        self.sink.emit_effect_lifecycle(event);
+    }
+}
+
+/// Executor that adapts a caller-owned action and optional lifecycle sink.
+pub struct EffectActionExecutor<'action, Action, Sink = DiscardEffectLifecycleEvents> {
+    action: &'action mut Action,
+    sink: Sink,
+}
+
+impl<'action, Action> EffectActionExecutor<'action, Action> {
+    #[must_use]
+    pub fn new(action: &'action mut Action) -> Self {
+        Self {
+            action,
+            sink: DiscardEffectLifecycleEvents,
+        }
+    }
+}
+
+impl<'action, Action, Sink> EffectActionExecutor<'action, Action, Sink> {
+    #[must_use]
+    pub fn with_borrowed_events<F>(self, emit: F) -> EffectActionExecutor<'action, Action, F> {
+        EffectActionExecutor {
+            action: self.action,
+            sink: emit,
+        }
+    }
+
+    #[must_use]
+    pub fn with_owned_events<F>(
+        self,
+        emit: F,
+    ) -> EffectActionExecutor<'action, Action, OwnedEffectLifecycleEvents<F>> {
+        EffectActionExecutor {
+            action: self.action,
+            sink: OwnedEffectLifecycleEvents::new(emit),
+        }
+    }
+}
+
+impl<Context, Action, Tags, Payload, Sink> EffectExecutor<Context, Tags, Payload>
+    for EffectActionExecutor<'_, Action, Sink>
+where
+    Tags: TagCollection,
+    Action: EffectExecutionAction<Context, Tags, Payload>,
+    Sink: EffectLifecycleSink<Tags, Payload>,
+{
+    type Error = Action::Error;
+
+    fn execute_effect(
+        &mut self,
+        context: &mut Context,
+        execution: EffectExecutionView<'_, Tags, Payload>,
+    ) -> Result<(), Self::Error> {
+        self.action.execute_effect(context, execution)
+    }
+
+    fn emit_effect_lifecycle(&mut self, event: EffectLifecycleEventView<'_, Tags, Payload>) {
+        self.sink.emit_effect_lifecycle(event);
+    }
 }
 
 impl<Tags, Payload> EffectApplicationInput<Tags, Payload>

@@ -392,7 +392,7 @@ where
         Ok(self.start_activation_from_seed(seed, &mut emit))
     }
 
-    fn start_activation_from_seed<F>(
+    pub(in crate::ability) fn start_activation_from_seed<F>(
         &mut self,
         seed: AbilityActivationSeed<Tags, Payload>,
         emit: &mut F,
@@ -409,7 +409,7 @@ where
     }
 }
 
-fn emit_activation_request_rejection<Tags, Payload, F>(
+pub(in crate::ability) fn emit_activation_request_rejection<Tags, Payload, F>(
     error: &AbilityActivationRequestError<'_, Tags, Payload>,
     emit: &mut F,
 ) where
@@ -427,7 +427,7 @@ fn emit_activation_request_rejection<Tags, Payload, F>(
     ));
 }
 
-fn prepare_activation_seed<Context, Gate, Tags, Payload, F>(
+pub(in crate::ability) fn prepare_activation_seed<Context, Gate, Tags, Payload, F>(
     request: AbilityActivationRequest<'_, Tags, Payload>,
     context: &Context,
     gate: &mut Gate,

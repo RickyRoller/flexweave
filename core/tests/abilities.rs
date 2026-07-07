@@ -2,15 +2,16 @@ mod common;
 
 use common::TestAtom;
 use flexweave::{
-    AbilityActivationDecision, AbilityActivationGate, AbilityActivationRejectionReason,
-    AbilityBeginError, AbilityCancelOutcome, AbilityCommitAction, AbilityCommitError,
-    AbilityCommitOutcome, AbilityDefinition, AbilityDefinitionRegistryError, AbilityDefinitions,
-    AbilityEndError, AbilityEndOutcome, AbilityGrantError, AbilityId, AbilityLifecycleEvent,
+    AbilityActivation, AbilityActivationDecision, AbilityActivationError, AbilityActivationGate,
+    AbilityActivationRejectionReason, AbilityBeginError, AbilityCancelOutcome, AbilityCommit,
+    AbilityCommitAction, AbilityCommitActionExecutor, AbilityCommitError, AbilityCommitOutcome,
+    AbilityDefinition, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndError,
+    AbilityEndOutcome, AbilityGateExecutor, AbilityGrantError, AbilityId, AbilityLifecycleEvent,
     AbilityLifecycleEventView, AbilityRollbackError, AbilityRollbackOutcome, AbilityStore,
-    ActiveAbilityView, EffectApplicationDecision, EffectApplicationInput, EffectDefinition,
-    EffectLifecycleEvent, EffectPipeline, EventChannel, EventChannelDefinition, EventRetention,
-    Grant, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind, ObjectId, ObjectStore, Tag,
-    TagSet,
+    ActiveAbilityView, EffectActionExecutor, EffectApplicationInput, EffectApply, EffectDefinition,
+    EffectExecutionView, EffectPipeline, EffectTick, EventChannel, EventChannelDefinition,
+    EventRetention, Grant, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind,
+    NoAbilityActivationExecutor, NoAbilityCommitExecutor, ObjectId, ObjectStore, Tag, TagSet,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -24,8 +25,10 @@ fn begin_without_gate_emits_attempted_and_started() {
     let ability_id = grant_payload(&mut abilities, Payload);
     let mut events = Vec::new();
 
-    let activation_id = abilities
-        .begin_activation_with_events(ability_id, |event| events.push(event))
+    let mut executor =
+        NoAbilityActivationExecutor::new().with_owned_events(|event| events.push(event));
+    let activation_id = AbilityActivation::new(ability_id)
+        .run_with_executor(&mut abilities, &(), &mut executor)
         .unwrap();
 
     assert_eq!(activation_id.get(), 1);
@@ -113,39 +116,41 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
         ) -> Result<(), Self::Error> {
             context.events.push("commit");
             assert!(!active.committed);
-            context
-                .effects
-                .apply_with_events(
-                    &EffectDefinition::instant("mana_cost", ()),
-                    EffectApplicationInput {
-                        source_id: Some(active.source_id()),
-                        target_id: active.owner_id,
-                        tags: TagSet::new([Tag::new([TestAtom::Category])]),
-                        payload: EffectPayload::ManaCost(self.cost),
-                        decision: EffectApplicationDecision::Accept,
-                    },
-                    |event| {
-                        if let EffectLifecycleEvent::Executed(executed) = event
-                            && let EffectPayload::ManaCost(amount) = executed.payload
-                        {
-                            context.mana -= amount;
-                        }
-                    },
-                )
-                .map_err(|_| CommitError::Effect)?;
-            context
-                .effects
-                .apply(
-                    &EffectDefinition::duration("cooldown", self.cooldown_units, ()),
-                    EffectApplicationInput {
-                        source_id: Some(active.source_id()),
-                        target_id: active.owner_id,
-                        tags: TagSet::new([cooldown_tag()]),
-                        payload: EffectPayload::Cooldown,
-                        decision: EffectApplicationDecision::Accept,
-                    },
-                )
-                .map_err(|_| CommitError::Effect)?;
+
+            let mut charge_mana =
+                |mana: &mut u8,
+                 execution: EffectExecutionView<'_, TagSet<TestAtom>, EffectPayload>|
+                 -> Result<(), CommitError> {
+                    let EffectPayload::ManaCost(amount) = execution.payload else {
+                        panic!("mana action should only execute mana cost effects");
+                    };
+                    *mana -= amount;
+                    Ok(())
+                };
+            let mut executor = EffectActionExecutor::new(&mut charge_mana);
+            EffectApply::definition(
+                &EffectDefinition::instant("mana_cost", ()),
+                EffectApplicationInput::accept(
+                    Some(active.source_id()),
+                    active.owner_id,
+                    TagSet::new([Tag::new([TestAtom::Category])]),
+                    EffectPayload::ManaCost(self.cost),
+                ),
+            )
+            .run_with_executor(&mut context.effects, &mut context.mana, &mut executor)
+            .map_err(|_| CommitError::Effect)?;
+
+            EffectApply::definition(
+                &EffectDefinition::duration("cooldown", self.cooldown_units, ()),
+                EffectApplicationInput::accept(
+                    Some(active.source_id()),
+                    active.owner_id,
+                    TagSet::new([cooldown_tag()]),
+                    EffectPayload::Cooldown,
+                ),
+            )
+            .run(&mut context.effects)
+            .map_err(|_| CommitError::Effect)?;
             Ok(())
         }
     }
@@ -169,20 +174,21 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
     };
     let mut events = Vec::new();
 
-    let activation_id = abilities
-        .begin_activation_with_gate_events(ability_id, &runtime, &mut gate, |event| {
-            events.push(event)
-        })
-        .unwrap();
+    let activation_id = {
+        let mut executor =
+            AbilityGateExecutor::new(&mut gate).with_owned_events(|event| events.push(event));
+        AbilityActivation::new(ability_id)
+            .run_with_executor(&mut abilities, &runtime, &mut executor)
+            .unwrap()
+    };
     assert_eq!(
-        abilities
-            .commit_activation_with_action_events(
-                activation_id,
-                &mut runtime,
-                &mut commit,
-                |event| events.push(event),
-            )
-            .unwrap(),
+        {
+            let mut executor = AbilityCommitActionExecutor::new(&mut commit)
+                .with_owned_events(|event| events.push(event));
+            AbilityCommit::new(activation_id)
+                .run_with_executor(&mut abilities, &mut runtime, &mut executor)
+                .unwrap()
+        },
         AbilityCommitOutcome::Committed
     );
     let ended = abilities.end_activation(activation_id).unwrap();
@@ -207,25 +213,39 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
 
     let mut blocked_events = Vec::new();
     assert_eq!(
-        abilities.begin_activation_with_gate_events(ability_id, &runtime, &mut gate, |event| {
-            blocked_events.push(event)
-        }),
-        Err(AbilityBeginError::Blocked(BlockReason::Cooldown))
+        {
+            let mut executor = AbilityGateExecutor::new(&mut gate)
+                .with_owned_events(|event| blocked_events.push(event));
+            AbilityActivation::new(ability_id).run_with_executor(
+                &mut abilities,
+                &runtime,
+                &mut executor,
+            )
+        },
+        Err(AbilityActivationError::Activation(
+            AbilityBeginError::Blocked(BlockReason::Cooldown)
+        ))
     );
     let [_, AbilityLifecycleEvent::Rejected(rejected)] = blocked_events.as_slice() else {
         panic!("blocked activation should emit attempted and rejected");
     };
     assert_eq!(rejected.reason, AbilityActivationRejectionReason::Blocked);
 
-    runtime.effects.tick(1000);
+    EffectTick::new(1000).run(&mut runtime.effects);
     assert!(!runtime.effects.has_tag(owner, &cooldown_tag()));
 
-    let activation_id = abilities
-        .begin_activation_with_gate(ability_id, &runtime, &mut gate)
-        .unwrap();
-    abilities
-        .commit_activation_with_action(activation_id, &mut runtime, &mut commit)
-        .unwrap();
+    let activation_id = {
+        let mut executor = AbilityGateExecutor::new(&mut gate);
+        AbilityActivation::new(ability_id)
+            .run_with_executor(&mut abilities, &runtime, &mut executor)
+            .unwrap()
+    };
+    {
+        let mut executor = AbilityCommitActionExecutor::new(&mut commit);
+        AbilityCommit::new(activation_id)
+            .run_with_executor(&mut abilities, &mut runtime, &mut executor)
+            .unwrap();
+    }
     abilities.end_activation(activation_id).unwrap();
     assert_eq!(runtime.mana, 4);
 }
@@ -447,13 +467,18 @@ fn checked_grant_and_owner_activation_reject_invalid_object_references_before_ga
     let mut events = Vec::new();
 
     assert_eq!(
-        abilities.begin_activation_for_owner_with_events(other_owner, ability_id, |event| events
-            .push(event),),
-        Err(AbilityBeginError::Ability(
-            flexweave::AbilityError::OwnerMismatch {
+        {
+            let mut executor =
+                NoAbilityActivationExecutor::new().with_owned_events(|event| events.push(event));
+            AbilityActivation::new(ability_id)
+                .for_owner(other_owner)
+                .run_with_executor(&mut abilities, &(), &mut executor)
+        },
+        Err(AbilityActivationError::Activation(
+            AbilityBeginError::Ability(flexweave::AbilityError::OwnerMismatch {
                 expected_owner_id: other_owner,
                 actual_owner_id: live_owner,
-            }
+            })
         ))
     );
     assert_eq!(
@@ -485,11 +510,13 @@ fn registered_definitions_validate_key_without_orchestration_metadata() {
         .unwrap();
     let mut events = Vec::new();
 
-    let activation_id = abilities
-        .begin_registered_activation_with_events(&definitions, ability_id, |event| {
-            events.push(event)
-        })
-        .unwrap();
+    let activation_id = {
+        let mut executor =
+            NoAbilityActivationExecutor::new().with_owned_events(|event| events.push(event));
+        AbilityActivation::registered(&definitions, ability_id)
+            .run_with_executor(&mut abilities, &(), &mut executor)
+            .unwrap()
+    };
 
     let active = abilities.get_active_activation(activation_id).unwrap();
     assert_eq!(active.definition_key.as_deref(), Some("channel"));
@@ -498,9 +525,14 @@ fn registered_definitions_validate_key_without_orchestration_metadata() {
         abilities.end_activation(activation_id),
         Err(AbilityEndError::UncommittedActivation)
     );
-    abilities
-        .commit_activation_with_events(activation_id, |event| events.push(event))
-        .unwrap();
+    {
+        let mut context = ();
+        let mut executor =
+            NoAbilityCommitExecutor::new().with_owned_events(|event| events.push(event));
+        AbilityCommit::new(activation_id)
+            .run_with_executor(&mut abilities, &mut context, &mut executor)
+            .unwrap();
+    }
     abilities
         .end_activation_with_events(activation_id, |event| events.push(event))
         .unwrap();

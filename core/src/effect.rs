@@ -4,12 +4,15 @@ mod application;
 mod definition;
 mod events;
 mod ids;
+mod operation;
 mod pipeline;
 
 pub use application::{
-    EffectApplication, EffectApplicationDecision, EffectApplicationDraft, EffectApplicationInput,
+    DiscardEffectLifecycleEvents, EffectActionExecutor, EffectApplication,
+    EffectApplicationDecision, EffectApplicationDraft, EffectApplicationInput,
     EffectApplicationRejection, EffectApplicationRejectionView, EffectApplicationView,
-    EffectInitializer, EffectSourcePolicy, NoopEffectInitializer,
+    EffectExecutionAction, EffectExecutor, EffectInitializer, EffectLifecycleSink,
+    EffectSourcePolicy, NoEffectExecutor, NoopEffectInitializer, OwnedEffectLifecycleEvents,
 };
 pub use definition::{
     EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError,
@@ -20,7 +23,9 @@ pub use events::{
     EffectInstanceView, EffectLifecycleEvent, EffectLifecycleEventView,
 };
 pub use ids::ActiveEffectId;
+pub use operation::{EffectApply, EffectApplyError, EffectTick};
 pub use pipeline::{
-    EffectApplicationError, EffectApplyOutcome, EffectInitializationError,
-    EffectObjectRemovalPolicy, EffectPipeline,
+    EffectApplicationError, EffectApplicationExecutionError, EffectApplyOutcome,
+    EffectInitializationError, EffectInitializationExecutionError, EffectObjectRemovalPolicy,
+    EffectPipeline, EffectRegisteredExecutionError,
 };

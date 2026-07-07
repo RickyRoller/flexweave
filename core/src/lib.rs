@@ -14,8 +14,8 @@
 #![doc = "Stores and queries preserve deterministic iteration where ordering is part"]
 #![doc = "of the public contract."]
 #![doc = "When an `ObjectStore` is available, prefer checked runtime paths such as"]
-#![doc = "`AbilityStore::grant_checked`, `AbilityStore::begin_activation_for_owner_with_events`,"]
-#![doc = "and `EffectPipeline::apply_checked_with_events`; the raw grant, activation,"]
+#![doc = "`AbilityStore::grant_checked`, `AbilityActivation::new(...).for_owner(...)`,"]
+#![doc = "and `EffectApply::definition(...).checked(...)`; the raw grant, activation,"]
 #![doc = "and application methods are low-level paths that trust caller-managed"]
 #![doc = "object-reference invariants."]
 #![doc = ""]
@@ -163,15 +163,19 @@ pub mod signal;
 pub mod tag;
 
 pub use ability::{
-    AbilityActivationAttempt, AbilityActivationAttemptView, AbilityActivationDecision,
+    AbilityActivation, AbilityActivationAttempt, AbilityActivationAttemptView,
+    AbilityActivationDecision, AbilityActivationError, AbilityActivationExecutor,
     AbilityActivationGate, AbilityActivationId, AbilityActivationRejection,
     AbilityActivationRejectionReason, AbilityActivationRejectionView, AbilityBeginError,
-    AbilityCancelOutcome, AbilityCommitAction, AbilityCommitError, AbilityCommitOutcome,
-    AbilityDefinition, AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions,
-    AbilityEndError, AbilityEndOutcome, AbilityError, AbilityGrantError, AbilityId,
-    AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityRollbackError, AbilityRollbackOutcome,
-    AbilityStore, ActiveAbility, ActiveAbilityView, AllowActivation, Grant, GrantedAbility,
-    NoCommitAction, RegisteredAbilityActivationError, RevokedOwnerAbilities,
+    AbilityCancelOutcome, AbilityCommit, AbilityCommitAction, AbilityCommitActionExecutor,
+    AbilityCommitError, AbilityCommitExecutor, AbilityCommitOutcome, AbilityDefinition,
+    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndError,
+    AbilityEndOutcome, AbilityError, AbilityGateExecutor, AbilityGrantError, AbilityId,
+    AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityLifecycleSink, AbilityRollbackError,
+    AbilityRollbackOutcome, AbilityStore, ActiveAbility, ActiveAbilityView, AllowActivation,
+    DiscardAbilityLifecycleEvents, Grant, GrantedAbility, NoAbilityActivationExecutor,
+    NoAbilityCommitExecutor, NoCommitAction, OwnedAbilityLifecycleEvents,
+    RegisteredAbilityActivationError, RevokedOwnerAbilities,
 };
 pub use attribute::{
     Attribute, AttributeChange, AttributeMutation, AttributeMutationDecision,
@@ -182,14 +186,18 @@ pub use clock::{Clock, ClockUnits, FixedStepClock, RealtimeClock, RealtimeClockA
 pub use data_store::DataStore;
 pub use derived_attribute::{DerivedAttribute, DerivedChange};
 pub use effect::{
-    ActiveEffectId, EffectAdvance, EffectAdvanceView, EffectApplication, EffectApplicationDecision,
-    EffectApplicationDraft, EffectApplicationError, EffectApplicationInput,
-    EffectApplicationRejection, EffectApplicationRejectionView, EffectApplicationView,
-    EffectApplyOutcome, EffectClockPolicy, EffectDefinition, EffectDefinitionError,
-    EffectDefinitionRegistryError, EffectDefinitions, EffectExecution, EffectExecutionView,
-    EffectInitializationError, EffectInitializer, EffectInstance, EffectInstanceView, EffectKind,
-    EffectLifecycleEvent, EffectLifecycleEventView, EffectObjectRemovalPolicy, EffectPipeline,
-    EffectRouting, EffectSourcePolicy, NoopEffectInitializer,
+    ActiveEffectId, DiscardEffectLifecycleEvents, EffectActionExecutor, EffectAdvance,
+    EffectAdvanceView, EffectApplication, EffectApplicationDecision, EffectApplicationDraft,
+    EffectApplicationError, EffectApplicationExecutionError, EffectApplicationInput,
+    EffectApplicationRejection, EffectApplicationRejectionView, EffectApplicationView, EffectApply,
+    EffectApplyError, EffectApplyOutcome, EffectClockPolicy, EffectDefinition,
+    EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions, EffectExecution,
+    EffectExecutionAction, EffectExecutionView, EffectExecutor, EffectInitializationError,
+    EffectInitializationExecutionError, EffectInitializer, EffectInstance, EffectInstanceView,
+    EffectKind, EffectLifecycleEvent, EffectLifecycleEventView, EffectLifecycleSink,
+    EffectObjectRemovalPolicy, EffectPipeline, EffectRegisteredExecutionError, EffectRouting,
+    EffectSourcePolicy, EffectTick, NoEffectExecutor, NoopEffectInitializer,
+    OwnedEffectLifecycleEvents,
 };
 pub use errors::CoreError;
 pub use identity::{INVALID_OBJECT_ID, ObjectId, ObjectStore};

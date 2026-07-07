@@ -8,6 +8,7 @@ mod hooks;
 mod ids;
 mod indexed_store;
 mod lifecycle_transaction;
+mod operation;
 mod results;
 mod store;
 
@@ -20,10 +21,14 @@ pub use events::{
     AbilityLifecycleEventView, ActiveAbility, ActiveAbilityView,
 };
 pub use hooks::{
-    AbilityActivationDecision, AbilityActivationGate, AbilityCommitAction, AllowActivation,
-    NoCommitAction,
+    AbilityActivationDecision, AbilityActivationExecutor, AbilityActivationGate,
+    AbilityCommitAction, AbilityCommitActionExecutor, AbilityCommitExecutor, AbilityGateExecutor,
+    AbilityLifecycleSink, AllowActivation, DiscardAbilityLifecycleEvents,
+    NoAbilityActivationExecutor, NoAbilityCommitExecutor, NoCommitAction,
+    OwnedAbilityLifecycleEvents,
 };
 pub use ids::{AbilityActivationId, AbilityId};
+pub use operation::{AbilityActivation, AbilityActivationError, AbilityCommit};
 pub use results::{
     AbilityBeginError, AbilityCancelOutcome, AbilityCommitError, AbilityCommitOutcome,
     AbilityEndError, AbilityEndOutcome, AbilityError, AbilityGrantError, AbilityRollbackError,
