@@ -1,10 +1,15 @@
 //! Domain-neutral object destruction and object-keyed cleanup driver.
 
-use crate::ability::{AbilityLifecycleEvent, AbilityStore};
+use crate::ability::{
+    AbilityLifecycleEvent, AbilityRevokeOwner, AbilityStore, OwnedAbilityLifecycleEvents,
+};
 use crate::attribute::Attribute;
 use crate::data_store::DataStore;
 use crate::derived_attribute::DerivedAttribute;
-use crate::effect::{EffectLifecycleEvent, EffectObjectRemovalPolicy, EffectPipeline};
+use crate::effect::{
+    EffectLifecycleEvent, EffectObjectRemovalPolicy, EffectPipeline, EffectRemoveForObject,
+    OwnedEffectLifecycleEvents,
+};
 use crate::errors::CoreError;
 use crate::identity::{ObjectId, ObjectStore};
 use crate::tag::TagCollection;
@@ -18,6 +23,12 @@ pub trait ObjectLifecycleStore<Event> {
 pub struct ObjectDestructionDriver<'store, Event> {
     objects: &'store mut ObjectStore,
     stores: Vec<&'store mut dyn ObjectLifecycleStore<Event>>,
+}
+
+/// Object destruction command builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ObjectDestroy {
+    id: ObjectId,
 }
 
 impl<'store, Event> ObjectDestructionDriver<'store, Event> {
@@ -48,15 +59,7 @@ impl<'store, Event> ObjectDestructionDriver<'store, Event> {
         self
     }
 
-    /// Destroys an object and returns cleanup lifecycle events in registration order.
-    pub fn destroy(self, id: ObjectId) -> Result<Vec<Event>, CoreError> {
-        let mut events = Vec::new();
-        self.destroy_with(id, |event| events.push(event))?;
-        Ok(events)
-    }
-
-    /// Destroys an object and streams cleanup lifecycle events.
-    pub fn destroy_with<F>(mut self, id: ObjectId, mut emit: F) -> Result<ObjectId, CoreError>
+    fn destroy_object<F>(mut self, id: ObjectId, mut emit: F) -> Result<ObjectId, CoreError>
     where
         F: FnMut(Event),
     {
@@ -65,6 +68,35 @@ impl<'store, Event> ObjectDestructionDriver<'store, Event> {
             store.remove_object(destroyed, &mut emit);
         }
         Ok(destroyed)
+    }
+}
+
+impl ObjectDestroy {
+    #[must_use]
+    pub const fn new(id: ObjectId) -> Self {
+        Self { id }
+    }
+
+    /// Destroys an object and returns cleanup lifecycle events in registration order.
+    pub fn run<Event>(
+        self,
+        driver: ObjectDestructionDriver<'_, Event>,
+    ) -> Result<Vec<Event>, CoreError> {
+        let mut events = Vec::new();
+        self.run_streaming(driver, |event| events.push(event))?;
+        Ok(events)
+    }
+
+    /// Destroys an object and streams cleanup lifecycle events.
+    pub fn run_streaming<Event, F>(
+        self,
+        driver: ObjectDestructionDriver<'_, Event>,
+        emit: F,
+    ) -> Result<ObjectId, CoreError>
+    where
+        F: FnMut(Event),
+    {
+        driver.destroy_object(self.id, emit)
     }
 }
 
@@ -97,7 +129,8 @@ where
         id: ObjectId,
         emit: &mut dyn FnMut(AbilityLifecycleEvent<Tags, Payload>),
     ) {
-        self.revoke_owner_with_events(id, emit);
+        let mut sink = OwnedAbilityLifecycleEvents::new(emit);
+        AbilityRevokeOwner::new(id).run_with_sink(self, &mut sink);
     }
 }
 
@@ -112,6 +145,8 @@ where
         id: ObjectId,
         emit: &mut dyn FnMut(EffectLifecycleEvent<Tags, Payload>),
     ) {
-        self.remove_for_object_with_events(id, EffectObjectRemovalPolicy::SourceOrTarget, emit);
+        let mut sink = OwnedEffectLifecycleEvents::new(emit);
+        EffectRemoveForObject::new(id, EffectObjectRemovalPolicy::SourceOrTarget)
+            .run_with_sink(self, &mut sink);
     }
 }

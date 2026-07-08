@@ -30,6 +30,67 @@ pub struct DerivedAttribute {
     listeners: Vec<Listener>,
 }
 
+/// Derived attribute refresh command builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DerivedAttributeRefresh {
+    id: ObjectId,
+    mode: DerivedAttributeRefreshMode,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum DerivedAttributeRefreshMode {
+    Refresh,
+    TrackedOnly,
+}
+
+impl DerivedAttributeRefresh {
+    #[must_use]
+    pub const fn new(id: ObjectId) -> Self {
+        Self {
+            id,
+            mode: DerivedAttributeRefreshMode::Refresh,
+        }
+    }
+
+    #[must_use]
+    pub const fn tracked(id: ObjectId) -> Self {
+        Self {
+            id,
+            mode: DerivedAttributeRefreshMode::TrackedOnly,
+        }
+    }
+
+    #[must_use]
+    pub const fn tracked_only(mut self) -> Self {
+        self.mode = DerivedAttributeRefreshMode::TrackedOnly;
+        self
+    }
+
+    pub fn run(self, attribute: &mut DerivedAttribute) -> Option<AttributeValue> {
+        self.run_streaming(attribute, |_| {})
+    }
+
+    pub fn run_streaming<F>(
+        self,
+        attribute: &mut DerivedAttribute,
+        mut emit: F,
+    ) -> Option<AttributeValue>
+    where
+        F: FnMut(DerivedChange),
+    {
+        let (current, change) = match self.mode {
+            DerivedAttributeRefreshMode::Refresh => attribute.refresh_change(self.id, true),
+            DerivedAttributeRefreshMode::TrackedOnly => {
+                attribute.refresh_tracked_change(self.id, true)
+            }
+        };
+        if let Some(change) = change {
+            emit(change);
+        }
+        current
+    }
+}
+
 impl DerivedAttribute {
     /// Creates a derived attribute backed by a safe Rust calculator closure.
     #[must_use]
@@ -90,49 +151,14 @@ impl DerivedAttribute {
         current
     }
 
-    /// Re-evaluates `id`, updates the cache, and notifies on meaningful changes.
-    pub fn refresh(&mut self, id: ObjectId) -> Option<AttributeValue> {
-        let current = self.get(id);
-        self.commit(id, current, true);
-        current
-    }
-
-    /// Re-evaluates `id`, updates the cache, notifies existing listeners, and
-    /// emits a local event on meaningful changes.
-    pub fn refresh_with_events<F>(
+    fn refresh_change(
         &mut self,
         id: ObjectId,
-        mut on_event: F,
-    ) -> Option<AttributeValue>
-    where
-        F: FnMut(DerivedChange),
-    {
+        notify: bool,
+    ) -> (Option<AttributeValue>, Option<DerivedChange>) {
         let current = self.get(id);
-        if let Some(change) = self.commit(id, current, true) {
-            on_event(change);
-        }
-        current
-    }
-
-    /// Refreshes an already-tracked id without allocating new cache entries.
-    pub fn refresh_tracked(&mut self, id: ObjectId) -> Option<AttributeValue> {
-        self.refresh_tracked_change(id, true).0
-    }
-
-    /// Refreshes an already-tracked id and emits a local event on meaningful changes.
-    pub fn refresh_tracked_with_events<F>(
-        &mut self,
-        id: ObjectId,
-        mut on_event: F,
-    ) -> Option<AttributeValue>
-    where
-        F: FnMut(DerivedChange),
-    {
-        let (current, change) = self.refresh_tracked_change(id, true);
-        if let Some(change) = change {
-            on_event(change);
-        }
-        current
+        let change = self.commit(id, current, notify);
+        (current, change)
     }
 
     fn refresh_tracked_change(

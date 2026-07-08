@@ -145,9 +145,9 @@ events: AbilityLifecycleEvent {
 }
 events.class: artifact
 
-authoring.definition -> runtime.grant_input: grant_with_definition validates metadata
-authoring.definitions -> runtime.grant_input: grant_registered requires key
-runtime.grant_input -> caller.objects: grant_checked validates live owner
+authoring.definition -> runtime.grant_input: AbilityGrant::definition validates metadata
+authoring.definitions -> runtime.grant_input: AbilityGrant::registered requires key
+runtime.grant_input -> caller.objects: AbilityGrant::checked validates live owner
 runtime.store -> caller.gate: optional begin-time activation check
 runtime.active -> caller.commit_action: optional commit-time action
 caller.runtime -> runtime.store: composes begin, commit, end, cancel, rollback

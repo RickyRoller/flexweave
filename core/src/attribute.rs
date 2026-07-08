@@ -2,6 +2,7 @@
 
 use crate::identity::ObjectId;
 use crate::object_map::ObjectMap;
+use std::convert::Infallible;
 
 /// Signed numeric attribute value.
 pub type AttributeValue = f64;
@@ -112,6 +113,75 @@ impl<Context, Error> Default for AttributeMutationHooks<Context, Error> {
     }
 }
 
+/// Attribute mutation command builder.
+pub struct AttributeSet<'hooks, Context = (), Error = Infallible> {
+    request: AttributeMutationRequest,
+    hooks: Option<AttributeSetHooks<'hooks, Context, Error>>,
+}
+
+struct AttributeSetHooks<'hooks, Context, Error> {
+    context: &'hooks Context,
+    hooks: &'hooks mut AttributeMutationHooks<Context, Error>,
+}
+
+impl<'hooks> AttributeSet<'hooks, (), Infallible> {
+    #[must_use]
+    pub const fn new(id: ObjectId, requested: AttributeValue) -> Self {
+        Self::request(AttributeMutationRequest { id, requested })
+    }
+
+    #[must_use]
+    pub const fn request(request: AttributeMutationRequest) -> Self {
+        Self {
+            request,
+            hooks: None,
+        }
+    }
+}
+
+impl<'hooks, Context, Error> AttributeSet<'hooks, Context, Error> {
+    #[must_use]
+    pub fn with_hooks<NextContext, NextError>(
+        self,
+        context: &'hooks NextContext,
+        hooks: &'hooks mut AttributeMutationHooks<NextContext, NextError>,
+    ) -> AttributeSet<'hooks, NextContext, NextError> {
+        AttributeSet {
+            request: self.request,
+            hooks: Some(AttributeSetHooks { context, hooks }),
+        }
+    }
+
+    pub fn run(self, attribute: &mut Attribute) -> AttributeMutationResult<Error> {
+        self.run_streaming(attribute, |_| {})
+    }
+
+    pub fn run_streaming<F>(
+        self,
+        attribute: &mut Attribute,
+        mut emit: F,
+    ) -> AttributeMutationResult<Error>
+    where
+        F: FnMut(AttributeChange),
+    {
+        match self.hooks {
+            None => {
+                if let Some(change) = attribute.commit_change(
+                    self.request.id,
+                    self.request.requested,
+                    self.request.requested,
+                ) {
+                    emit(change);
+                    AttributeMutationResult::Committed(change)
+                } else {
+                    AttributeMutationResult::Unchanged(self.request.requested)
+                }
+            }
+            Some(hooks) => attribute.apply_mutation_with_hooks(self.request, hooks, emit),
+        }
+    }
+}
+
 /// Object-keyed attribute channel.
 #[derive(Default)]
 pub struct Attribute {
@@ -173,46 +243,10 @@ impl Attribute {
         self.values.count()
     }
 
-    /// Commits `requested` and notifies listeners only when the value changes.
-    pub fn set(&mut self, id: ObjectId, requested: AttributeValue) -> AttributeValue {
-        self.commit_change(id, requested, requested);
-        requested
-    }
-
-    /// Commits `requested`, notifies existing listeners, and emits a local event
-    /// only when the value changes.
-    pub fn set_with_events<F>(
-        &mut self,
-        id: ObjectId,
-        requested: AttributeValue,
-        mut on_event: F,
-    ) -> AttributeValue
-    where
-        F: FnMut(AttributeChange),
-    {
-        if let Some(change) = self.commit_change(id, requested, requested) {
-            on_event(change);
-        }
-        requested
-    }
-
-    /// Runs pre-mutation hooks, commits the final value if it changed, then
-    /// notifies listeners and post-commit hooks.
-    pub fn set_with_hooks<Context, Error>(
+    fn apply_mutation_with_hooks<Context, Error, F>(
         &mut self,
         request: AttributeMutationRequest,
-        context: &Context,
-        hooks: &mut AttributeMutationHooks<Context, Error>,
-    ) -> AttributeMutationResult<Error> {
-        self.set_with_hooks_and_events(request, context, hooks, |_| {})
-    }
-
-    /// Runs hook-bearing mutation and emits a committed change fact when storage changes.
-    pub fn set_with_hooks_and_events<Context, Error, F>(
-        &mut self,
-        request: AttributeMutationRequest,
-        context: &Context,
-        hooks: &mut AttributeMutationHooks<Context, Error>,
+        hooks: AttributeSetHooks<'_, Context, Error>,
         mut on_event: F,
     ) -> AttributeMutationResult<Error>
     where
@@ -221,13 +255,13 @@ impl Attribute {
         let previous = self.get(request.id);
         let mut current = request.requested;
 
-        for hook in &mut hooks.pre_hooks {
+        for hook in &mut hooks.hooks.pre_hooks {
             match hook(AttributeMutation {
                 id: request.id,
                 previous,
                 requested: request.requested,
                 current,
-                context,
+                context: hooks.context,
             }) {
                 AttributeMutationDecision::Allow => {}
                 AttributeMutationDecision::Transform(transformed) => {
@@ -249,8 +283,8 @@ impl Attribute {
             return AttributeMutationResult::Unchanged(current);
         };
 
-        for hook in &mut hooks.post_hooks {
-            hook(context, &change);
+        for hook in &mut hooks.hooks.post_hooks {
+            hook(hooks.context, &change);
         }
         on_event(change);
         AttributeMutationResult::Committed(change)

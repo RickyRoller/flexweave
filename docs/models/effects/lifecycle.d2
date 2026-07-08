@@ -133,7 +133,7 @@ remove_expired.class: side_effect
 emit_expired: Emit Expired
 emit_expired.class: side_effect
 
-manual_remove: remove_with_events ActiveEffectId
+manual_remove: EffectRemove ActiveEffectId
 manual_remove.class: caller
 
 found_effect: Effect id found?
@@ -145,7 +145,7 @@ remove_manual.class: side_effect
 emit_removed: Emit Removed
 emit_removed.class: side_effect
 
-object_cleanup: remove_for_object_with_events
+object_cleanup: EffectRemoveForObject
 object_cleanup.class: caller
 
 policy_match: Source Target or SourceOrTarget match?

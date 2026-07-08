@@ -1,22 +1,44 @@
 use std::convert::Infallible;
 use std::fmt;
 
-use crate::identity::ObjectId;
+use crate::identity::{ObjectId, ObjectStore};
 use crate::tag::TagCollection;
 
 use super::AbilityLifecycleEventView;
 use super::activation_request::{
     AbilityActivationRequestError, resolve_activation_request, resolve_owner_activation_request,
 };
-use super::definition::{AbilityDefinitionRegistryError, AbilityDefinitions};
+use super::definition::{AbilityDefinition, AbilityDefinitionRegistryError, AbilityDefinitions};
 use super::events::{AbilityActivationRejectionReason, AbilityActivationRejectionView};
 use super::hooks::{
     AbilityActivationDecision, AbilityActivationExecutor, AbilityCommitExecutor,
-    NoAbilityActivationExecutor, NoAbilityCommitExecutor,
+    AbilityLifecycleSink, DiscardAbilityLifecycleEvents, NoAbilityActivationExecutor,
+    NoAbilityCommitExecutor,
 };
 use super::ids::{AbilityActivationId, AbilityId};
-use super::results::{AbilityBeginError, AbilityCommitError, AbilityCommitOutcome};
-use super::store::AbilityStore;
+use super::results::{
+    AbilityBeginError, AbilityCancelOutcome, AbilityCommitError, AbilityCommitOutcome,
+    AbilityEndError, AbilityEndOutcome, AbilityGrantError, AbilityRollbackError,
+    AbilityRollbackOutcome,
+};
+use super::store::{AbilityStore, Grant, RevokedOwnerAbilities};
+
+/// Ability grant command builder.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AbilityGrant<'definition, PayloadSchema, Tags, Payload> {
+    source: Option<AbilityGrantSource<'definition, PayloadSchema>>,
+    objects: Option<&'definition ObjectStore>,
+    input: Grant<Tags, Payload>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum AbilityGrantSource<'definition, PayloadSchema> {
+    Definition(&'definition AbilityDefinition<PayloadSchema>),
+    Registered {
+        definitions: &'definition AbilityDefinitions<PayloadSchema>,
+        key: &'definition str,
+    },
+}
 
 /// Ability activation command builder.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -38,6 +60,110 @@ pub enum AbilityActivationError<GateError, BlockReason = Infallible> {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct AbilityCommit {
     activation_id: AbilityActivationId,
+}
+
+/// Ability owner revocation command builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AbilityRevokeOwner {
+    owner_id: ObjectId,
+}
+
+/// Ability activation end command builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AbilityEnd {
+    activation_id: AbilityActivationId,
+}
+
+/// Ability activation cancel command builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AbilityCancel {
+    activation_id: AbilityActivationId,
+}
+
+/// Ability activation rollback command builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct AbilityRollback {
+    activation_id: AbilityActivationId,
+}
+
+impl<'definition, Tags, Payload> AbilityGrant<'definition, (), Tags, Payload> {
+    #[must_use]
+    pub fn new(input: Grant<Tags, Payload>) -> Self {
+        Self {
+            source: None,
+            objects: None,
+            input,
+        }
+    }
+}
+
+impl<'definition, PayloadSchema, Tags, Payload>
+    AbilityGrant<'definition, PayloadSchema, Tags, Payload>
+{
+    #[must_use]
+    pub fn definition(
+        definition: &'definition AbilityDefinition<PayloadSchema>,
+        input: Grant<Tags, Payload>,
+    ) -> Self {
+        Self {
+            source: Some(AbilityGrantSource::Definition(definition)),
+            objects: None,
+            input,
+        }
+    }
+
+    #[must_use]
+    pub fn registered(
+        definitions: &'definition AbilityDefinitions<PayloadSchema>,
+        key: &'definition str,
+        input: Grant<Tags, Payload>,
+    ) -> Self {
+        Self {
+            source: Some(AbilityGrantSource::Registered { definitions, key }),
+            objects: None,
+            input,
+        }
+    }
+
+    #[must_use]
+    pub fn checked(mut self, objects: &'definition ObjectStore) -> Self {
+        self.objects = Some(objects);
+        self
+    }
+
+    pub fn run(
+        self,
+        store: &mut AbilityStore<Tags, Payload>,
+    ) -> Result<AbilityId, AbilityGrantError>
+    where
+        Tags: TagCollection,
+    {
+        if let Some(objects) = self.objects
+            && !objects.exists(self.input.owner_id)
+        {
+            return Err(AbilityGrantError::InvalidOwner {
+                owner_id: self.input.owner_id,
+            });
+        }
+
+        let definition_key = match self.source {
+            None => None,
+            Some(AbilityGrantSource::Definition(definition)) => {
+                definition
+                    .validate()
+                    .map_err(AbilityGrantError::Definition)?;
+                Some(definition.key.clone())
+            }
+            Some(AbilityGrantSource::Registered { definitions, key }) => {
+                let definition = definitions
+                    .require(key)
+                    .map_err(AbilityGrantError::RegisteredDefinition)?;
+                Some(definition.key.clone())
+            }
+        };
+
+        Ok(store.insert_grant(definition_key, self.input))
+    }
 }
 
 impl AbilityActivation<'_, ()> {
@@ -247,6 +373,127 @@ impl AbilityCommit {
         Executor: AbilityCommitExecutor<Context, Tags, Payload>,
     {
         store.commit_with_executor(self.activation_id, context, executor)
+    }
+}
+
+impl AbilityRevokeOwner {
+    #[must_use]
+    pub const fn new(owner_id: ObjectId) -> Self {
+        Self { owner_id }
+    }
+
+    #[must_use]
+    pub fn run<Tags, Payload>(
+        self,
+        store: &mut AbilityStore<Tags, Payload>,
+    ) -> RevokedOwnerAbilities<Tags, Payload>
+    where
+        Tags: TagCollection,
+    {
+        let mut sink = DiscardAbilityLifecycleEvents;
+        self.run_with_sink(store, &mut sink)
+    }
+
+    pub fn run_with_sink<Tags, Payload, Sink>(
+        self,
+        store: &mut AbilityStore<Tags, Payload>,
+        sink: &mut Sink,
+    ) -> RevokedOwnerAbilities<Tags, Payload>
+    where
+        Tags: TagCollection,
+        Sink: AbilityLifecycleSink<Tags, Payload>,
+    {
+        store.remove_owner_with_sink(self.owner_id, sink)
+    }
+}
+
+impl AbilityEnd {
+    #[must_use]
+    pub const fn new(activation_id: AbilityActivationId) -> Self {
+        Self { activation_id }
+    }
+
+    pub fn run<Tags, Payload>(
+        self,
+        store: &mut AbilityStore<Tags, Payload>,
+    ) -> Result<AbilityEndOutcome<Tags, Payload>, AbilityEndError>
+    where
+        Tags: TagCollection,
+    {
+        let mut sink = DiscardAbilityLifecycleEvents;
+        self.run_with_sink(store, &mut sink)
+    }
+
+    pub fn run_with_sink<Tags, Payload, Sink>(
+        self,
+        store: &mut AbilityStore<Tags, Payload>,
+        sink: &mut Sink,
+    ) -> Result<AbilityEndOutcome<Tags, Payload>, AbilityEndError>
+    where
+        Tags: TagCollection,
+        Sink: AbilityLifecycleSink<Tags, Payload>,
+    {
+        store.end_with_sink(self.activation_id, sink)
+    }
+}
+
+impl AbilityCancel {
+    #[must_use]
+    pub const fn new(activation_id: AbilityActivationId) -> Self {
+        Self { activation_id }
+    }
+
+    pub fn run<Tags, Payload>(
+        self,
+        store: &mut AbilityStore<Tags, Payload>,
+    ) -> AbilityCancelOutcome<Tags, Payload>
+    where
+        Tags: TagCollection,
+    {
+        let mut sink = DiscardAbilityLifecycleEvents;
+        self.run_with_sink(store, &mut sink)
+    }
+
+    pub fn run_with_sink<Tags, Payload, Sink>(
+        self,
+        store: &mut AbilityStore<Tags, Payload>,
+        sink: &mut Sink,
+    ) -> AbilityCancelOutcome<Tags, Payload>
+    where
+        Tags: TagCollection,
+        Sink: AbilityLifecycleSink<Tags, Payload>,
+    {
+        store.cancel_with_sink(self.activation_id, sink)
+    }
+}
+
+impl AbilityRollback {
+    #[must_use]
+    pub const fn new(activation_id: AbilityActivationId) -> Self {
+        Self { activation_id }
+    }
+
+    pub fn run<Tags, Payload>(
+        self,
+        store: &mut AbilityStore<Tags, Payload>,
+    ) -> Result<AbilityRollbackOutcome<Tags, Payload>, AbilityRollbackError>
+    where
+        Tags: TagCollection,
+    {
+        let mut sink = DiscardAbilityLifecycleEvents;
+        self.run_with_sink(store, &mut sink)
+    }
+
+    pub fn run_with_sink<Tags, Payload, Sink>(
+        self,
+        store: &mut AbilityStore<Tags, Payload>,
+        sink: &mut Sink,
+    ) -> Result<AbilityRollbackOutcome<Tags, Payload>, AbilityRollbackError>
+    where
+        Tags: TagCollection,
+        Sink: AbilityLifecycleSink<Tags, Payload>,
+    {
+        store.rollback_with_sink(self.activation_id, sink)
     }
 }
 

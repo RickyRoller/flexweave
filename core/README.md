@@ -29,15 +29,17 @@ Abilities describe activation lifecycle, grants, active state, explicit
 commitment, cancellation, rollback, revocation, and completion. Caller-owned
 synchronous gates decide whether active state may be created, and caller-owned
 commit actions apply point-of-no-return consequences during explicit commit.
-Use `grant_checked` and `begin_activation_for_owner_with_events` in common
+Use `AbilityGrant::new(...).checked(...)` and
+`AbilityActivation::new(...).for_owner(...).run_with_executor(...)` in common
 runtime flows so ability owners are validated against live objects and expected
 owners before activation gates run.
 
 Effects describe application, execution, active lifetime, advancement,
 removal, and expiration. Active effect instances carry runtime effect state for
-a finite or indefinite lifetime. Use `apply_checked_with_events` with an
-explicit `EffectSourcePolicy` when an `ObjectStore` is available; the raw
-`apply_with_events` path is reserved for callers that intentionally manage
+a finite or indefinite lifetime. Use
+`EffectApply::definition(...).checked(...)` with an explicit
+`EffectSourcePolicy` when an `ObjectStore` is available; unchecked
+`EffectApply` commands are reserved for callers that intentionally manage
 object-reference validity themselves.
 
 State-changing runtime commands return explicit primitive outcomes. Ability
@@ -64,7 +66,7 @@ Event channels are typed, caller-owned transport and retention primitives. An
 published facts, and notifies subscribed listeners in deterministic order. It
 does not subscribe to stores, discover definitions, or auto-route emitted facts.
 Callers publish facts into channels from ability command callbacks, pipeline callbacks, or
-`MechanicsDriver::tick_with`.
+`MechanicsTick::new(...).run_streaming(...)`.
 
 Signals are derived facts created by `SignalProjection` from source lifecycle
 facts. The current projection surface is effect-lifecycle based, including

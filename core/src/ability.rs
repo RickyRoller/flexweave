@@ -2,7 +2,6 @@
 
 mod activation_request;
 mod definition;
-mod event_sink;
 mod events;
 mod hooks;
 mod ids;
@@ -28,7 +27,10 @@ pub use hooks::{
     OwnedAbilityLifecycleEvents,
 };
 pub use ids::{AbilityActivationId, AbilityId};
-pub use operation::{AbilityActivation, AbilityActivationError, AbilityCommit};
+pub use operation::{
+    AbilityActivation, AbilityActivationError, AbilityCancel, AbilityCommit, AbilityEnd,
+    AbilityGrant, AbilityRevokeOwner, AbilityRollback,
+};
 pub use results::{
     AbilityBeginError, AbilityCancelOutcome, AbilityCommitError, AbilityCommitOutcome,
     AbilityEndError, AbilityEndOutcome, AbilityError, AbilityGrantError, AbilityRollbackError,

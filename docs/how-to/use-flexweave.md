@@ -39,7 +39,7 @@ One possible consumer-owned shape:
 
 ```rust
 use flexweave::{
-    AbilityDefinition, AbilityDefinitions, EffectApply, EffectApplicationInput,
+    AbilityDefinition, AbilityDefinitions, AbilityGrant, EffectApply, EffectApplicationInput,
     EffectDefinition, EffectDefinitions, Grant, NoEffectExecutor,
 };
 
@@ -81,11 +81,12 @@ The zone runtime then passes that session-local bundle to registered grant
 helpers and operation builders:
 
 ```rust
-let ability_id = ability_store.grant_registered(
+let ability_id = AbilityGrant::registered(
     &zone_definitions.abilities,
     "enemy/wasp/sting",
     Grant::new(enemy_id, ability_tags, ability_payload),
-)?;
+)
+.run(&mut ability_store)?;
 
 let mut effect_events =
     NoEffectExecutor::new().with_owned_events(|event| lifecycle_events.push(event));

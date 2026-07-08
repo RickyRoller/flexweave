@@ -2,19 +2,22 @@ use std::convert::Infallible;
 use std::fmt;
 
 use crate::clock::ClockUnits;
-use crate::identity::ObjectStore;
+use crate::identity::{ObjectId, ObjectStore};
 use crate::tag::TagCollection;
 
 use super::application::{
-    EffectApplicationDecision, EffectApplicationInput, EffectExecutor, EffectInitializer,
-    EffectSourcePolicy, NoEffectExecutor, NoopEffectInitializer,
+    DiscardEffectLifecycleEvents, EffectApplicationDecision, EffectApplicationInput,
+    EffectExecutor, EffectInitializer, EffectLifecycleSink, EffectSourcePolicy, NoEffectExecutor,
+    NoopEffectInitializer,
 };
 use super::definition::{
     EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions,
 };
+use super::events::EffectInstance;
+use super::ids::ActiveEffectId;
 use super::pipeline::{
-    EffectApplicationError, EffectApplyOutcome, EffectPipeline, PreparedEffectApplication,
-    validate_application_references,
+    EffectApplicationError, EffectApplyOutcome, EffectObjectRemovalPolicy, EffectPipeline,
+    PreparedEffectApplication, validate_application_references,
 };
 
 /// Effect application command builder.
@@ -55,6 +58,19 @@ pub enum EffectApplyError<InitializeError = Infallible, ExecutionError = Infalli
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EffectTick {
     elapsed_units: ClockUnits,
+}
+
+/// Active effect removal command builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EffectRemove {
+    effect_id: ActiveEffectId,
+}
+
+/// Object-reference effect cleanup command builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EffectRemoveForObject {
+    object_id: ObjectId,
+    policy: EffectObjectRemovalPolicy,
 }
 
 impl<'input, Schema, Tags, Payload>
@@ -131,18 +147,6 @@ where
         let mut context = ();
         let mut executor = NoEffectExecutor::new();
         self.run_with_executor(pipeline, &mut context, &mut executor)
-    }
-
-    pub fn run_with_context<Context>(
-        self,
-        pipeline: &mut EffectPipeline<Tags, Payload>,
-        context: &mut Context,
-    ) -> Result<EffectApplyOutcome, EffectApplyError<Initializer::Error, Infallible>>
-    where
-        Initializer: EffectInitializer<Context, Tags, Payload>,
-    {
-        let mut executor = NoEffectExecutor::new();
-        self.run_with_executor(pipeline, context, &mut executor)
     }
 
     pub fn run_with_executor<Context, Executor>(
@@ -255,6 +259,67 @@ impl EffectTick {
         Executor: EffectExecutor<Context, Tags, Payload>,
     {
         pipeline.advance_with_executor(self.elapsed_units, context, executor)
+    }
+}
+
+impl EffectRemove {
+    #[must_use]
+    pub const fn new(effect_id: ActiveEffectId) -> Self {
+        Self { effect_id }
+    }
+
+    pub fn run<Tags, Payload>(
+        self,
+        pipeline: &mut EffectPipeline<Tags, Payload>,
+    ) -> Option<EffectInstance<Tags, Payload>>
+    where
+        Tags: TagCollection,
+    {
+        let mut sink = DiscardEffectLifecycleEvents;
+        self.run_with_sink(pipeline, &mut sink)
+    }
+
+    pub fn run_with_sink<Tags, Payload, Sink>(
+        self,
+        pipeline: &mut EffectPipeline<Tags, Payload>,
+        sink: &mut Sink,
+    ) -> Option<EffectInstance<Tags, Payload>>
+    where
+        Tags: TagCollection,
+        Sink: EffectLifecycleSink<Tags, Payload>,
+    {
+        pipeline.remove_with_sink(self.effect_id, sink)
+    }
+}
+
+impl EffectRemoveForObject {
+    #[must_use]
+    pub const fn new(object_id: ObjectId, policy: EffectObjectRemovalPolicy) -> Self {
+        Self { object_id, policy }
+    }
+
+    #[must_use]
+    pub fn run<Tags, Payload>(
+        self,
+        pipeline: &mut EffectPipeline<Tags, Payload>,
+    ) -> Vec<EffectInstance<Tags, Payload>>
+    where
+        Tags: TagCollection,
+    {
+        let mut sink = DiscardEffectLifecycleEvents;
+        self.run_with_sink(pipeline, &mut sink)
+    }
+
+    pub fn run_with_sink<Tags, Payload, Sink>(
+        self,
+        pipeline: &mut EffectPipeline<Tags, Payload>,
+        sink: &mut Sink,
+    ) -> Vec<EffectInstance<Tags, Payload>>
+    where
+        Tags: TagCollection,
+        Sink: EffectLifecycleSink<Tags, Payload>,
+    {
+        pipeline.remove_for_object_with_sink(self.object_id, self.policy, sink)
     }
 }
 

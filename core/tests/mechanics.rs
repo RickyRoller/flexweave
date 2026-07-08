@@ -2,16 +2,16 @@ mod common;
 
 use common::TestAtom;
 use flexweave::{
-    AbilityActivation, AbilityCommit, AbilityCommitAction, AbilityCommitActionExecutor,
-    AbilityStore, ActiveAbilityView, ActiveEffectId, Clock, ClockUnits, DefinitionRegistryEntry,
-    EffectApplicationDecision, EffectApplicationInput, EffectApply, EffectApplyError,
-    EffectApplyOutcome, EffectClockPolicy, EffectDefinition as FlexEffectDefinition, EffectKind,
-    EffectLifecycleEvent, EffectPipeline, EffectRouting, EventChannel, EventChannelDefinition,
-    EventChannelDefinitionError, EventChannelDefinitions, EventChannelError,
-    EventChannelRouteDefinition, EventConnectionHandle, EventRetention, FixedStepClock, Grant,
-    LifecycleEvent, LifecycleEventKind, LocalLifecycleEvent, MechanicsDriver, NoEffectExecutor,
-    ObjectId, ObjectStore, RealtimeClock, RealtimeClockAccumulator, Registry, RegistryEntry, Tag,
-    TagSet,
+    AbilityActivation, AbilityCommit, AbilityCommitAction, AbilityCommitActionExecutor, AbilityEnd,
+    AbilityGrant, AbilityStore, ActiveAbilityView, ActiveEffectId, Clock, ClockUnits,
+    DefinitionRegistryEntry, EffectApplicationDecision, EffectApplicationInput, EffectApply,
+    EffectApplyError, EffectApplyOutcome, EffectClockPolicy,
+    EffectDefinition as FlexEffectDefinition, EffectKind, EffectLifecycleEvent, EffectPipeline,
+    EffectRouting, EventChannel, EventChannelDefinition, EventChannelDefinitionError,
+    EventChannelDefinitions, EventChannelError, EventChannelRouteDefinition, EventConnectionHandle,
+    EventRetention, FixedStepClock, Grant, LifecycleEvent, LifecycleEventKind, LocalLifecycleEvent,
+    MechanicsDriver, MechanicsTick, NoEffectExecutor, ObjectId, ObjectStore, RealtimeClock,
+    RealtimeClockAccumulator, Registry, RegistryEntry, Tag, TagSet,
 };
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -136,13 +136,15 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
     let source = objects.create();
     let target = objects.create();
     let mut abilities = AbilityStore::new();
-    let ability_id = abilities.grant(Grant::new(
+    let ability_id = AbilityGrant::new(Grant::new(
         source,
         TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Burst])]),
         AbilityPayload {
             definition_key: "spark",
         },
-    ));
+    ))
+    .run(&mut abilities)
+    .unwrap();
     let mut runtime = Runtime {
         target_id: target,
         effects: EffectPipeline::new(),
@@ -187,7 +189,7 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
         |event| runtime.application_events.push(event),
     )
     .unwrap();
-    abilities.end_activation(activation_id).unwrap();
+    AbilityEnd::new(activation_id).run(&mut abilities).unwrap();
 
     assert_eq!(runtime.effects.count(), 1);
     assert_eq!(runtime.cooldowns.count(), 1);
@@ -207,11 +209,11 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
     assert_eq!(created.payload, EffectPayload { amount: 7 });
     assert!(created.has_tag(&Tag::new([TestAtom::Category, TestAtom::Variant])));
 
-    let ticked_events =
+    let ticked_events = MechanicsTick::new(400).run(
         MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, EffectPayload>>::new()
             .with_store(&mut runtime.cooldowns)
-            .with_store(&mut runtime.effects)
-            .tick(400);
+            .with_store(&mut runtime.effects),
+    );
 
     let [
         EffectLifecycleEvent::Advanced(cooldown_advanced),
@@ -225,11 +227,11 @@ fn mechanics_acceptance_registers_activates_ticks_and_expires_without_game_nouns
     assert_eq!(advanced.previous_remaining_units, Some(1000));
     assert_eq!(advanced.effect.remaining_units, Some(600));
 
-    let expired_events =
+    let expired_events = MechanicsTick::new(600).run(
         MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, EffectPayload>>::new()
             .with_store(&mut runtime.cooldowns)
-            .with_store(&mut runtime.effects)
-            .tick(600);
+            .with_store(&mut runtime.effects),
+    );
 
     assert_eq!(runtime.cooldowns.count(), 0);
     assert_eq!(runtime.effects.count(), 0);
@@ -287,10 +289,11 @@ fn lifecycle_events_emit_in_registration_order_through_mechanics_driver() {
     )
     .unwrap();
 
-    let events = MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut first)
-        .with_store(&mut second)
-        .tick(40);
+    let events = MechanicsTick::new(40).run(
+        MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut first)
+            .with_store(&mut second),
+    );
 
     let [
         LocalLifecycleEvent::Effect(EffectLifecycleEvent::Advanced(first_advance)),
@@ -328,9 +331,10 @@ fn zero_elapsed_lifecycle_tick_emits_no_events() {
     )
     .unwrap();
 
-    let events = MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick(0);
+    let events = MechanicsTick::new(0).run(
+        MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+    );
 
     assert!(events.is_empty());
     assert_eq!(
@@ -397,9 +401,11 @@ fn caller_publishes_effect_lifecycle_events_to_named_retained_channel() {
         |event| channel.publish(event.into()).unwrap(),
     )
     .unwrap();
-    MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick_with(100, |event| channel.publish(event).unwrap());
+    MechanicsTick::new(100).run_streaming(
+        MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+        |event| channel.publish(event).unwrap(),
+    );
 
     assert_eq!(
         *trace.lock().unwrap(),
@@ -480,9 +486,10 @@ fn event_channel_disconnects_handles_during_emission_without_reordering() {
         },
     )
     .unwrap();
-    let mut events = MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick(1);
+    let mut events = MechanicsTick::new(1).run(
+        MechanicsDriver::<LocalLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+    );
     assert_eq!(events.len(), 1);
     channel.publish(events.remove(0)).unwrap();
 
@@ -647,9 +654,10 @@ fn turn_based_clock_advances_effect_lifetimes_in_turns() {
     )
     .unwrap();
 
-    let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick_clock(&turn_clock, 1);
+    let events = MechanicsTick::from_clock(&turn_clock, 1).run(
+        MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+    );
 
     let [
         EffectLifecycleEvent::Advanced(advanced),
@@ -662,9 +670,10 @@ fn turn_based_clock_advances_effect_lifetimes_in_turns() {
     assert_eq!(advanced.effect.remaining_units, Some(2));
     assert_eq!(pulse.elapsed_units, Some(1));
 
-    let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick_clock(&turn_clock, 2);
+    let events = MechanicsTick::from_clock(&turn_clock, 2).run(
+        MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+    );
 
     let [
         EffectLifecycleEvent::Advanced(expiring_advance),
@@ -715,9 +724,10 @@ fn realtime_clock_lets_callers_choose_duration_to_unit_scale() {
     )
     .unwrap();
 
-    let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick_clock(&realtime, Duration::from_millis(250));
+    let events = MechanicsTick::from_clock(&realtime, Duration::from_millis(250)).run(
+        MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+    );
 
     let [EffectLifecycleEvent::Advanced(advanced)] = events.as_slice() else {
         panic!("quarter-second tick should only advance when period is 500 ms");
@@ -725,9 +735,10 @@ fn realtime_clock_lets_callers_choose_duration_to_unit_scale() {
     assert_eq!(advanced.elapsed_units, 250);
     assert_eq!(advanced.effect.remaining_units, Some(1750));
 
-    let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick_clock(&realtime, Duration::from_millis(250));
+    let events = MechanicsTick::from_clock(&realtime, Duration::from_millis(250)).run(
+        MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+    );
     let [
         EffectLifecycleEvent::Advanced(advanced),
         EffectLifecycleEvent::PeriodicExecuted(pulse),
@@ -738,9 +749,10 @@ fn realtime_clock_lets_callers_choose_duration_to_unit_scale() {
     assert_eq!(advanced.elapsed_units, 250);
     assert_eq!(pulse.elapsed_units, Some(500));
 
-    let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick_clock(&realtime, Duration::from_millis(1500));
+    let events = MechanicsTick::from_clock(&realtime, Duration::from_millis(1500)).run(
+        MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+    );
     let [
         EffectLifecycleEvent::Advanced(expiring_advance),
         EffectLifecycleEvent::PeriodicExecuted(_),
@@ -799,15 +811,17 @@ fn realtime_accumulator_expires_effect_duration_from_repeated_sub_unit_deltas() 
     let mut accumulator = RealtimeClockAccumulator::new(60);
     let frame = Duration::from_millis(16);
 
-    let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick(accumulator.advance(frame));
+    let events = MechanicsTick::new(accumulator.advance(frame)).run(
+        MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+    );
     assert!(events.is_empty());
     assert_eq!(effects.count(), 1);
 
-    let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick(accumulator.advance(frame));
+    let events = MechanicsTick::new(accumulator.advance(frame)).run(
+        MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+    );
     let [
         EffectLifecycleEvent::Advanced(advanced),
         EffectLifecycleEvent::Expired(expired),
@@ -852,14 +866,16 @@ fn realtime_accumulator_executes_periodic_effects_from_repeated_sub_unit_deltas(
     let mut accumulator = RealtimeClockAccumulator::new(60);
     let frame = Duration::from_millis(16);
 
-    let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick(accumulator.advance(frame));
+    let events = MechanicsTick::new(accumulator.advance(frame)).run(
+        MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+    );
     assert!(events.is_empty());
 
-    let events = MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
-        .with_store(&mut effects)
-        .tick(accumulator.advance(frame));
+    let events = MechanicsTick::new(accumulator.advance(frame)).run(
+        MechanicsDriver::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new()
+            .with_store(&mut effects),
+    );
     let [
         EffectLifecycleEvent::Advanced(advanced),
         EffectLifecycleEvent::PeriodicExecuted(pulse),

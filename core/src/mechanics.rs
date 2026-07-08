@@ -2,7 +2,7 @@
 //!
 //! `MechanicsDriver` advances registered stores and returns or streams raw
 //! lifecycle facts. It does not project Signals, look up channel keys, or
-//! publish events. Caller-owned code can pass `tick_with` a closure that
+//! publish events. Caller-owned code can pass `MechanicsTick::run_streaming` a closure that
 //! projects, publishes, exports, or adapts emitted facts.
 
 use crate::clock::{Clock, ClockUnits};
@@ -19,6 +19,12 @@ pub trait MechanicsStore<Event> {
 /// Tick driver for caller-registered mechanics stores.
 pub struct MechanicsDriver<'store, Event> {
     stores: Vec<&'store mut dyn MechanicsStore<Event>>,
+}
+
+/// Mechanics tick command builder.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MechanicsTick {
+    elapsed_units: ClockUnits,
 }
 
 impl<'store, Event> MechanicsDriver<'store, Event> {
@@ -46,31 +52,7 @@ impl<'store, Event> MechanicsDriver<'store, Event> {
         self
     }
 
-    /// Advances registered stores and returns emitted lifecycle events.
-    ///
-    /// Returned facts are not projected or published to channels.
-    #[must_use]
-    pub fn tick(self, elapsed_units: ClockUnits) -> Vec<Event> {
-        let mut events = Vec::new();
-        self.tick_with(elapsed_units, |event| events.push(event));
-        events
-    }
-
-    /// Converts a caller-owned clock step, advances registered stores, and
-    /// returns emitted lifecycle events.
-    #[must_use]
-    pub fn tick_clock<C>(self, clock: &C, elapsed: C::Step) -> Vec<Event>
-    where
-        C: Clock,
-    {
-        self.tick(clock.units_for(elapsed))
-    }
-
-    /// Advances registered stores and streams emitted lifecycle events.
-    ///
-    /// Use the callback to publish to `EventChannel`, project Signals, or adapt
-    /// facts to an external runtime.
-    pub fn tick_with<F>(mut self, elapsed_units: ClockUnits, mut emit: F)
+    fn tick_stores<F>(mut self, elapsed_units: ClockUnits, mut emit: F)
     where
         F: FnMut(Event),
     {
@@ -78,15 +60,41 @@ impl<'store, Event> MechanicsDriver<'store, Event> {
             store.tick_mechanics(elapsed_units, &mut emit);
         }
     }
+}
 
-    /// Converts a caller-owned clock step, advances registered stores, and
-    /// streams emitted lifecycle events.
-    pub fn tick_clock_with<C, F>(self, clock: &C, elapsed: C::Step, emit: F)
+impl MechanicsTick {
+    #[must_use]
+    pub const fn new(elapsed_units: ClockUnits) -> Self {
+        Self { elapsed_units }
+    }
+
+    #[must_use]
+    pub fn from_clock<C>(clock: &C, elapsed: C::Step) -> Self
     where
         C: Clock,
+    {
+        Self::new(clock.units_for(elapsed))
+    }
+
+    /// Advances registered stores and returns emitted lifecycle events.
+    ///
+    /// Returned facts are not projected or published to channels.
+    #[must_use]
+    pub fn run<Event>(self, driver: MechanicsDriver<'_, Event>) -> Vec<Event> {
+        let mut events = Vec::new();
+        self.run_streaming(driver, |event| events.push(event));
+        events
+    }
+
+    /// Advances registered stores and streams emitted lifecycle events.
+    ///
+    /// Use the callback to publish to `EventChannel`, project Signals, or adapt
+    /// facts to an external runtime.
+    pub fn run_streaming<Event, F>(self, driver: MechanicsDriver<'_, Event>, emit: F)
+    where
         F: FnMut(Event),
     {
-        self.tick_with(clock.units_for(elapsed), emit);
+        driver.tick_stores(self.elapsed_units, emit);
     }
 }
 

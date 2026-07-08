@@ -3,7 +3,7 @@ use std::fmt;
 use crate::identity::ObjectId;
 use crate::tag::TagCollection;
 
-use super::definition::AbilityDefinitionRegistryError;
+use super::definition::{AbilityDefinitionError, AbilityDefinitionRegistryError};
 use super::events::ActiveAbility;
 use super::ids::AbilityId;
 
@@ -221,17 +221,31 @@ where
 }
 
 /// Ability grant validation failures.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum AbilityGrantError {
     InvalidOwner { owner_id: ObjectId },
+    Definition(AbilityDefinitionError),
+    RegisteredDefinition(AbilityDefinitionRegistryError),
 }
 
 impl fmt::Display for AbilityGrantError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidOwner { .. } => formatter.write_str("invalid ability grant owner"),
+            Self::Definition(error) => write!(formatter, "{error}"),
+            Self::RegisteredDefinition(error) => {
+                write!(formatter, "registered ability grant failed: {error}")
+            }
         }
     }
 }
 
-impl std::error::Error for AbilityGrantError {}
+impl std::error::Error for AbilityGrantError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::InvalidOwner { .. } => None,
+            Self::Definition(error) => Some(error),
+            Self::RegisteredDefinition(error) => Some(error),
+        }
+    }
+}

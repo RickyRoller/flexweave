@@ -1,8 +1,8 @@
 use flexweave::{
     Attribute, AttributeMutationDecision, AttributeMutationHooks, AttributeMutationRequest,
-    AttributeMutationResult, AttributeValue, DataStore, DerivedAttribute, EventChannel,
-    EventChannelDefinition, EventRetention, LifecycleEvent, LifecycleEventKind, ObjectId,
-    ObjectStore,
+    AttributeMutationResult, AttributeSet, AttributeValue, DataStore, DerivedAttribute,
+    DerivedAttributeRefresh, EventChannel, EventChannelDefinition, EventRetention, LifecycleEvent,
+    LifecycleEventKind, ObjectId, ObjectStore,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -58,9 +58,9 @@ fn val_core_007_attribute_commits_before_notifying_in_registration_order() {
     let ui_trace = Arc::clone(&trace);
     health.subscribe(move |_| ui_trace.lock().unwrap().steps.push(2));
 
-    let applied = health.set(target, 10.0);
+    let applied = AttributeSet::new(target, 10.0).run(&mut health);
 
-    assert_eq!(applied, 10.0);
+    assert!(matches!(applied, AttributeMutationResult::Committed(_)));
     assert_eq!(health.get(target), Some(10.0));
     let trace = trace.lock().unwrap();
     assert_eq!(trace.steps, vec![1, 2]);
@@ -80,17 +80,17 @@ fn val_core_008_attribute_does_not_emit_events_when_value_is_unchanged() {
     let listener_count = Arc::clone(&count);
     attribute.subscribe(move |_| *listener_count.lock().unwrap() += 1);
 
-    let unchanged = attribute.set(target, 12.0);
-    assert_eq!(unchanged, 12.0);
+    let unchanged = AttributeSet::new(target, 12.0).run(&mut attribute);
+    assert_eq!(unchanged, AttributeMutationResult::Unchanged(12.0));
     assert_eq!(*count.lock().unwrap(), 0);
 
-    let changed = attribute.set(target, -3.0);
-    assert_eq!(changed, -3.0);
+    let changed = AttributeSet::new(target, -3.0).run(&mut attribute);
+    assert!(matches!(changed, AttributeMutationResult::Committed(_)));
     assert_eq!(*count.lock().unwrap(), 1);
 }
 
 #[test]
-fn attribute_set_with_events_preserves_existing_listener_order() {
+fn attribute_set_streaming_preserves_existing_listener_order() {
     let mut store = ObjectStore::new();
     let mut attribute = Attribute::new();
     let target = store.create();
@@ -107,7 +107,7 @@ fn attribute_set_with_events_preserves_existing_listener_order() {
     });
 
     let event_steps = Arc::clone(&steps);
-    let applied = attribute.set_with_events(target, 7.0, move |change| {
+    let applied = AttributeSet::new(target, 7.0).run_streaming(&mut attribute, move |change| {
         assert_eq!(change.previous, Some(5.0));
         assert_eq!(change.current, 7.0);
         assert_eq!(
@@ -117,7 +117,7 @@ fn attribute_set_with_events_preserves_existing_listener_order() {
         event_steps.lock().unwrap().push("event");
     });
 
-    assert_eq!(applied, 7.0);
+    assert!(matches!(applied, AttributeMutationResult::Committed(_)));
     assert_eq!(attribute.get(target), Some(7.0));
     assert_eq!(*steps.lock().unwrap(), vec!["listener", "event"]);
 }
@@ -148,14 +148,12 @@ fn attribute_mutation_hooks_can_clamp_before_commit() {
         maximum: 10.0,
     };
 
-    let result = attribute.set_with_hooks(
-        AttributeMutationRequest {
-            id: target,
-            requested: 15.0,
-        },
-        &context,
-        &mut hooks,
-    );
+    let result = AttributeSet::request(AttributeMutationRequest {
+        id: target,
+        requested: 15.0,
+    })
+    .with_hooks(&context, &mut hooks)
+    .run(&mut attribute);
 
     let AttributeMutationResult::Committed(change) = result else {
         panic!("clamped mutation should commit");
@@ -182,15 +180,12 @@ fn attribute_mutation_hooks_can_reject_without_storage_or_events() {
     });
     let mut emitted = Vec::new();
 
-    let result = attribute.set_with_hooks_and_events(
-        AttributeMutationRequest {
-            id: target,
-            requested: -1.0,
-        },
-        &(),
-        &mut hooks,
-        |change| emitted.push(change),
-    );
+    let result = AttributeSet::request(AttributeMutationRequest {
+        id: target,
+        requested: -1.0,
+    })
+    .with_hooks(&(), &mut hooks)
+    .run_streaming(&mut attribute, |change| emitted.push(change));
 
     let AttributeMutationResult::Rejected(rejected) = result else {
         panic!("negative mutation should be rejected");
@@ -232,14 +227,12 @@ fn attribute_mutation_hooks_run_in_deterministic_pre_listener_post_order() {
         post_steps.lock().unwrap().push("post");
     });
 
-    let result = attribute.set_with_hooks(
-        AttributeMutationRequest {
-            id: target,
-            requested: 12.0,
-        },
-        &(),
-        &mut hooks,
-    );
+    let result = AttributeSet::request(AttributeMutationRequest {
+        id: target,
+        requested: 12.0,
+    })
+    .with_hooks(&(), &mut hooks)
+    .run(&mut attribute);
 
     assert!(matches!(result, AttributeMutationResult::Committed(_)));
     assert_eq!(
@@ -258,15 +251,12 @@ fn attribute_mutation_hooks_do_not_emit_when_final_value_is_unchanged() {
     hooks.add_pre_hook(|_| AttributeMutationDecision::Transform(5.0));
     let mut emitted = Vec::new();
 
-    let result = attribute.set_with_hooks_and_events(
-        AttributeMutationRequest {
-            id: target,
-            requested: 12.0,
-        },
-        &(),
-        &mut hooks,
-        |change| emitted.push(change),
-    );
+    let result = AttributeSet::request(AttributeMutationRequest {
+        id: target,
+        requested: 12.0,
+    })
+    .with_hooks(&(), &mut hooks)
+    .run_streaming(&mut attribute, |change| emitted.push(change));
 
     assert_eq!(result, AttributeMutationResult::Unchanged(5.0));
     assert!(emitted.is_empty());
@@ -287,15 +277,12 @@ fn caller_publishes_committed_attribute_mutation_to_named_event_channel() {
     );
 
     assert!(channel.retained().is_empty());
-    let result = attribute.set_with_hooks_and_events(
-        AttributeMutationRequest {
-            id: target,
-            requested: 7.0,
-        },
-        &(),
-        &mut hooks,
-        |change| channel.publish(change).unwrap(),
-    );
+    let result = AttributeSet::request(AttributeMutationRequest {
+        id: target,
+        requested: 7.0,
+    })
+    .with_hooks(&(), &mut hooks)
+    .run_streaming(&mut attribute, |change| channel.publish(change).unwrap());
 
     assert!(matches!(result, AttributeMutationResult::Committed(_)));
     let retained = channel.drain_retained();
@@ -394,11 +381,17 @@ fn val_core_010_derived_attribute_refreshes_tracked_values_only_on_changes() {
         trace.current = change.current;
     });
 
-    assert_eq!(derived.refresh(target), Some(10.0));
+    assert_eq!(
+        DerivedAttributeRefresh::new(target).run(&mut derived),
+        Some(10.0)
+    );
     assert_eq!(trace.borrow().count, 0);
 
     base.borrow_mut().attach(target, 12.0);
-    assert_eq!(derived.refresh(target), Some(12.0));
+    assert_eq!(
+        DerivedAttributeRefresh::new(target).run(&mut derived),
+        Some(12.0)
+    );
     let trace = trace.borrow();
     assert_eq!(trace.count, 1);
     assert_eq!(trace.previous, Some(10.0));
@@ -406,7 +399,7 @@ fn val_core_010_derived_attribute_refreshes_tracked_values_only_on_changes() {
 }
 
 #[test]
-fn derived_attribute_refresh_with_events_preserves_existing_listener_order() {
+fn derived_attribute_refresh_streaming_preserves_existing_listener_order() {
     let mut store = ObjectStore::new();
     let mut base = Attribute::new();
     let bonuses = DataStore::new();
@@ -437,7 +430,7 @@ fn derived_attribute_refresh_with_events_preserves_existing_listener_order() {
     base.borrow_mut().attach(target, 12.0);
     let event_steps = Rc::clone(&steps);
     assert_eq!(
-        derived.refresh_with_events(target, move |change| {
+        DerivedAttributeRefresh::new(target).run_streaming(&mut derived, move |change| {
             assert_eq!(change.previous, Some(10.0));
             assert_eq!(change.current, Some(12.0));
             assert_eq!(

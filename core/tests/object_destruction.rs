@@ -2,11 +2,13 @@ mod common;
 
 use common::TestAtom;
 use flexweave::{
-    AbilityActivation, AbilityCommit, AbilityGrantError, AbilityLifecycleEvent, AbilityStore,
-    Attribute, CoreError, DataStore, DerivedAttribute, EffectApplicationError,
-    EffectApplicationInput, EffectApply, EffectApplyError, EffectClockPolicy, EffectDefinition,
-    EffectKind, EffectLifecycleEvent, EffectObjectRemovalPolicy, EffectPipeline,
-    EffectSourcePolicy, Grant, ObjectDestructionDriver, ObjectId, ObjectStore, Tag, TagSet, query,
+    AbilityActivation, AbilityCommit, AbilityGrant, AbilityGrantError, AbilityLifecycleEvent,
+    AbilityRevokeOwner, AbilityStore, Attribute, CoreError, DataStore, DerivedAttribute,
+    EffectApplicationError, EffectApplicationInput, EffectApply, EffectApplyError,
+    EffectClockPolicy, EffectDefinition, EffectKind, EffectLifecycleEvent,
+    EffectObjectRemovalPolicy, EffectPipeline, EffectRemoveForObject, EffectSourcePolicy, Grant,
+    ObjectDestroy, ObjectDestructionDriver, ObjectId, ObjectStore, OwnedAbilityLifecycleEvents,
+    OwnedEffectLifecycleEvents, Tag, TagSet, query,
 };
 
 #[test]
@@ -47,12 +49,11 @@ fn object_cleanup_driver_removes_registered_object_keyed_state() {
     derived.sync(removed);
     derived.sync(retained);
 
-    let events = ObjectDestructionDriver::<()>::new(&mut objects)
+    let driver = ObjectDestructionDriver::<()>::new(&mut objects)
         .with_store(&mut labels)
         .with_store(&mut attribute)
-        .with_store(&mut derived)
-        .destroy(removed)
-        .unwrap();
+        .with_store(&mut derived);
+    let events = ObjectDestroy::new(removed).run(driver).unwrap();
 
     assert!(events.is_empty());
     assert!(!objects.exists(removed));
@@ -72,32 +73,30 @@ fn ability_owner_cleanup_revokes_grants_and_active_abilities() {
     let owner = objects.create();
     let other_owner = objects.create();
     let mut abilities = AbilityStore::<TagSet<TestAtom>, Payload>::new();
-    let owned = abilities
-        .grant_checked(
-            &objects,
-            Grant::new(owner, TagSet::new([Tag::new([TestAtom::Ability])]), Payload),
-        )
-        .unwrap();
-    let owned_uncommitted = abilities
-        .grant_checked(
-            &objects,
-            Grant::new(
-                owner,
-                TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Variant])]),
-                Payload,
-            ),
-        )
-        .unwrap();
-    let retained = abilities
-        .grant_checked(
-            &objects,
-            Grant::new(
-                other_owner,
-                TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Burst])]),
-                Payload,
-            ),
-        )
-        .unwrap();
+    let owned = AbilityGrant::new(Grant::new(
+        owner,
+        TagSet::new([Tag::new([TestAtom::Ability])]),
+        Payload,
+    ))
+    .checked(&objects)
+    .run(&mut abilities)
+    .unwrap();
+    let owned_uncommitted = AbilityGrant::new(Grant::new(
+        owner,
+        TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Variant])]),
+        Payload,
+    ))
+    .checked(&objects)
+    .run(&mut abilities)
+    .unwrap();
+    let retained = AbilityGrant::new(Grant::new(
+        other_owner,
+        TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Burst])]),
+        Payload,
+    ))
+    .checked(&objects)
+    .run(&mut abilities)
+    .unwrap();
     let owned_activation = AbilityActivation::new(owned)
         .for_owner(owner)
         .run(&mut abilities)
@@ -115,7 +114,10 @@ fn ability_owner_cleanup_revokes_grants_and_active_abilities() {
         .unwrap();
     let mut events: Vec<AbilityLifecycleEvent<TagSet<TestAtom>, Payload>> = Vec::new();
 
-    let revoked = abilities.revoke_owner_with_events(owner, |event| events.push(event));
+    let revoked = {
+        let mut sink = OwnedAbilityLifecycleEvents::new(|event| events.push(event));
+        AbilityRevokeOwner::new(owner).run_with_sink(&mut abilities, &mut sink)
+    };
 
     assert_eq!(revoked.grants.len(), 2);
     assert_eq!(revoked.grants[0].id, owned);
@@ -194,11 +196,11 @@ fn effect_object_cleanup_removes_source_and_target_matches_with_events() {
     .unwrap();
     let mut events = Vec::<EffectLifecycleEvent<TagSet<TestAtom>, Payload>>::new();
 
-    let removed = effects.remove_for_object_with_events(
-        removed_target,
-        EffectObjectRemovalPolicy::SourceOrTarget,
-        |event| events.push(event),
-    );
+    let removed = {
+        let mut sink = OwnedEffectLifecycleEvents::new(|event| events.push(event));
+        EffectRemoveForObject::new(removed_target, EffectObjectRemovalPolicy::SourceOrTarget)
+            .run_with_sink(&mut effects, &mut sink)
+    };
 
     assert_eq!(removed.len(), 1);
     assert_eq!(events.len(), 1);
@@ -219,10 +221,11 @@ fn effect_object_cleanup_removes_source_and_target_matches_with_events() {
     .run(&mut effects)
     .unwrap();
 
-    let removed =
-        effects.remove_for_object_with_events(source, EffectObjectRemovalPolicy::Source, |event| {
-            events.push(event)
-        });
+    let removed = {
+        let mut sink = OwnedEffectLifecycleEvents::new(|event| events.push(event));
+        EffectRemoveForObject::new(source, EffectObjectRemovalPolicy::Source)
+            .run_with_sink(&mut effects, &mut sink)
+    };
 
     assert_eq!(removed.len(), 1);
     assert_eq!(removed[0].source_id, Some(source));
@@ -243,14 +246,13 @@ fn destroyed_objects_are_rejected_by_checked_runtime_paths() {
 
     let mut abilities = AbilityStore::<TagSet<TestAtom>, Payload>::new();
     assert_eq!(
-        abilities.grant_checked(
-            &objects,
-            Grant::new(
-                destroyed,
-                TagSet::new([Tag::new([TestAtom::Ability])]),
-                Payload,
-            ),
-        ),
+        AbilityGrant::new(Grant::new(
+            destroyed,
+            TagSet::new([Tag::new([TestAtom::Ability])]),
+            Payload,
+        ))
+        .checked(&objects)
+        .run(&mut abilities),
         Err(AbilityGrantError::InvalidOwner {
             owner_id: destroyed,
         })

@@ -3,15 +3,17 @@ mod common;
 use common::TestAtom;
 use flexweave::{
     AbilityActivation, AbilityActivationDecision, AbilityActivationError, AbilityActivationGate,
-    AbilityActivationRejectionReason, AbilityBeginError, AbilityCancelOutcome, AbilityCommit,
-    AbilityCommitAction, AbilityCommitActionExecutor, AbilityCommitError, AbilityCommitOutcome,
-    AbilityDefinition, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndError,
-    AbilityEndOutcome, AbilityGateExecutor, AbilityGrantError, AbilityId, AbilityLifecycleEvent,
-    AbilityLifecycleEventView, AbilityRollbackError, AbilityRollbackOutcome, AbilityStore,
-    ActiveAbilityView, EffectActionExecutor, EffectApplicationInput, EffectApply, EffectDefinition,
+    AbilityActivationRejectionReason, AbilityBeginError, AbilityCancel, AbilityCancelOutcome,
+    AbilityCommit, AbilityCommitAction, AbilityCommitActionExecutor, AbilityCommitError,
+    AbilityCommitOutcome, AbilityDefinition, AbilityDefinitionRegistryError, AbilityDefinitions,
+    AbilityEnd, AbilityEndError, AbilityEndOutcome, AbilityGateExecutor, AbilityGrant,
+    AbilityGrantError, AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView,
+    AbilityRollback, AbilityRollbackError, AbilityRollbackOutcome, AbilityStore, ActiveAbilityView,
+    EffectActionExecutor, EffectApplicationInput, EffectApply, EffectDefinition,
     EffectExecutionView, EffectPipeline, EffectTick, EventChannel, EventChannelDefinition,
     EventRetention, Grant, INVALID_OBJECT_ID, LifecycleEvent, LifecycleEventKind,
-    NoAbilityActivationExecutor, NoAbilityCommitExecutor, ObjectId, ObjectStore, Tag, TagSet,
+    NoAbilityActivationExecutor, NoAbilityCommitExecutor, ObjectId, ObjectStore,
+    OwnedAbilityLifecycleEvents, Tag, TagSet,
 };
 use std::cell::Cell;
 use std::rc::Rc;
@@ -157,11 +159,13 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
 
     let owner = ObjectId::new(42);
     let mut abilities = AbilityStore::new();
-    let ability_id = abilities.grant(Grant::new(
+    let ability_id = AbilityGrant::new(Grant::new(
         owner,
         TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Burst])]),
         AbilityPayload::Burst,
-    ));
+    ))
+    .run(&mut abilities)
+    .unwrap();
     let mut runtime = Runtime {
         mana: 10,
         effects: EffectPipeline::new(),
@@ -191,7 +195,7 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
         },
         AbilityCommitOutcome::Committed
     );
-    let ended = abilities.end_activation(activation_id).unwrap();
+    let ended = AbilityEnd::new(activation_id).run(&mut abilities).unwrap();
 
     assert!(matches!(ended, AbilityEndOutcome::Ended(_)));
     assert_eq!(runtime.mana, 7);
@@ -246,7 +250,7 @@ fn ability_commit_can_trigger_cost_and_cooldown_effects_then_block_on_tags() {
             .run_with_executor(&mut abilities, &mut runtime, &mut executor)
             .unwrap();
     }
-    abilities.end_activation(activation_id).unwrap();
+    AbilityEnd::new(activation_id).run(&mut abilities).unwrap();
     assert_eq!(runtime.mana, 4);
 }
 
@@ -366,7 +370,7 @@ fn explicit_commit_end_cancel_and_rollback_have_separate_lifecycle_contracts() {
 
     let activation_id = AbilityActivation::new(first).run(&mut abilities).unwrap();
     assert_eq!(
-        abilities.end_activation(activation_id),
+        AbilityEnd::new(activation_id).run(&mut abilities),
         Err(AbilityEndError::UncommittedActivation)
     );
     assert!(abilities.get_active_activation(activation_id).is_some());
@@ -387,9 +391,12 @@ fn explicit_commit_end_cancel_and_rollback_have_separate_lifecycle_contracts() {
             .unwrap(),
         AbilityCommitOutcome::AlreadyCommitted
     );
-    let ended = abilities
-        .end_activation_with_events(activation_id, |event| events.push(event))
-        .unwrap();
+    let ended = {
+        let mut sink = OwnedAbilityLifecycleEvents::new(|event| events.push(event));
+        AbilityEnd::new(activation_id)
+            .run_with_sink(&mut abilities, &mut sink)
+            .unwrap()
+    };
     assert!(matches!(ended, AbilityEndOutcome::Ended(_)));
 
     let uncommitted_cancel_id = AbilityActivation::new(second).run(&mut abilities).unwrap();
@@ -397,10 +404,14 @@ fn explicit_commit_end_cancel_and_rollback_have_separate_lifecycle_contracts() {
     AbilityCommit::new(committed_cancel_id)
         .run(&mut abilities)
         .unwrap();
-    let canceled_uncommitted =
-        abilities.cancel_activation_with_events(uncommitted_cancel_id, |event| events.push(event));
-    let canceled_committed =
-        abilities.cancel_activation_with_events(committed_cancel_id, |event| events.push(event));
+    let canceled_uncommitted = {
+        let mut sink = OwnedAbilityLifecycleEvents::new(|event| events.push(event));
+        AbilityCancel::new(uncommitted_cancel_id).run_with_sink(&mut abilities, &mut sink)
+    };
+    let canceled_committed = {
+        let mut sink = OwnedAbilityLifecycleEvents::new(|event| events.push(event));
+        AbilityCancel::new(committed_cancel_id).run_with_sink(&mut abilities, &mut sink)
+    };
     assert!(matches!(
         canceled_uncommitted,
         AbilityCancelOutcome::Canceled(_)
@@ -411,14 +422,17 @@ fn explicit_commit_end_cancel_and_rollback_have_separate_lifecycle_contracts() {
     ));
 
     let rollback_id = AbilityActivation::new(fourth).run(&mut abilities).unwrap();
-    let rolled_back = abilities
-        .rollback_activation_with_events(rollback_id, |event| events.push(event))
-        .unwrap();
+    let rolled_back = {
+        let mut sink = OwnedAbilityLifecycleEvents::new(|event| events.push(event));
+        AbilityRollback::new(rollback_id)
+            .run_with_sink(&mut abilities, &mut sink)
+            .unwrap()
+    };
     let AbilityRollbackOutcome::RolledBack(rolled_back) = rolled_back;
     assert_eq!(rolled_back.activation_id, rollback_id);
 
     assert_eq!(
-        abilities.end_activation(rollback_id),
+        AbilityEnd::new(rollback_id).run(&mut abilities),
         Err(AbilityEndError::MissingActivation)
     );
     assert_eq!(
@@ -449,7 +463,7 @@ fn rollback_rejects_committed_activation_and_leaves_state() {
         .unwrap();
 
     assert_eq!(
-        abilities.rollback_activation(activation_id),
+        AbilityRollback::new(activation_id).run(&mut abilities),
         Err(AbilityRollbackError::AlreadyCommitted)
     );
     assert!(
@@ -472,20 +486,21 @@ fn checked_grant_and_owner_activation_reject_invalid_object_references_before_ga
     let mut abilities = AbilityStore::<TagSet<TestAtom>, Payload>::new();
 
     assert_eq!(
-        abilities.grant_checked(
-            &objects,
-            Grant::new(INVALID_OBJECT_ID, TagSet::new([tag.clone()]), Payload),
-        ),
+        AbilityGrant::new(Grant::new(
+            INVALID_OBJECT_ID,
+            TagSet::new([tag.clone()]),
+            Payload,
+        ))
+        .checked(&objects)
+        .run(&mut abilities),
         Err(AbilityGrantError::InvalidOwner {
             owner_id: INVALID_OBJECT_ID,
         })
     );
 
-    let ability_id = abilities
-        .grant_checked(
-            &objects,
-            Grant::new(live_owner, TagSet::new([tag]), Payload),
-        )
+    let ability_id = AbilityGrant::new(Grant::new(live_owner, TagSet::new([tag]), Payload))
+        .checked(&objects)
+        .run(&mut abilities)
         .unwrap();
     let mut events = Vec::new();
 
@@ -520,17 +535,17 @@ fn registered_definitions_validate_key_without_orchestration_metadata() {
 
     let definitions = AbilityDefinitions::new([ability_definition("channel")]).unwrap();
     let mut abilities = AbilityStore::new();
-    let ability_id = abilities
-        .grant_registered(
-            &definitions,
-            "channel",
-            Grant::new(
-                ObjectId::new(9),
-                TagSet::new([Tag::new([TestAtom::Ability])]),
-                Payload,
-            ),
-        )
-        .unwrap();
+    let ability_id = AbilityGrant::registered(
+        &definitions,
+        "channel",
+        Grant::new(
+            ObjectId::new(9),
+            TagSet::new([Tag::new([TestAtom::Ability])]),
+            Payload,
+        ),
+    )
+    .run(&mut abilities)
+    .unwrap();
     let mut events = Vec::new();
 
     let activation_id = {
@@ -545,7 +560,7 @@ fn registered_definitions_validate_key_without_orchestration_metadata() {
     assert_eq!(active.definition_key.as_deref(), Some("channel"));
     assert!(!active.committed);
     assert_eq!(
-        abilities.end_activation(activation_id),
+        AbilityEnd::new(activation_id).run(&mut abilities),
         Err(AbilityEndError::UncommittedActivation)
     );
     {
@@ -556,9 +571,12 @@ fn registered_definitions_validate_key_without_orchestration_metadata() {
             .run_with_executor(&mut abilities, &mut context, &mut executor)
             .unwrap();
     }
-    abilities
-        .end_activation_with_events(activation_id, |event| events.push(event))
-        .unwrap();
+    {
+        let mut sink = OwnedAbilityLifecycleEvents::new(|event| events.push(event));
+        AbilityEnd::new(activation_id)
+            .run_with_sink(&mut abilities, &mut sink)
+            .unwrap();
+    }
 
     assert_eq!(
         lifecycle_kinds(&events),
@@ -668,13 +686,15 @@ fn borrowed_ability_events_do_not_clone_payload_for_publication() {
 
     let clone_count = Rc::new(Cell::new(0));
     let mut abilities = AbilityStore::new();
-    let ability_id = abilities.grant(Grant::new(
+    let ability_id = AbilityGrant::new(Grant::new(
         ObjectId::new(9),
         TagSet::new([Tag::new([TestAtom::Ability])]),
         Payload {
             clone_count: Rc::clone(&clone_count),
         },
-    ));
+    ))
+    .run(&mut abilities)
+    .unwrap();
     let mut kinds = Vec::new();
 
     let activation_id = {
@@ -710,14 +730,17 @@ fn borrowed_ability_events_do_not_clone_payload_for_publication() {
             .run_with_executor(&mut abilities, &mut context, &mut executor)
             .unwrap();
     }
-    abilities
-        .end_activation_with_borrowed_events(activation_id, |event| {
+    {
+        let mut sink = |event: AbilityLifecycleEventView<'_, TagSet<TestAtom>, Payload>| {
             let AbilityLifecycleEventView::Ended(active) = event else {
                 panic!("end should emit an ended event");
             };
             assert_eq!(active.payload.clone_count.get(), 1);
-        })
-        .unwrap();
+        };
+        AbilityEnd::new(activation_id)
+            .run_with_sink(&mut abilities, &mut sink)
+            .unwrap();
+    }
 
     assert_eq!(clone_count.get(), 1);
     assert_eq!(
@@ -733,11 +756,13 @@ fn grant_payload<Payload>(
     abilities: &mut AbilityStore<TagSet<TestAtom>, Payload>,
     payload: Payload,
 ) -> AbilityId {
-    abilities.grant(Grant::new(
+    AbilityGrant::new(Grant::new(
         ObjectId::new(9),
         TagSet::new([Tag::new([TestAtom::Ability, TestAtom::Burst])]),
         payload,
     ))
+    .run(abilities)
+    .unwrap()
 }
 
 fn cooldown_tag() -> Tag<TestAtom> {

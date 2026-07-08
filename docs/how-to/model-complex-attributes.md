@@ -16,7 +16,7 @@ Group the primitive stores that matter to the consumer runtime, then expose
 domain methods that ability commit actions and effect adapters can call.
 
 ```rust
-use flexweave::{Attribute, AttributeValue, DerivedAttribute, ObjectId};
+use flexweave::{Attribute, AttributeSet, AttributeValue, DerivedAttribute, ObjectId};
 
 struct CombatAttributes {
     health: Attribute,
@@ -36,12 +36,13 @@ impl CombatModel {
         let absorbed = remaining.min(shield);
 
         if absorbed > 0.0 {
-            self.attributes.shield.set(target, shield - absorbed);
+            let _ = AttributeSet::new(target, shield - absorbed).run(&mut self.attributes.shield);
             remaining -= absorbed;
         }
 
         let health = self.attributes.health.get(target).unwrap_or(0.0);
-        self.attributes.health.set(target, (health - remaining).max(0.0));
+        let _ = AttributeSet::new(target, (health - remaining).max(0.0))
+            .run(&mut self.attributes.health);
         remaining
     }
 }

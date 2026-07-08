@@ -2,11 +2,8 @@ use crate::identity::ObjectId;
 use crate::tag::TagCollection;
 
 use super::{AbilityStore, RevokedOwnerAbilities};
-use crate::ability::event_sink::{discard_lifecycle_event, owned_lifecycle_events};
-use crate::ability::events::{
-    AbilityLifecycleEvent, AbilityLifecycleEventView, ActiveAbility, ActiveAbilityView,
-};
-use crate::ability::hooks::AbilityCommitExecutor;
+use crate::ability::events::{AbilityLifecycleEventView, ActiveAbility, ActiveAbilityView};
+use crate::ability::hooks::{AbilityCommitExecutor, AbilityLifecycleSink};
 use crate::ability::ids::AbilityActivationId;
 use crate::ability::lifecycle_transaction::{ActiveAbilityTransition, emit_active_transition};
 use crate::ability::results::{
@@ -18,42 +15,18 @@ impl<Tags, Payload> AbilityStore<Tags, Payload>
 where
     Tags: TagCollection,
 {
-    /// Revokes granted and active abilities owned by `owner_id`.
-    #[must_use]
-    pub fn revoke_owner(&mut self, owner_id: ObjectId) -> RevokedOwnerAbilities<Tags, Payload> {
-        let active_abilities = self.active_abilities.remove_owner_with(owner_id, |_| {});
-        let grants = self.abilities.remove_owner(owner_id);
-
-        RevokedOwnerAbilities {
-            grants,
-            active_abilities,
-        }
-    }
-
-    /// Revokes granted abilities and emits owned revocation facts for active abilities.
-    pub fn revoke_owner_with_events<F>(
+    pub(in crate::ability) fn remove_owner_with_sink<Sink>(
         &mut self,
         owner_id: ObjectId,
-        mut emit: F,
+        sink: &mut Sink,
     ) -> RevokedOwnerAbilities<Tags, Payload>
     where
-        Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
-    {
-        self.revoke_owner_with_borrowed_events(owner_id, owned_lifecycle_events(&mut emit))
-    }
-
-    /// Revokes granted abilities and streams borrowed revocation facts for active abilities.
-    pub fn revoke_owner_with_borrowed_events<F>(
-        &mut self,
-        owner_id: ObjectId,
-        mut emit: F,
-    ) -> RevokedOwnerAbilities<Tags, Payload>
-    where
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
+        Sink: AbilityLifecycleSink<Tags, Payload>,
     {
         let active_abilities = self.active_abilities.remove_owner_with(owner_id, |active| {
-            emit_active_transition(ActiveAbilityTransition::Revoked, active, &mut emit);
+            emit_active_transition(ActiveAbilityTransition::Revoked, active, &mut |event| {
+                sink.emit_ability_lifecycle(event);
+            });
         });
         let grants = self.abilities.remove_owner(owner_id);
 
@@ -101,35 +74,13 @@ where
         Ok(AbilityCommitOutcome::Committed)
     }
 
-    /// Ends a committed active activation without emitting lifecycle facts.
-    pub fn end_activation(
+    pub(in crate::ability) fn end_with_sink<Sink>(
         &mut self,
         activation_id: AbilityActivationId,
-    ) -> Result<AbilityEndOutcome<Tags, Payload>, AbilityEndError> {
-        self.end_activation_with_borrowed_events(activation_id, discard_lifecycle_event)
-    }
-
-    /// Ends a committed active activation and emits an owned end fact.
-    pub fn end_activation_with_events<F>(
-        &mut self,
-        activation_id: AbilityActivationId,
-        mut emit: F,
+        sink: &mut Sink,
     ) -> Result<AbilityEndOutcome<Tags, Payload>, AbilityEndError>
     where
-        Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
-    {
-        self.end_activation_with_borrowed_events(activation_id, owned_lifecycle_events(&mut emit))
-    }
-
-    /// Ends a committed active activation and streams a borrowed end fact.
-    pub fn end_activation_with_borrowed_events<F>(
-        &mut self,
-        activation_id: AbilityActivationId,
-        mut emit: F,
-    ) -> Result<AbilityEndOutcome<Tags, Payload>, AbilityEndError>
-    where
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
+        Sink: AbilityLifecycleSink<Tags, Payload>,
     {
         let Some(active) = self.find_active(activation_id) else {
             return Err(AbilityEndError::MissingActivation);
@@ -139,86 +90,42 @@ where
         }
 
         let active = self
-            .remove_active_for_transition(activation_id, ActiveAbilityTransition::Ended, &mut emit)
+            .remove_active_for_transition(
+                activation_id,
+                ActiveAbilityTransition::Ended,
+                &mut |event| {
+                    sink.emit_ability_lifecycle(event);
+                },
+            )
             .expect("active ability exists after commit check");
         Ok(AbilityEndOutcome::Ended(active))
     }
 
-    /// Cancels an active activation without lifecycle facts.
-    pub fn cancel_activation(
+    pub(in crate::ability) fn cancel_with_sink<Sink>(
         &mut self,
         activation_id: AbilityActivationId,
-    ) -> AbilityCancelOutcome<Tags, Payload> {
-        self.cancel_activation_with_borrowed_events(activation_id, discard_lifecycle_event)
-    }
-
-    /// Cancels an active activation and emits an owned cancel fact.
-    pub fn cancel_activation_with_events<F>(
-        &mut self,
-        activation_id: AbilityActivationId,
-        mut emit: F,
+        sink: &mut Sink,
     ) -> AbilityCancelOutcome<Tags, Payload>
     where
-        Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
-    {
-        self.cancel_activation_with_borrowed_events(
-            activation_id,
-            owned_lifecycle_events(&mut emit),
-        )
-    }
-
-    /// Cancels an active activation and streams a borrowed cancel fact.
-    pub fn cancel_activation_with_borrowed_events<F>(
-        &mut self,
-        activation_id: AbilityActivationId,
-        mut emit: F,
-    ) -> AbilityCancelOutcome<Tags, Payload>
-    where
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
+        Sink: AbilityLifecycleSink<Tags, Payload>,
     {
         let Some(active) = self.remove_active_for_transition(
             activation_id,
             ActiveAbilityTransition::Canceled,
-            &mut emit,
+            &mut |event| sink.emit_ability_lifecycle(event),
         ) else {
             return AbilityCancelOutcome::MissingActivation;
         };
         AbilityCancelOutcome::Canceled(active)
     }
 
-    /// Rolls back an uncommitted active activation without lifecycle facts.
-    pub fn rollback_activation(
+    pub(in crate::ability) fn rollback_with_sink<Sink>(
         &mut self,
         activation_id: AbilityActivationId,
-    ) -> Result<AbilityRollbackOutcome<Tags, Payload>, AbilityRollbackError> {
-        self.rollback_activation_with_borrowed_events(activation_id, discard_lifecycle_event)
-    }
-
-    /// Rolls back an uncommitted active activation and emits an owned rollback fact.
-    pub fn rollback_activation_with_events<F>(
-        &mut self,
-        activation_id: AbilityActivationId,
-        mut emit: F,
+        sink: &mut Sink,
     ) -> Result<AbilityRollbackOutcome<Tags, Payload>, AbilityRollbackError>
     where
-        Payload: Clone,
-        F: FnMut(AbilityLifecycleEvent<Tags, Payload>),
-    {
-        self.rollback_activation_with_borrowed_events(
-            activation_id,
-            owned_lifecycle_events(&mut emit),
-        )
-    }
-
-    /// Rolls back an uncommitted active activation and streams a borrowed rollback fact.
-    pub fn rollback_activation_with_borrowed_events<F>(
-        &mut self,
-        activation_id: AbilityActivationId,
-        mut emit: F,
-    ) -> Result<AbilityRollbackOutcome<Tags, Payload>, AbilityRollbackError>
-    where
-        F: for<'event> FnMut(AbilityLifecycleEventView<'event, Tags, Payload>),
+        Sink: AbilityLifecycleSink<Tags, Payload>,
     {
         let Some(active) = self.find_active(activation_id) else {
             return Err(AbilityRollbackError::MissingActivation);
@@ -231,7 +138,7 @@ where
             .remove_active_for_transition(
                 activation_id,
                 ActiveAbilityTransition::RolledBack,
-                &mut emit,
+                &mut |event| sink.emit_ability_lifecycle(event),
             )
             .expect("active ability exists after rollback check");
         Ok(AbilityRollbackOutcome::RolledBack(active))

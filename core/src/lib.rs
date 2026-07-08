@@ -14,9 +14,10 @@
 #![doc = "Stores and queries preserve deterministic iteration where ordering is part"]
 #![doc = "of the public contract."]
 #![doc = "When an `ObjectStore` is available, prefer checked runtime paths such as"]
-#![doc = "`AbilityStore::grant_checked`, `AbilityActivation::new(...).for_owner(...)`,"]
-#![doc = "and `EffectApply::definition(...).checked(...)`; the raw grant, activation,"]
-#![doc = "and application methods are low-level paths that trust caller-managed"]
+#![doc = "`AbilityGrant::new(...).checked(...)`,"]
+#![doc = "`AbilityActivation::new(...).for_owner(...)`, and"]
+#![doc = "`EffectApply::definition(...).checked(...)`; raw grant, activation, and"]
+#![doc = "application commands are low-level paths that trust caller-managed"]
 #![doc = "object-reference invariants."]
 #![doc = ""]
 #![doc = "State-changing ability and effect commands return explicit primitive"]
@@ -167,11 +168,12 @@ pub use ability::{
     AbilityActivationDecision, AbilityActivationError, AbilityActivationExecutor,
     AbilityActivationGate, AbilityActivationId, AbilityActivationRejection,
     AbilityActivationRejectionReason, AbilityActivationRejectionView, AbilityBeginError,
-    AbilityCancelOutcome, AbilityCommit, AbilityCommitAction, AbilityCommitActionExecutor,
-    AbilityCommitError, AbilityCommitExecutor, AbilityCommitOutcome, AbilityDefinition,
-    AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions, AbilityEndError,
-    AbilityEndOutcome, AbilityError, AbilityGateExecutor, AbilityGrantError, AbilityId,
-    AbilityLifecycleEvent, AbilityLifecycleEventView, AbilityLifecycleSink, AbilityRollbackError,
+    AbilityCancel, AbilityCancelOutcome, AbilityCommit, AbilityCommitAction,
+    AbilityCommitActionExecutor, AbilityCommitError, AbilityCommitExecutor, AbilityCommitOutcome,
+    AbilityDefinition, AbilityDefinitionError, AbilityDefinitionRegistryError, AbilityDefinitions,
+    AbilityEnd, AbilityEndError, AbilityEndOutcome, AbilityError, AbilityGateExecutor,
+    AbilityGrant, AbilityGrantError, AbilityId, AbilityLifecycleEvent, AbilityLifecycleEventView,
+    AbilityLifecycleSink, AbilityRevokeOwner, AbilityRollback, AbilityRollbackError,
     AbilityRollbackOutcome, AbilityStore, ActiveAbility, ActiveAbilityView, AllowActivation,
     DiscardAbilityLifecycleEvents, Grant, GrantedAbility, NoAbilityActivationExecutor,
     NoAbilityCommitExecutor, NoCommitAction, OwnedAbilityLifecycleEvents,
@@ -180,11 +182,11 @@ pub use ability::{
 pub use attribute::{
     Attribute, AttributeChange, AttributeMutation, AttributeMutationDecision,
     AttributeMutationHooks, AttributeMutationRejection, AttributeMutationRequest,
-    AttributeMutationResult, AttributeValue,
+    AttributeMutationResult, AttributeSet, AttributeValue,
 };
 pub use clock::{Clock, ClockUnits, FixedStepClock, RealtimeClock, RealtimeClockAccumulator};
 pub use data_store::DataStore;
-pub use derived_attribute::{DerivedAttribute, DerivedChange};
+pub use derived_attribute::{DerivedAttribute, DerivedAttributeRefresh, DerivedChange};
 pub use effect::{
     ActiveEffectId, DiscardEffectLifecycleEvents, EffectActionExecutor, EffectAdvance,
     EffectAdvanceView, EffectApplication, EffectApplicationDecision, EffectApplicationDraft,
@@ -194,8 +196,9 @@ pub use effect::{
     EffectDefinitionRegistryError, EffectDefinitions, EffectExecution, EffectExecutionAction,
     EffectExecutionView, EffectExecutor, EffectInitializer, EffectInstance, EffectInstanceView,
     EffectKind, EffectLifecycleEvent, EffectLifecycleEventView, EffectLifecycleSink,
-    EffectObjectRemovalPolicy, EffectPipeline, EffectRouting, EffectSourcePolicy, EffectTick,
-    NoEffectExecutor, NoopEffectInitializer, OwnedEffectLifecycleEvents,
+    EffectObjectRemovalPolicy, EffectPipeline, EffectRemove, EffectRemoveForObject, EffectRouting,
+    EffectSourcePolicy, EffectTick, NoEffectExecutor, NoopEffectInitializer,
+    OwnedEffectLifecycleEvents,
 };
 pub use errors::CoreError;
 pub use identity::{INVALID_OBJECT_ID, ObjectId, ObjectStore};
@@ -204,8 +207,8 @@ pub use lifecycle::{
     EventChannelError, EventChannelRouteDefinition, EventConnectionHandle, EventRetention,
     LifecycleEvent, LifecycleEventKind, LocalLifecycleEvent, ScopedEventConnection,
 };
-pub use mechanics::{MechanicsDriver, MechanicsStore};
-pub use object_lifecycle::{ObjectDestructionDriver, ObjectLifecycleStore};
+pub use mechanics::{MechanicsDriver, MechanicsStore, MechanicsTick};
+pub use object_lifecycle::{ObjectDestroy, ObjectDestructionDriver, ObjectLifecycleStore};
 pub use registry::{DefinitionRegistryEntry, Registry, RegistryEntry};
 pub use signal::{
     SignalDefinition, SignalDefinitionError, SignalDefinitions, SignalExportPolicy, SignalFact,

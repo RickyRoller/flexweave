@@ -7,9 +7,9 @@ use flexweave::{
     EffectApplicationInput, EffectApply, EffectApplyError, EffectApplyOutcome, EffectClockPolicy,
     EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError, EffectDefinitions,
     EffectExecutionView, EffectInitializer, EffectKind, EffectLifecycleEvent,
-    EffectLifecycleEventView, EffectPipeline, EffectRouting, EffectSourcePolicy, EffectTick,
-    EventChannel, EventChannelDefinition, EventRetention, LifecycleEventKind, NoEffectExecutor,
-    ObjectId, ObjectStore, Tag, TagSet,
+    EffectLifecycleEventView, EffectPipeline, EffectRemove, EffectRouting, EffectSourcePolicy,
+    EffectTick, EventChannel, EventChannelDefinition, EventRetention, LifecycleEventKind,
+    NoEffectExecutor, ObjectId, ObjectStore, OwnedEffectLifecycleEvents, Tag, TagSet,
 };
 
 #[test]
@@ -419,6 +419,8 @@ fn effect_initializer_revalidates_runtime_clock_shape() {
 
     let mut pipeline = EffectPipeline::<TagSet<TestAtom>, ()>::new();
     let mut initializer = Initializer;
+    let mut context = ();
+    let mut executor = NoEffectExecutor::new();
 
     let error = EffectApply::definition(
         &EffectDefinition::duration("buff", 100, ()),
@@ -430,7 +432,7 @@ fn effect_initializer_revalidates_runtime_clock_shape() {
         ),
     )
     .initialized(&mut initializer)
-    .run_with_context(&mut pipeline, &mut ())
+    .run_with_executor(&mut pipeline, &mut context, &mut executor)
     .unwrap_err();
 
     assert_eq!(
@@ -470,9 +472,12 @@ fn effect_pipeline_removes_effects_with_distinct_lifecycle_fact() {
     .expect("duration effect should create an active effect");
     let mut events = Vec::new();
 
-    let removed = effects
-        .remove_with_events(effect_id, |event| events.push(event))
-        .unwrap();
+    let removed = {
+        let mut sink = OwnedEffectLifecycleEvents::new(|event| events.push(event));
+        EffectRemove::new(effect_id)
+            .run_with_sink(&mut effects, &mut sink)
+            .unwrap()
+    };
 
     assert_eq!(removed.id, effect_id);
     assert_eq!(effects.count(), 0);
@@ -575,7 +580,7 @@ fn effect_indexes_survive_removal_expiration_and_keep_application_order() {
     effects.visit_target(target, |effect| target_order.push(effect.id));
     assert_eq!(target_order, vec![first, second, fourth]);
 
-    let removed = effects.remove_with_events(second, |_| {}).unwrap();
+    let removed = EffectRemove::new(second).run(&mut effects).unwrap();
     assert_eq!(removed.id, second);
     assert!(effects.get(second).is_none());
     assert_eq!(effects.get(third).unwrap().id, third);
@@ -633,7 +638,7 @@ fn active_effect_ids_are_typed_value_objects_and_pipeline_uses_them() {
     assert_eq!(effect_id, ActiveEffectId::new(1));
     assert_eq!(effect_id.get(), 1);
     assert_eq!(effects.get(effect_id).unwrap().id, effect_id);
-    let removed = effects.remove_with_events(effect_id, |_| {}).unwrap();
+    let removed = EffectRemove::new(effect_id).run(&mut effects).unwrap();
     assert_eq!(removed.id, effect_id);
 
     let mut default_effects = EffectPipeline::<TagSet<TestAtom>, Payload>::default();
@@ -1322,9 +1327,12 @@ fn duration_effects_advance_expire_and_remove_in_lifecycle_order() {
     assert_eq!(advanced.effect.remaining_units, Some(60));
     events.clear();
 
-    let removed = pipeline
-        .remove_with_events(active_id, |event| events.push(event))
-        .unwrap();
+    let removed = {
+        let mut sink = OwnedEffectLifecycleEvents::new(|event| events.push(event));
+        EffectRemove::new(active_id)
+            .run_with_sink(&mut pipeline, &mut sink)
+            .unwrap()
+    };
     assert_eq!(removed.id, active_id);
     let [EffectLifecycleEvent::Removed(removed_event)] = events.as_slice() else {
         panic!("manual removal should emit removed, not expired");
@@ -1660,14 +1668,17 @@ fn borrowed_effect_lifecycle_accepts_non_clone_payloads() {
     }
     assert_eq!(tick_kinds, vec![LifecycleEventKind::EffectAdvanced]);
 
-    let removed = pipeline
-        .remove_with_borrowed_events(active_id, |event| {
+    let removed = {
+        let mut sink = |event: EffectLifecycleEventView<'_, TagSet<TestAtom>, Payload>| {
             let EffectLifecycleEventView::Removed(effect) = event else {
                 panic!("manual removal should emit removed");
             };
             assert_eq!(effect.payload.amount, 7);
-        })
-        .unwrap();
+        };
+        EffectRemove::new(active_id)
+            .run_with_sink(&mut pipeline, &mut sink)
+            .unwrap()
+    };
     assert_eq!(removed.payload.amount, 7);
 }
 
@@ -1695,7 +1706,7 @@ fn effect_no_event_paths_accept_non_clone_payloads() {
     .active_effect_id()
     .expect("duration effect should create an active effect");
     EffectTick::new(1).run(&mut pipeline);
-    let removed = pipeline.remove(active_id).unwrap();
+    let removed = EffectRemove::new(active_id).run(&mut pipeline).unwrap();
 
     assert_eq!(removed.payload.amount, 11);
 }

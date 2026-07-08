@@ -7,12 +7,12 @@ use std::fmt;
 use super::application::{
     EffectApplicationDecision, EffectApplicationDraft, EffectApplicationInput,
     EffectApplicationRejectionView, EffectApplicationView, EffectExecutor, EffectInitializer,
-    EffectSourcePolicy,
+    EffectLifecycleSink, EffectSourcePolicy,
 };
 use super::definition::{EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectKind};
 use super::events::{
     EffectAdvanceView, EffectExecutionView, EffectInstance, EffectInstanceView,
-    EffectLifecycleEvent, EffectLifecycleEventView,
+    EffectLifecycleEventView,
 };
 use super::ids::ActiveEffectId;
 
@@ -332,94 +332,44 @@ where
         Ok(())
     }
 
-    /// Removes an active effect instance by id without constructing lifecycle events.
-    pub fn remove(&mut self, effect_id: ActiveEffectId) -> Option<EffectInstance<Tags, Payload>> {
+    pub(in crate::effect) fn remove_effect(
+        &mut self,
+        effect_id: ActiveEffectId,
+    ) -> Option<EffectInstance<Tags, Payload>> {
         let index = self.find_index(effect_id)?;
         Some(self.remove_effect_at_index(index))
     }
 
-    /// Removes an active effect instance by id and emits a removal lifecycle fact.
-    pub fn remove_with_events<F>(
+    pub(in crate::effect) fn remove_with_sink<Sink>(
         &mut self,
         effect_id: ActiveEffectId,
-        mut on_event: F,
+        sink: &mut Sink,
     ) -> Option<EffectInstance<Tags, Payload>>
     where
-        Payload: Clone,
-        F: FnMut(EffectLifecycleEvent<Tags, Payload>),
+        Sink: EffectLifecycleSink<Tags, Payload>,
     {
-        self.remove_with_borrowed_events(effect_id, |event| {
-            on_event(event.to_owned_event());
-        })
-    }
-
-    /// Removes an active effect instance by id and streams a borrowed removal fact.
-    pub fn remove_with_borrowed_events<F>(
-        &mut self,
-        effect_id: ActiveEffectId,
-        mut on_event: F,
-    ) -> Option<EffectInstance<Tags, Payload>>
-    where
-        F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
-    {
-        let removed = self.remove(effect_id)?;
-        on_event(EffectLifecycleEventView::Removed(EffectInstanceView::from(
+        let removed = self.remove_effect(effect_id)?;
+        sink.emit_effect_lifecycle(EffectLifecycleEventView::Removed(EffectInstanceView::from(
             &removed,
         )));
         Some(removed)
     }
 
-    /// Removes active effects that reference `object_id` according to `policy`.
-    #[must_use]
-    pub fn remove_for_object(
+    pub(in crate::effect) fn remove_for_object_with_sink<Sink>(
         &mut self,
         object_id: ObjectId,
         policy: EffectObjectRemovalPolicy,
-    ) -> Vec<EffectInstance<Tags, Payload>> {
-        let mut removed = Vec::new();
-        let mut index = 0;
-        while index < self.effects.len() {
-            if policy.matches(&self.effects[index], object_id) {
-                removed.push(self.remove_effect_at_index(index));
-            } else {
-                index += 1;
-            }
-        }
-        removed
-    }
-
-    /// Removes active effects that reference `object_id` and emits removal facts.
-    pub fn remove_for_object_with_events<F>(
-        &mut self,
-        object_id: ObjectId,
-        policy: EffectObjectRemovalPolicy,
-        mut on_event: F,
+        sink: &mut Sink,
     ) -> Vec<EffectInstance<Tags, Payload>>
     where
-        Payload: Clone,
-        F: FnMut(EffectLifecycleEvent<Tags, Payload>),
-    {
-        self.remove_for_object_with_borrowed_events(object_id, policy, |event| {
-            on_event(event.to_owned_event());
-        })
-    }
-
-    /// Removes active effects that reference `object_id` and streams borrowed removal facts.
-    pub fn remove_for_object_with_borrowed_events<F>(
-        &mut self,
-        object_id: ObjectId,
-        policy: EffectObjectRemovalPolicy,
-        mut on_event: F,
-    ) -> Vec<EffectInstance<Tags, Payload>>
-    where
-        F: for<'event> FnMut(EffectLifecycleEventView<'event, Tags, Payload>),
+        Sink: EffectLifecycleSink<Tags, Payload>,
     {
         let mut removed = Vec::new();
         let mut index = 0;
         while index < self.effects.len() {
             if policy.matches(&self.effects[index], object_id) {
                 let effect = self.remove_effect_at_index(index);
-                on_event(EffectLifecycleEventView::Removed((&effect).into()));
+                sink.emit_effect_lifecycle(EffectLifecycleEventView::Removed((&effect).into()));
                 removed.push(effect);
             } else {
                 index += 1;
