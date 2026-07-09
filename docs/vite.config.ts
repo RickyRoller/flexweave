@@ -6,7 +6,20 @@ import { defineConfig } from "vite";
 import viteReact from "@vitejs/plugin-react";
 
 export default defineConfig({
-  plugins: [mdx(), tailwindcss(), tanstackStart(), viteReact(), nitro()],
+  environments: {
+    ssr: {
+      resolve: {
+        external: ["tslib"],
+      },
+    },
+  },
+  plugins: [
+    mdx(),
+    tailwindcss(),
+    tanstackStart(),
+    viteReact(),
+    nitro({ rolldownConfig: { external: ["tslib"] } }),
+  ],
   resolve: {
     tsconfigPaths: true,
   },
