@@ -5,5 +5,7 @@ target
 docs/.output
 docs/.source
 docs/.tanstack
+docs/.vercel
 docs/.vinxi
 docs/node_modules
+.vercel
