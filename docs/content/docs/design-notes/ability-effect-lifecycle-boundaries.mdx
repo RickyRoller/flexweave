@@ -1,0 +1,19 @@
+---
+title: Ability and Effect Lifecycle Boundaries
+description: How ability commitment and effect application divide responsibilities.
+---
+
+Abilities model grants, activation attempts, activation decisions, active
+activation state, commitment, ending, cancellation, rollback, and revocation.
+
+Effects model application, execution, active instances, advancement, removal,
+and expiration.
+
+The boundary between them is caller-owned. In the RPG example, ability
+commitment chooses which effects to apply. Slash commits into an instant damage
+effect. Quickened Strikes commits into a duration attack-speed buff and a
+cooldown. Fortify commits into a duration max-health buff.
+
+This separation keeps the ability lifecycle from assuming that every ability is
+a spell, attack, card, command, or animation. It also keeps the effect pipeline
+from assuming that every effect was caused by an ability.

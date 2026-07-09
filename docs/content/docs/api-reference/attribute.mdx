@@ -1,0 +1,66 @@
+---
+title: Attribute
+description: Stored numeric attributes, mutation hooks, and change facts.
+---
+
+Public exports:
+
+- `AttributeValue`
+- `Attribute`
+- `AttributeSet`
+- `AttributeChange`
+- `AttributeMutationRequest`
+- `AttributeMutation`
+- `AttributeMutationHooks`
+- `AttributeMutationDecision`
+- `AttributeMutationResult`
+- `AttributeMutationRejection`
+
+`Attribute` stores signed numeric values by object id. `attach` and `detach`
+seed or remove values without lifecycle facts.
+
+## `Attribute`
+
+| API            | Behavior                                                            |
+| -------------- | ------------------------------------------------------------------- |
+| `new`          | Creates an empty attribute channel.                                 |
+| `attach`       | Seeds or overwrites a value without notifying listeners.            |
+| `detach`       | Removes the stored value without emitting an attribute-change fact. |
+| `add_listener` | Registers a listener in deterministic order.                        |
+| `subscribe`    | Alias for `add_listener`.                                           |
+| `has`          | Returns whether an id has a value.                                  |
+| `get`          | Returns `Option<AttributeValue>`.                                   |
+| `count`        | Returns the number of stored values.                                |
+
+## Mutation Commands
+
+`AttributeSet` mutates a value and returns `Unchanged`, `Committed`, or
+`Rejected`.
+
+| API                     | Behavior                                                             |
+| ----------------------- | -------------------------------------------------------------------- |
+| `AttributeSet::new`     | Creates a mutation request from id and requested value.              |
+| `AttributeSet::request` | Creates a mutation request from `AttributeMutationRequest`.          |
+| `with_hooks`            | Adds ordered pre/post mutation hooks and context.                    |
+| `run`                   | Applies the mutation and drops the streaming callback.               |
+| `run_streaming`         | Applies the mutation and receives committed `AttributeChange` facts. |
+
+Mutation hooks can allow, transform, reject, or observe changes. Ordering is:
+pre-hooks, storage commit, listeners, post-hooks, streaming callback.
+
+## Mutation Types
+
+| Type                         | Purpose                                                   |
+| ---------------------------- | --------------------------------------------------------- |
+| `AttributeMutationRequest`   | Requested object id and requested value.                  |
+| `AttributeMutation`          | Hook view with previous, requested, current, and context. |
+| `AttributeMutationDecision`  | `Allow`, `Transform(value)`, or `Reject(error)`.          |
+| `AttributeMutationRejection` | Rejection details returned from a rejected mutation.      |
+| `AttributeMutationResult`    | `Unchanged`, `Committed`, or `Rejected`.                  |
+| `AttributeChange`            | Committed change with previous, requested, and current.   |
+
+`AttributeChange::delta` subtracts previous from current, treating missing
+previous value as `0.0`.
+
+`AttributeChange` implements `LifecycleEvent` with
+`LifecycleEventKind::AttributeChanged`.

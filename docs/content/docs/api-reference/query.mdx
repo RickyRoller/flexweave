@@ -1,0 +1,43 @@
+---
+title: Query
+description: Deterministic selection and required-state helpers.
+---
+
+Public helpers:
+
+- `query::require_object`
+- `query::require_attached`
+- `query::collect_where`
+
+`require_object` checks whether an id is live in an `ObjectStore`.
+
+`require_attached` checks whether a data store has required data for an id.
+
+`collect_where` walks live objects in `ObjectStore` order and returns ids whose
+caller-owned predicate returns true.
+
+## Helper Behavior
+
+| Helper             | Success                               | Failure/order behavior                    |
+| ------------------ | ------------------------------------- | ----------------------------------------- |
+| `require_object`   | Returns `Ok(())` when the id is live. | Returns `CoreError::InvalidObjectId`.     |
+| `require_attached` | Returns `&T` for attached data.       | Returns `CoreError::MissingRequiredData`. |
+| `collect_where`    | Returns all matching live ids.        | Preserves `ObjectStore` iteration order.  |
+
+Errors:
+
+- `CoreError::InvalidObjectId`
+- `CoreError::MissingRequiredData`
+
+## Selection Pattern
+
+Use `collect_where` for deterministic selection over live objects:
+
+```rust
+let enemies = query::collect_where(&objects, |id| {
+    factions.get(id).is_some_and(|faction| *faction == Faction::Enemy)
+});
+```
+
+Use `require_*` helpers when a command needs explicit primitive failure instead
+of treating missing state as "not selected".

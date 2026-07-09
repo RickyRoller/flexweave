@@ -1,0 +1,17 @@
+{
+  "title": "Building an RPG Combat Runtime",
+  "pages": [
+    "01-create-combatants",
+    "02-attach-data-and-tags",
+    "03-add-attributes",
+    "04-derived-max-health-and-attack-speed",
+    "05-grant-player-abilities",
+    "06-target-and-activate-abilities",
+    "07-commit-abilities-into-effects",
+    "08-apply-damage-and-buffs",
+    "09-advance-time-and-expire-effects",
+    "10-publish-combat-events",
+    "11-clean-up-combatants",
+    "12-complete-runtime"
+  ]
+}

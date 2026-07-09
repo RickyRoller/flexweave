@@ -1,0 +1,48 @@
+---
+title: Derived Attribute
+description: Calculated numeric attributes with explicit refresh.
+---
+
+Public exports:
+
+- `DerivedAttribute`
+- `DerivedAttributeRefresh`
+- `DerivedChange`
+
+`DerivedAttribute::new` accepts a calculator closure from `ObjectId` to
+`Option<AttributeValue>`.
+
+## `DerivedAttribute`
+
+| API            | Behavior                                                        |
+| -------------- | --------------------------------------------------------------- |
+| `new`          | Creates a derived channel from a calculator closure.            |
+| `add_listener` | Registers a listener in deterministic order.                    |
+| `subscribe`    | Alias for `add_listener`.                                       |
+| `get`          | Evaluates the calculator without mutating tracked cache.        |
+| `has`          | Returns whether the calculator currently produces a value.      |
+| `count`        | Returns the number of tracked cached values.                    |
+| `untrack`      | Removes the tracked cache entry without running the calculator. |
+| `sync`         | Seeds or overwrites tracked cache without notification.         |
+
+## Refresh Commands
+
+`get` evaluates without mutating tracked cache. `sync` seeds or overwrites the
+tracked cache without notification. `DerivedAttributeRefresh` evaluates and
+emits a `DerivedChange` only when the tracked value changes.
+
+| API                                | Behavior                                                    |
+| ---------------------------------- | ----------------------------------------------------------- |
+| `DerivedAttributeRefresh::new`     | Refreshes even when no cached value was tracked before.     |
+| `DerivedAttributeRefresh::tracked` | Refreshes only if the id already has a tracked cache value. |
+| `tracked_only`                     | Converts an existing refresh command to tracked-only mode.  |
+| `run`                              | Refreshes and returns the current value.                    |
+| `run_streaming`                    | Refreshes and streams emitted `DerivedChange` facts.        |
+
+Use `untrack` when an object leaves the runtime.
+
+`DerivedChange::delta` subtracts previous from current, treating missing values
+as `0.0`.
+
+`DerivedChange` implements `LifecycleEvent` with
+`LifecycleEventKind::DerivedAttributeChanged`.

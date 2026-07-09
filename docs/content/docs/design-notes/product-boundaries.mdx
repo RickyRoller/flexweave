@@ -1,0 +1,32 @@
+---
+title: Product Boundaries
+description: What belongs in Flexweave and what belongs in consumer applications.
+---
+
+Flexweave provides primitive mechanics building blocks. Consumer projects own
+runtime meaning.
+
+Flexweave owns:
+
+- object identity
+- typed attached data stores
+- numeric attributes and derived attribute refresh
+- tag primitives
+- ability and effect lifecycle shape
+- event channels and signal projection primitives
+- clock-unit helpers and mechanics ticking
+- object cleanup coordination
+- primitive errors and command outcomes
+
+Consumer apps own:
+
+- game nouns and payload variants
+- authored catalogs and content pack loading
+- ECS, engine, server, or editor integration
+- persistence
+- rendering, animation, audio, UI, networking, and scripting
+- balance and gameplay policy
+- deployment
+
+The RPG example follows this boundary: Flexweave never knows what a player,
+enemy, buff, cooldown, Slash, Fortify, or combat log means.

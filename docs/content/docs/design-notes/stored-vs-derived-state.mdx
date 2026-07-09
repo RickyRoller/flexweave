@@ -1,0 +1,18 @@
+---
+title: Stored vs Derived State
+description: Why current health is stored while max health is calculated.
+---
+
+Store state when commands mutate it directly. Derive state when it is the result
+of other runtime state.
+
+Current health is stored because damage and healing change it directly. Max
+health is derived because it depends on base vitality and active modifiers.
+
+This distinction avoids overwriting source data when temporary effects come and
+go. A Fortify effect can add `25` max health for ten seconds. When it expires,
+the derived calculation naturally returns to the base value.
+
+Policy still belongs to the consumer runtime. If current health is `120` and
+max health falls to `100`, the runtime decides whether to clamp current health,
+allow overheal, delay clamping, or emit a separate rule-specific event.

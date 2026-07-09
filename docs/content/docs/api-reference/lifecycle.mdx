@@ -1,0 +1,85 @@
+---
+title: Lifecycle
+description: Lifecycle event kinds, event channels, route definitions, and retention.
+---
+
+Public exports:
+
+- `LifecycleEventKind`
+- `LifecycleEvent`
+- `LocalLifecycleEvent`
+- `EventChannelDefinition`
+- `EventChannelDefinitions`
+- `EventChannelRouteDefinition`
+- `EventChannel`
+- `EventRetention`
+- `EventConnectionHandle`
+- `ScopedEventConnection`
+- `EventChannelDefinitionError`
+- `EventChannelError`
+
+`EventChannel` validates payload kind, optionally retains owned events, and
+notifies listeners in registration order.
+
+## Event Kinds
+
+`LifecycleEventKind` is the stable classifier used by channels, routes, signal
+projection, and lifecycle facts.
+
+| Family    | Kinds                                                                                                                                                                                                                                 |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Attribute | `AttributeChanged`, `DerivedAttributeChanged`                                                                                                                                                                                         |
+| Effect    | `EffectApplicationAccepted`, `EffectApplicationRejected`, `EffectActiveCreated`, `EffectExecuted`, `EffectPeriodicExecuted`, `EffectAdvanced`, `EffectRemoved`, `EffectExpired`                                                       |
+| Signal    | `SignalReinvoked`                                                                                                                                                                                                                     |
+| Ability   | `AbilityActivationAttempted`, `AbilityActivationRejected`, `AbilityActivationCommitted`, `AbilityActivationStarted`, `AbilityActivationCanceled`, `AbilityActivationRevoked`, `AbilityActivationRolledBack`, `AbilityActivationEnded` |
+
+`LifecycleEvent` is implemented by primitive fact types so channels can
+validate a fact's kind before publication.
+
+## Channel Definitions
+
+| Type/API                           | Behavior                                             |
+| ---------------------------------- | ---------------------------------------------------- |
+| `EventChannelDefinition::new`      | Validates channel name and accepted payload kinds.   |
+| `name`                             | Returns the stable channel name.                     |
+| `accepted_kinds`                   | Returns the accepted lifecycle kinds.                |
+| `accepts`                          | Tests one lifecycle kind.                            |
+| `validate_payload_kind`            | Returns definition error on mismatch.                |
+| `EventChannelDefinitions::new`     | Builds a duplicate-free definition collection.       |
+| `definitions`                      | Returns definitions in declaration order.            |
+| `get`                              | Looks up a channel definition by name.               |
+| `validate_route`                   | Validates a named route against channel definitions. |
+| `EventChannelRouteDefinition::new` | Creates a source-kind to channel-name route.         |
+
+Channel names accept ASCII alphanumeric characters plus `.`, `_`, `-`, `:`,
+and `/`.
+
+## Runtime Channels
+
+| API                    | Behavior                                             |
+| ---------------------- | ---------------------------------------------------- |
+| `EventChannel::new`    | Creates a drop-retention channel.                    |
+| `with_retention`       | Creates a channel with `Drop` or `Retain`.           |
+| `definition`           | Returns the channel definition.                      |
+| `name`                 | Returns the channel name.                            |
+| `retention`            | Returns retention policy.                            |
+| `listener_count`       | Counts connected listeners.                          |
+| `subscribe`            | Registers a listener and returns a handle.           |
+| `subscribe_scoped`     | Registers a listener disconnected on guard drop.     |
+| `retained`             | Returns retained events.                             |
+| `drain_retained`       | Drains retained events in emission order.            |
+| `compact_disconnected` | Removes disconnected listeners.                      |
+| `publish`              | Publishes an owned event.                            |
+| `publish_borrowed`     | Publishes a borrowed event to non-retained channels. |
+
+Borrowed publication is only allowed on non-retained channels. Retained channels
+require owned events.
+
+## Errors
+
+`EventChannelDefinitionError` covers invalid channel names, empty payload
+contracts, duplicate payload kinds, duplicate channel definitions, missing
+definitions, and route payload mismatch.
+
+`EventChannelError` covers runtime publication payload mismatch and borrowed
+publication into retained channels.

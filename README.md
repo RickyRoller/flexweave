@@ -1,35 +1,38 @@
+<p align="center">
+  <img src="./assets/flexweave.svg" alt="Flexweave logo" width="120" />
+</p>
+
 # Flexweave
 
 Flexweave is a Rust workspace for reusable mechanics primitives.
 
 ## Product Surfaces
 
-| Surface              | Path   | Purpose                                            |
-| -------------------- | ------ | -------------------------------------------------- |
-| Flexweave Rust crate | `core` | Rust crate for deterministic mechanics primitives. |
+| Surface              | Path           | Purpose                                             |
+| -------------------- | -------------- | --------------------------------------------------- |
+| Flexweave Rust crate | `core`         | Rust crate for deterministic mechanics primitives.  |
+| Documentation site   | `docs`         | Hostable Fumadocs site for Flexweave documentation. |
+| Project docs         | `project-docs` | Source-first ADRs and implementation models.        |
 
 ## Commands
 
-| Command          | Purpose                                   |
-| ---------------- | ----------------------------------------- |
-| `bun run build`  | Build the Rust crate.                     |
-| `bun run check`  | Run read-only formatting and Rust checks. |
-| `bun run fix`    | Format supported files.                   |
-| `bun run test`   | Run Rust crate tests.                     |
-| `bun run verify` | Run the full workspace verification gate. |
+| Command            | Purpose                                                    |
+| ------------------ | ---------------------------------------------------------- |
+| `bun run build`    | Build the Rust crate and docs site.                        |
+| `bun run check`    | Run read-only formatting, Rust checks, and docs typecheck. |
+| `bun run docs:dev` | Start the local documentation site.                        |
+| `bun run fix`      | Format supported files.                                    |
+| `bun run test`     | Run Rust crate tests.                                      |
+| `bun run verify`   | Run the full workspace verification gate.                  |
 
 ## Documentation
 
-Documentation uses Diataxis forms so each page has one job:
-
-- Tutorials teach a complete learning path.
-- How-to guides solve an operational task.
-- Reference pages describe stable contracts.
-- Explanation pages capture concepts and rationale.
+The hosted documentation is organized as a book-style guide with a separate
+top-level API Reference:
 
 Start with:
 
-- [Documentation Forms](./docs/reference/documentation-forms.md)
-- [Repository Layout](./docs/reference/repository-layout.md)
-- [Using Flexweave](./docs/how-to/use-flexweave.md)
-- [Product Boundaries](./docs/explanation/product-boundaries.md)
+- [What Flexweave Is](./docs/content/docs/getting-started/what-is-flexweave.mdx)
+- [Create Combatants](./docs/content/docs/rpg-combat/01-create-combatants.mdx)
+- [Core Concepts](./docs/content/docs/core-concepts/objects-and-attached-data.mdx)
+- [API Reference](./docs/content/docs/api-reference/index.mdx)

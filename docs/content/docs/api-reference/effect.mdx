@@ -1,0 +1,40 @@
+---
+title: Effect
+description: Effect definitions, applications, active instances, ticking, lifecycle facts, and errors.
+---
+
+## Public Exports
+
+| Group              | Exports                                                                                                                                                        |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ids                | `ActiveEffectId`                                                                                                                                               |
+| Definitions        | `EffectDefinition`, `EffectDefinitions`, `EffectKind`, `EffectClockPolicy`, `EffectRouting`, `EffectDefinitionError`, `EffectDefinitionRegistryError`          |
+| Application Inputs | `EffectApplicationInput`, `EffectApplicationDecision`, `EffectSourcePolicy`, `EffectApply`, `EffectApplyOutcome`, `EffectApplyError`, `EffectApplicationError` |
+| Application Facts  | `EffectApplication`, `EffectApplicationView`, `EffectApplicationRejection`, `EffectApplicationRejectionView`                                                   |
+| Initialization     | `EffectInitializer`, `NoopEffectInitializer`, `EffectApplicationDraft`                                                                                         |
+| Execution          | `EffectExecutionAction`, `EffectExecutor`, `EffectActionExecutor`, `NoEffectExecutor`, `EffectExecution`, `EffectExecutionView`                                |
+| Lifecycle Sinks    | `EffectLifecycleSink`, `DiscardEffectLifecycleEvents`, `OwnedEffectLifecycleEvents`                                                                            |
+| Active State       | `EffectPipeline`, `EffectInstance`, `EffectInstanceView`, `EffectTick`, `EffectRemove`, `EffectRemoveForObject`, `EffectObjectRemovalPolicy`                   |
+| Lifecycle Facts    | `EffectLifecycleEvent`, `EffectLifecycleEventView`, `EffectAdvance`, `EffectAdvanceView`                                                                       |
+
+Effect definitions can be instant, duration, periodic, or indefinite. Effect
+applications can be checked against an `ObjectStore`.
+
+## Effect Kinds
+
+`Instant` effects execute immediately and do not create active state.
+`Duration` effects create active instances with remaining units. `Periodic`
+effects create active instances and execute at deterministic intervals.
+`Indefinite` effects create active instances without fixed duration.
+
+## Checked Applications
+
+`EffectApply::checked` validates source and target object references against an
+`ObjectStore`. `EffectSourcePolicy` decides whether system effects with no
+source are allowed or whether a live source is required.
+
+## Lifecycle Facts
+
+Applications can emit accepted or rejected facts. Successful instant effects
+emit executed facts. Active effects emit active-created, advanced,
+periodic-executed, removed, and expired facts depending on the commands that run.

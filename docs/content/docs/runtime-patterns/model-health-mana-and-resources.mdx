@@ -1,0 +1,119 @@
+---
+title: Model Health, Mana, and Resources
+description: Choose stored and derived attributes for common combat resources.
+---
+
+Use stored attributes for values that mutate directly:
+
+- current health
+- current mana
+- shield
+- base vitality
+- base attack speed
+
+Use derived attributes for values that are calculated from runtime state:
+
+- max health
+- effective attack speed
+- mitigation
+- total resource capacity
+
+For current health and max health, keep the responsibilities separate:
+
+```rust
+current_health.attach(player, 100.0);
+base_vitality.attach(player, 100.0);
+base_attack_speed.attach(player, 1.0);
+mana.attach(player, 30.0);
+```
+
+Then calculate max health from base vitality and active effects. When a
+max-health buff expires, decide in consumer code whether current health should
+be clamped down to the new maximum.
+
+In the RPG runtime, `current_health` is stored because damage and healing write
+to it directly. `max_health` is derived because Fortify changes the capacity for
+ten seconds without changing the character's base vitality.
+
+```rust
+let max_health = {
+    let base_vitality = Rc::clone(&base_vitality);
+    let effects = Rc::clone(&effects);
+    DerivedAttribute::new(move |id| {
+        let base = base_vitality.borrow().get(id)?;
+        let mut bonus = 0.0;
+        effects.borrow().visit_target(id, |effect| {
+            if let EffectPayload::MaxHealthBonus { amount } = effect.payload {
+                bonus += amount;
+            }
+        });
+        Some(base + bonus)
+    })
+};
+```
+
+That split gives the application one clear place to apply resource policy:
+
+- Damage and healing mutate `current_health`.
+- Base progression mutates `base_vitality`.
+- Temporary effects contribute to `max_health`.
+- UI reads both values and decides how to present overflow, clamping, or wounds.
+
+## Wrap Related Attributes
+
+As the runtime grows, group related attributes behind a consumer-owned type
+instead of letting abilities, effects, UI adapters, and systems all mutate raw
+attribute stores directly.
+
+```rust
+use flexweave::{Attribute, AttributeSet, AttributeValue, DerivedAttribute, ObjectId};
+
+struct PlayerAttributes {
+    current_health: Attribute,
+    shield: Attribute,
+    max_health: DerivedAttribute,
+}
+
+impl PlayerAttributes {
+    fn apply_damage(&mut self, target: ObjectId, amount: AttributeValue) {
+        let mut remaining = amount.max(0.0);
+        let shield = self.shield.get(target).unwrap_or(0.0);
+        let absorbed = remaining.min(shield);
+
+        if absorbed > 0.0 {
+            AttributeSet::new(target, shield - absorbed).run(&mut self.shield);
+            remaining -= absorbed;
+        }
+
+        if remaining > 0.0 {
+            let health = self.current_health.get(target).unwrap_or(0.0);
+            AttributeSet::new(target, (health - remaining).max(0.0))
+                .run(&mut self.current_health);
+        }
+    }
+
+    fn clamp_health_to_max(&mut self, target: ObjectId) {
+        let health = self.current_health.get(target).unwrap_or(0.0);
+        let max_health = self.max_health.get(target).unwrap_or(0.0);
+
+        AttributeSet::new(target, health.min(max_health)).run(&mut self.current_health);
+    }
+}
+```
+
+That wrapper gives the runtime a stable boundary for rules that combine multiple
+attributes. In the example above, callers do not need to know that shield absorbs
+damage before health. They call `apply_damage`, and the wrapper decides which
+primitive attributes change.
+
+Attribute hooks still fit this pattern. Use methods such as `apply_damage` for
+domain policy, then run the underlying `AttributeSet` with hooks when the
+individual attribute still needs clamp, reject, logging, or projection behavior.
+
+Use this with:
+
+- [Add Attributes](/docs/rpg-combat/03-add-attributes)
+- [Derived Max Health and Attack Speed](/docs/rpg-combat/04-derived-max-health-and-attack-speed)
+- [Apply Instant Damage and Healing](/docs/runtime-patterns/apply-instant-damage-and-healing)
+- [Attribute API](/docs/api-reference/attribute)
+- [Derived Attribute API](/docs/api-reference/derived-attribute)

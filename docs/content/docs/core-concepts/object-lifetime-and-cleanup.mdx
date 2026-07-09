@@ -1,0 +1,67 @@
+---
+title: Object Lifetime and Cleanup
+description: Destroy object ids and clean registered object-keyed state.
+---
+
+`ObjectStore` owns live Flexweave object ids. It does not know when an engine
+entity, ECS component set, database row, or network actor should disappear.
+
+```rust
+use flexweave::{ObjectId, ObjectStore};
+
+let mut objects = ObjectStore::new();
+let retained = objects.create();
+let removed = objects.create();
+
+assert_eq!(objects.destroy(removed), Ok(removed));
+assert!(!objects.exists(removed));
+assert_eq!(objects.iter().collect::<Vec<_>>(), vec![retained]);
+assert_eq!(objects.create(), ObjectId::new(3));
+```
+
+When an object leaves the runtime, caller code should decide which stores need
+cleanup:
+
+- attached data stores
+- attribute channels
+- derived attribute tracking caches
+- ability grants and active ability state
+- active effects where the object is source or target
+
+`ObjectDestroy` destroys the id and coordinates cleanup through an
+`ObjectDestructionDriver`. Checked runtime paths then reject the destroyed id.
+
+```rust
+use flexweave::{
+    Attribute, DataStore, DerivedAttribute, ObjectDestroy, ObjectDestructionDriver,
+};
+
+let mut objects = ObjectStore::new();
+let removed = objects.create();
+let retained = objects.create();
+let mut labels = DataStore::new();
+let mut value = Attribute::new();
+let mut derived = DerivedAttribute::new(|_| Some(1.0));
+
+labels.attach(removed, "removed");
+labels.attach(retained, "retained");
+value.attach(removed, 10.0);
+value.attach(retained, 20.0);
+derived.sync(removed);
+derived.sync(retained);
+
+let driver = ObjectDestructionDriver::<()>::new(&mut objects)
+    .with_store(&mut labels)
+    .with_store(&mut value)
+    .with_store(&mut derived);
+
+ObjectDestroy::new(removed).run(driver).unwrap();
+
+assert!(!objects.exists(removed));
+assert_eq!(labels.get(removed), None);
+assert_eq!(value.get(removed), None);
+assert_eq!(derived.count(), 1);
+```
+
+Historical lifecycle facts can remain in retained channels or app logs if the
+consumer runtime wants them.

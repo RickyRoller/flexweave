@@ -1,0 +1,46 @@
+---
+title: Tag
+description: Grouped tag paths, tag sets, and tag queries.
+---
+
+Public exports:
+
+- `Tag<Atom>`
+- `TagSet<Atom>`
+- `TagSetQuery<Atom>`
+- `TagCollection`
+
+`Tag` stores one grouped path of atoms. It supports atom membership, prefix
+matching, and all-atoms-in-one-path checks.
+
+## `Tag<Atom>`
+
+| API             | Behavior                                                 |
+| --------------- | -------------------------------------------------------- |
+| `new`           | Creates a tag from a grouped path of atoms.              |
+| `atoms`         | Returns the atoms in this one grouped path.              |
+| `has_atom`      | Returns whether this path contains an atom.              |
+| `starts_with`   | Returns whether this path starts with a prefix tag.      |
+| `has_all_atoms` | Returns whether all requested atoms appear in this path. |
+
+## `TagSet<Atom>`
+
+`TagSet` stores multiple grouped paths. It supports exact tag matching, prefix
+matching, atom membership, all-atoms-in-one-path checks, and `TagSetQuery`.
+
+| API                      | Behavior                                            |
+| ------------------------ | --------------------------------------------------- |
+| `new`                    | Creates a set from grouped tag paths.               |
+| `items`                  | Returns grouped paths in insertion order.           |
+| `has`                    | Exact path match.                                   |
+| `has_atom`               | Atom membership across any path.                    |
+| `has_prefix`             | Prefix match across any path.                       |
+| `has_tag_with_all_atoms` | All requested atoms must occur in one grouped path. |
+| `matches`                | Evaluates `TagSetQuery` exact-path rules.           |
+
+`TagSetQuery` contains `all`, `any`, and `none` exact-path requirements.
+
+`matches` fails when any `none` tag exists or any `all` tag is absent. It passes
+the `any` clause when `any` is empty or at least one `any` tag exists.
+
+`TagCollection` is the trait consumed by ability and effect stores.

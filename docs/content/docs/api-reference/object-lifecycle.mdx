@@ -1,0 +1,46 @@
+---
+title: Object Lifecycle
+description: Object destruction and object-keyed store cleanup.
+---
+
+Public exports:
+
+- `ObjectLifecycleStore`
+- `ObjectDestructionDriver`
+- `ObjectDestroy`
+
+`ObjectDestroy` destroys a live object id in an `ObjectStore`.
+
+## Types
+
+| Type                          | Purpose                                                     |
+| ----------------------------- | ----------------------------------------------------------- |
+| `ObjectLifecycleStore<Event>` | Trait for stores that remove object-keyed state.            |
+| `ObjectDestructionDriver`     | Coordinates one object store and registered cleanup stores. |
+| `ObjectDestroy`               | Command builder for destroying one object id.               |
+
+## `ObjectDestructionDriver`
+
+| API          | Behavior                                     |
+| ------------ | -------------------------------------------- |
+| `new`        | Creates a driver for one `ObjectStore`.      |
+| `register`   | Adds a cleanup store in cleanup order.       |
+| `with_store` | Adds a cleanup store and returns the driver. |
+
+## `ObjectDestroy`
+
+| API             | Behavior                                     |
+| --------------- | -------------------------------------------- |
+| `new`           | Creates a destroy command for one object id. |
+| `run`           | Destroys the id and returns cleanup events.  |
+| `run_streaming` | Destroys the id and streams cleanup events.  |
+
+`ObjectDestructionDriver` registers stores that should remove object-keyed
+state after destruction succeeds.
+
+Built-in cleanup support includes data stores, attributes, derived attributes,
+ability stores, and effect pipelines. Ability and effect cleanup can emit their
+normal lifecycle facts.
+
+`ObjectDestroy` returns `CoreError::InvalidObjectId` when the id is invalid or
+not live. Store cleanup runs only after object destruction succeeds.

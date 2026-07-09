@@ -1,0 +1,51 @@
+---
+title: 2. Attach Data and Tags
+description: Add faction data, structured tags, and deterministic enemy selection.
+---
+
+Attached data gives objects runtime meaning. Tags give abilities and effects
+structured labels that stores can query.
+
+```rust
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Faction {
+    Player,
+    Enemy,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum CombatTag {
+    Ability,
+    Slash,
+    Effect,
+    Damage,
+    Buff,
+    Cooldown,
+}
+```
+
+A tag is a grouped path, not a flat string:
+
+```rust
+use flexweave::{Tag, TagSet};
+
+let slash = Tag::new([CombatTag::Ability, CombatTag::Slash]);
+let damage = Tag::new([CombatTag::Effect, CombatTag::Damage]);
+
+let tags = TagSet::new([slash, damage]);
+```
+
+Target selection stays caller-owned. Flexweave only preserves object iteration
+order:
+
+```rust
+let targets = flexweave::query::collect_where(&objects, |candidate| {
+    candidate != player
+        && factions.get(candidate).is_some_and(|faction| *faction == Faction::Enemy)
+});
+```
+
+The result is deterministic because `collect_where` walks live object ids in
+store order.
+
+Next: [Add Attributes](/docs/rpg-combat/03-add-attributes).

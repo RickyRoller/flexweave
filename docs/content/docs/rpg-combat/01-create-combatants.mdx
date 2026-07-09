@@ -1,0 +1,39 @@
+---
+title: 1. Create Combatants
+description: Start the RPG runtime with deterministic object ids and attached profile data.
+---
+
+The example starts with the smallest useful runtime: an `ObjectStore` and a
+typed data store for caller-owned profiles.
+
+```rust
+use flexweave::{DataStore, ObjectId, ObjectStore};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CombatProfile {
+    name: &'static str,
+}
+
+let mut objects = ObjectStore::new();
+let mut profiles = DataStore::new();
+
+let player = objects.create();
+profiles.attach(player, CombatProfile { name: "Aria" });
+
+let enemy = objects.create();
+profiles.attach(enemy, CombatProfile { name: "Training Dummy" });
+
+assert_eq!(player, ObjectId::new(1));
+assert_eq!(enemy, ObjectId::new(2));
+```
+
+Flexweave assigns object ids in deterministic creation order. It does not know
+that id `1` is a player or id `2` is an enemy; that meaning comes from the
+attached data.
+
+## In the Example
+
+The compiled fixture wraps this in `CombatState::create_combatant`, attaching a
+profile and faction to each new object.
+
+Next: [Attach Data and Tags](/docs/rpg-combat/02-attach-data-and-tags).

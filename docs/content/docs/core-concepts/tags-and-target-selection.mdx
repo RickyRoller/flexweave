@@ -1,0 +1,76 @@
+---
+title: Tags and Target Selection
+description: Use grouped tag paths and deterministic queries for selection and classification.
+---
+
+Tags are grouped paths. A tag like `kind/active/high-priority` can be matched as
+an exact path, by prefix, or by atom membership.
+
+```rust
+use flexweave::Tag;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Atom {
+    Kind,
+    Active,
+    Priority,
+    High,
+    Archived,
+}
+
+let active_kind = Tag::new([Atom::Kind, Atom::Active]);
+let high_priority = Tag::new([Atom::Priority, Atom::High]);
+
+assert!(high_priority.has_atom(&Atom::Priority));
+assert!(high_priority.starts_with(&Tag::new([Atom::Priority])));
+```
+
+`TagSet` holds multiple grouped paths. This lets one effect carry both broad and
+specific labels:
+
+```rust
+use flexweave::{TagSet, TagSetQuery};
+
+let tags = TagSet::new([
+    active_kind.clone(),
+    high_priority.clone(),
+]);
+
+assert!(tags.has(&active_kind));
+assert!(tags.has_prefix(&Tag::new([Atom::Priority])));
+assert!(tags.has_tag_with_all_atoms([Atom::Priority, Atom::High]));
+
+let query = TagSetQuery {
+    all: vec![active_kind],
+    any: vec![high_priority],
+    none: vec![Tag::new([Atom::Archived])],
+};
+
+assert!(tags.matches(&query));
+```
+
+Target selection remains a caller-owned query over live object ids and attached
+data:
+
+```rust
+use flexweave::{query, DataStore, ObjectStore};
+
+let mut objects = ObjectStore::new();
+let first = objects.create();
+let second = objects.create();
+let third = objects.create();
+
+let mut markers = DataStore::new();
+markers.attach(first, 1_u8);
+markers.attach(second, 2_u8);
+markers.attach(third, 1_u8);
+
+let selected = query::collect_where(&objects, |id| {
+    markers.get(id).is_some_and(|marker| *marker == 1)
+});
+
+assert_eq!(selected, vec![first, third]);
+```
+
+The result order follows the `ObjectStore`, which makes repeated setups produce
+repeatable selections.

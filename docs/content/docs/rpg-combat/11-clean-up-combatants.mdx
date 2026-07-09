@@ -1,0 +1,26 @@
+---
+title: 11. Clean Up Combatants
+description: Destroy objects and remove object-keyed runtime state.
+---
+
+Object ids are Flexweave handles. When an object leaves the runtime, the caller
+decides which object-keyed stores should be cleaned.
+
+The example destroys the enemy through `ObjectDestroy` and registers the stores
+that should remove enemy state:
+
+```rust
+ObjectDestroy::new(enemy).run_streaming(
+    ObjectDestructionDriver::new(&mut objects)
+        .with_store(&mut profiles)
+        .with_store(&mut factions)
+        .with_store(&mut current_health)
+        .with_store(&mut effects),
+    |event| effect_events.push(event),
+)?;
+```
+
+The destruction succeeds only if the object id is live. After cleanup, checked
+runtime paths reject the destroyed id.
+
+Next: [Complete Runtime](/docs/rpg-combat/12-complete-runtime).

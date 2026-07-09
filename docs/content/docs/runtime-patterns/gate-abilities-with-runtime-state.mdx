@@ -1,0 +1,65 @@
+---
+title: Gate Abilities with Runtime State
+description: Block ability activation using cooldown tags, resources, and target checks.
+---
+
+Implement `AbilityActivationGate` when activation depends on runtime state.
+
+The RPG gate checks:
+
+- whether a matching cooldown effect is active
+- whether the owner has enough mana
+- whether the target still exists
+
+Return `AbilityActivationDecision::Block(reason)` for expected gameplay
+failure. Return an error for runtime failures that should be handled
+differently.
+
+Block reasons are caller-owned. They can become command responses, UI messages,
+logs, scripting facts, or network errors after the activation command returns.
+
+The gate should inspect runtime state, not perform the ability's behavior. In
+the RPG runtime, activation is blocked when a cooldown tag is active, mana is
+too low, or the target object has already been destroyed:
+
+```rust
+impl AbilityActivationGate<CombatState, CombatTags, AbilityPayload> for CombatGate {
+    type Error = CombatError;
+    type BlockReason = CombatBlockReason;
+
+    fn can_activate(
+        &mut self,
+        context: &CombatState,
+        attempt: AbilityActivationAttemptView<'_, CombatTags, AbilityPayload>,
+    ) -> Result<AbilityActivationDecision<Self::BlockReason>, Self::Error> {
+        if context
+            .cooldowns
+            .has_tag(attempt.owner_id, &attempt.payload.cooldown_tag())
+        {
+            return Ok(AbilityActivationDecision::Block(CombatBlockReason::OnCooldown));
+        }
+
+        if context.mana(attempt.owner_id) < attempt.payload.mana_cost() {
+            return Ok(AbilityActivationDecision::Block(CombatBlockReason::NotEnoughMana));
+        }
+
+        if let Some(target) = attempt.payload.target()
+            && !context.objects.exists(target)
+        {
+            return Ok(AbilityActivationDecision::Block(CombatBlockReason::InvalidTarget));
+        }
+
+        Ok(AbilityActivationDecision::Allow)
+    }
+}
+```
+
+Keep the returned block reason stable enough for adapters. A UI can translate
+`OnCooldown` into disabled-button state, while a server can translate the same
+reason into a command response.
+
+Use this with:
+
+- [Target and Activate Abilities](/docs/rpg-combat/06-target-and-activate-abilities)
+- [Turn Abilities into Costs, Cooldowns, and Effects](/docs/runtime-patterns/turn-abilities-into-costs-cooldowns-and-effects)
+- [Ability API](/docs/api-reference/ability)

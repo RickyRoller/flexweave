@@ -1,0 +1,20 @@
+---
+title: Deterministic Mechanics
+description: Why ordering guarantees are part of Flexweave's public contract.
+---
+
+Flexweave favors deterministic primitive behavior. Identical primitive inputs
+should produce repeatable object ids, iteration order, query results, lifecycle
+facts, and store-driver ordering.
+
+This matters for tests, simulations, replays, debugging, content validation, and
+server-side command processing. A runtime can compare expected facts against
+actual facts without fighting incidental map ordering.
+
+Determinism does not mean Flexweave controls the whole application. If a
+consumer runtime reads nondeterministic external state, uses unordered
+collections outside Flexweave, or publishes facts to an async system, that
+runtime owns the additional ordering policy.
+
+Use Flexweave's deterministic surfaces as stable building blocks inside a
+larger runtime that may have its own scheduling and concurrency model.

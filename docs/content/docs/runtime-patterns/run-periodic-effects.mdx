@@ -1,0 +1,62 @@
+---
+title: Run Periodic Effects
+description: Use periodic effects for deterministic repeated execution.
+---
+
+Periodic effects have both a duration and a period. Each tick advances the
+effect and executes it once for every elapsed period.
+
+Bleed in the RPG example lasts ten seconds and ticks every five seconds:
+
+```rust
+let bleed = EffectDefinition::periodic("effect/bleed", 10_000, 5_000, "BleedPayload");
+```
+
+Use an `EffectActionExecutor` when periodic execution needs to mutate runtime
+state. Flexweave emits `EffectPeriodicExecuted` facts after successful periodic
+actions.
+
+Periodic execution stops when the effect expires. It does not execute past the
+effect lifetime.
+
+Apply periodic effects with the same `EffectApply` command as instant and
+duration effects. The definition carries both total lifetime and period:
+
+```rust
+let bleed = EffectDefinition::periodic(
+    "effect/bleed",
+    10_000,
+    5_000,
+    "BleedPayload",
+);
+
+EffectApply::definition(
+    &bleed,
+    EffectApplicationInput::accept(
+        Some(player),
+        enemy,
+        tag_set([effect_damage_tag(), effect_bleed_tag()]),
+        EffectPayload::Bleed {
+            damage_per_tick: 6.0,
+        },
+    ),
+)
+.run(&mut effects)?;
+```
+
+When the runtime advances five seconds, the effect executes once. Advancing ten
+seconds total expires the active instance after the final eligible execution.
+
+```rust
+EffectTick::new(5_000).run_with_executor(&mut effects, &mut context, &mut executor)?;
+```
+
+Use periodic effects for deterministic simulation rules. For rendering-only
+loops, project signals or publish lifecycle facts and let the adapter animate at
+its own rate.
+
+Use this with:
+
+- [Advance Time and Expire Effects](/docs/rpg-combat/09-advance-time-and-expire-effects)
+- [Apply Instant Damage and Healing](/docs/runtime-patterns/apply-instant-damage-and-healing)
+- [Effect API](/docs/api-reference/effect)

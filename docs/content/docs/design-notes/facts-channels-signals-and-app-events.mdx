@@ -1,0 +1,22 @@
+---
+title: Facts, Channels, Signals, and App Events
+description: Why Flexweave separates primitive facts from transport and adapters.
+---
+
+Lifecycle facts are primitive mechanics observations. They say that something
+happened inside a Flexweave command or store.
+
+Channels are caller-owned transport and retention. They validate accepted
+payload kinds and optionally retain published facts. They do not automatically
+subscribe to stores.
+
+Signals are projected facts. They are useful when an adapter wants semantic
+categories such as "damage" or "buff-start" without consuming every raw effect
+fact directly.
+
+Application events are outside Flexweave. A game may convert a signal into an
+animation command, sound trigger, network packet, UI toast, telemetry record, or
+script callback.
+
+Keeping the layers separate makes the primitive facts testable and keeps
+adapter policy out of the core crate.

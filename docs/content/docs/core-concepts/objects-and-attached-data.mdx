@@ -1,0 +1,76 @@
+---
+title: Objects and Attached Data
+description: Object ids identify Flexweave objects while data stores give them runtime meaning.
+---
+
+An object is a domain-neutral handle. It can receive data, attributes, tags,
+granted abilities, and active effects, but Flexweave does not assign application
+meaning to it.
+
+`ObjectStore` owns live ids and deterministic iteration order:
+
+```rust
+use flexweave::{ObjectId, ObjectStore};
+
+let mut objects = ObjectStore::new();
+let subject = objects.create();
+let target = objects.create();
+
+assert_eq!(subject, ObjectId::new(1));
+assert_eq!(target, ObjectId::new(2));
+assert!(objects.exists(subject));
+assert_eq!(objects.iter().collect::<Vec<_>>(), vec![subject, target]);
+```
+
+`DataStore<T>` attaches one typed value to an object id:
+
+```rust
+use flexweave::DataStore;
+
+#[derive(Debug, Eq, PartialEq)]
+struct Profile {
+    display_name: String,
+}
+
+let mut profiles = DataStore::new();
+profiles.attach(
+    subject,
+    Profile {
+        display_name: "subject".to_owned(),
+    },
+);
+
+assert_eq!(
+    profiles.get(subject).map(|profile| profile.display_name.as_str()),
+    Some("subject"),
+);
+assert_eq!(profiles.get(target), None);
+```
+
+Use attached data for consumer-owned meaning such as profile data, faction,
+archetype, controller id, authoring key, or engine entity reference.
+
+## Checked Paths
+
+When an `ObjectStore` is available, prefer checked commands for object-reference
+invariants. Examples include checked ability grants and checked effect
+applications.
+
+Use `query::require_object` and `query::require_attached` when an application
+command needs to fail explicitly instead of treating missing state as a normal
+empty result.
+
+```rust
+use flexweave::{query, CoreError};
+
+assert_eq!(query::require_object(&objects, subject), Ok(()));
+assert_eq!(query::require_attached(&profiles, subject).is_ok(), true);
+assert_eq!(
+    query::require_attached(&profiles, target),
+    Err(CoreError::MissingRequiredData),
+);
+```
+
+`DataStore` itself is intentionally small: it records object-keyed values. The
+caller decides when an object must be live, when missing data is acceptable, and
+which checked path should enforce those rules.

@@ -1,0 +1,21 @@
+{
+  "title": "API Reference",
+  "pages": [
+    "index",
+    "identity",
+    "data-store",
+    "query",
+    "attribute",
+    "derived-attribute",
+    "tag",
+    "ability",
+    "effect",
+    "lifecycle",
+    "signal",
+    "clock",
+    "mechanics",
+    "registry",
+    "object-lifecycle",
+    "errors-and-outcomes"
+  ]
+}

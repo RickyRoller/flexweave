@@ -1,0 +1,42 @@
+---
+title: 7. Commit Abilities into Effects
+description: Cross the point of no return and run caller-owned commit behavior.
+---
+
+Commitment is the point where an active ability crosses the caller-defined point
+of no return. Flexweave does not define that as "pay cost" or "start cooldown";
+the runtime decides what commitment does.
+
+In the RPG example, commitment:
+
+- spends mana
+- applies ability-specific cooldown effects
+- turns Slash into an instant damage effect
+- turns Quickened Strikes and Fortify into duration effects
+
+Ability-specific commit behavior lives with the ability, not in one central
+`match` over every ability payload.
+
+```rust
+impl AbilityCommitAction<CombatState, CombatTags, AbilityPayload> for CombatCommit {
+    type Error = CombatError;
+
+    fn apply_commit(
+        &mut self,
+        state: &mut CombatState,
+        active: ActiveAbilityView<'_, CombatTags, AbilityPayload>,
+    ) -> Result<(), Self::Error> {
+        active
+            .payload
+            .commit(state, active.source_id(), active.owner_id)
+    }
+}
+```
+
+For example, `abilities/slash.rs` owns the Slash effect application, while
+`abilities/quickened_strikes.rs` owns the attack-speed buff and cooldown.
+
+If commit fails, Flexweave rolls back active ability state according to the
+ability lifecycle contract.
+
+Next: [Apply Damage and Buffs](/docs/rpg-combat/08-apply-damage-and-buffs).

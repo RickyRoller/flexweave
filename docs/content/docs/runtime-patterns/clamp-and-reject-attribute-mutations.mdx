@@ -1,0 +1,60 @@
+---
+title: Clamp and Reject Attribute Mutations
+description: Enforce runtime policy around attribute changes with mutation hooks.
+---
+
+Use `AttributeMutationHooks` when writes need local policy.
+
+Common policies:
+
+- clamp current health into `0..=max_health`
+- reject mana spends that would go below zero
+- audit committed changes after storage updates
+
+```rust
+let mut hooks = AttributeMutationHooks::<Bounds, &'static str>::new();
+hooks.add_pre_hook(|mutation| {
+    AttributeMutationDecision::Transform(
+        mutation.current.clamp(mutation.context.minimum, mutation.context.maximum),
+    )
+});
+```
+
+Pre-hooks run before the value is committed. Listeners observe committed
+changes. Post-hooks run after listeners. If the final value is unchanged,
+Flexweave does not emit an attribute-change fact.
+
+If the runtime already knows the final value, use the command surface directly.
+The RPG example clamps damage at zero before writing current health:
+
+```rust
+let current = context
+    .current_health
+    .borrow()
+    .get(execution.target_id)
+    .ok_or(CombatError::Runtime)?;
+
+AttributeSet::new(execution.target_id, (current - damage).max(0.0))
+    .run_streaming(&mut context.current_health.borrow_mut(), |change| {
+        attribute_events.borrow_mut().push(change);
+    });
+```
+
+Use hooks when the same policy should surround many writes. Use explicit command
+logic when the policy is local to one action and reads action-specific context.
+For example:
+
+- A global health hook can clamp every health write to `0..=max_health`.
+- A mana spend command can reject a spend before it reaches `AttributeSet`.
+- A damage action can clamp only the value it is about to write.
+
+Keep resource policy in caller code. Flexweave reports the mutation, preserves
+ordering, and lets hooks transform or reject, but it does not decide what
+"alive", "dead", "overheal", or "insufficient mana" means.
+
+Use this with:
+
+- [Apply Damage and Buffs](/docs/rpg-combat/08-apply-damage-and-buffs)
+- [Model Health, Mana, and Resources](/docs/runtime-patterns/model-health-mana-and-resources)
+- [Attribute API](/docs/api-reference/attribute)
+- [Errors and Outcomes](/docs/api-reference/errors-and-outcomes)

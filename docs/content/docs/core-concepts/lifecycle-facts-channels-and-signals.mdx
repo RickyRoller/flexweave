@@ -1,0 +1,95 @@
+---
+title: Lifecycle Facts, Channels, and Signals
+description: Understand raw facts, caller-owned transport, and projected adapter facts.
+---
+
+Flexweave operations emit lifecycle facts. These are mechanics-level facts such
+as attribute changes, ability attempts, effect execution, effect advancement,
+and expiration.
+
+`EventChannel` is a small caller-owned transport and retention primitive. It
+validates event kinds, optionally retains events, and notifies listeners. Stores
+do not publish into channels automatically.
+
+```rust
+use flexweave::{
+    AttributeChange, EventChannel, EventChannelDefinition, EventRetention,
+    LifecycleEventKind, ObjectId,
+};
+
+let definition = EventChannelDefinition::new(
+    "attributes/changes",
+    [LifecycleEventKind::AttributeChanged],
+)
+.unwrap();
+let mut channel = EventChannel::with_retention(definition, EventRetention::Retain);
+
+channel
+    .publish(AttributeChange {
+        id: ObjectId::new(1),
+        previous: Some(1.0),
+        requested: 2.0,
+        current: 2.0,
+    })
+    .unwrap();
+
+assert_eq!(channel.drain_retained().len(), 1);
+```
+
+`SignalProjection` derives `SignalFact` values from effect lifecycle facts.
+Signals are useful when a UI, audio system, scripting layer, analytics sink, or
+network adapter wants a stable exported fact shape.
+
+```rust
+use flexweave::{
+    EffectExecution, EffectLifecycleEvent, SignalDefinition, SignalDefinitions,
+    SignalExportPolicy, SignalKind, SignalProjection, SignalRetentionPolicy,
+    SignalTagMatch, Tag, TagSet,
+};
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum Atom {
+    Impact,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Payload {
+    Impact,
+}
+
+let definitions = SignalDefinitions::new([SignalDefinition {
+    key: "impact".to_owned(),
+    signal_kind: SignalKind::Executed,
+    lifecycle_event_kinds: vec![LifecycleEventKind::EffectExecuted],
+    tag_match: SignalTagMatch::Any,
+    payload_schema: "impact.v1".to_owned(),
+    signal_payload: "adapter payload",
+    channel_key: "signals/effects".to_owned(),
+    category: "effects".to_owned(),
+    retention: SignalRetentionPolicy::Retain,
+    export: SignalExportPolicy::Export,
+    debug_label: "Impact".to_owned(),
+    description: "Projected effect execution".to_owned(),
+}])
+.unwrap();
+let projection = SignalProjection::new(definitions);
+let event = EffectLifecycleEvent::Executed(EffectExecution {
+    active_effect_id: None,
+    definition_key: Some("effects/impact".to_owned()),
+    source_id: None,
+    target_id: ObjectId::new(2),
+    tags: TagSet::new([Tag::new([Atom::Impact])]),
+    payload: Payload::Impact,
+    elapsed_units: None,
+});
+
+let facts = projection.project_effect_event(&event);
+assert_eq!(facts[0].key, "impact");
+```
+
+The layers are distinct:
+
+- lifecycle facts describe primitive mechanics
+- channels transport facts when caller code publishes them
+- signals project facts into adapter-oriented categories
+- application events are whatever the consumer runtime builds from those facts

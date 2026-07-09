@@ -1,0 +1,121 @@
+---
+title: Abilities and Commitment
+description: Ability lifecycle separates grants, activation checks, commitment, and cleanup.
+---
+
+An ability grant is runtime state owned by `AbilityStore`. It has an owner,
+tags, an optional definition key, and a caller-owned payload.
+
+```rust
+use flexweave::{
+    AbilityGrant, AbilityId, AbilityStore, Grant, ObjectId, Tag, TagSet,
+};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Atom {
+    Ability,
+    Action,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Payload {
+    amount: u8,
+}
+
+let owner = ObjectId::new(1);
+let mut abilities = AbilityStore::<TagSet<Atom>, Payload>::new();
+let ability_id = AbilityGrant::new(Grant::new(
+    owner,
+    TagSet::new([Tag::new([Atom::Ability, Atom::Action])]),
+    Payload { amount: 3 },
+))
+.run(&mut abilities)
+.unwrap();
+
+assert_eq!(ability_id, AbilityId::new(1));
+assert_eq!(abilities.get(ability_id).unwrap().owner_id, owner);
+```
+
+Activation starts a lifecycle:
+
+1. Resolve the granted ability.
+2. Emit an attempted fact.
+3. Ask the caller-owned gate whether activation is allowed.
+4. Start active activation state or emit a rejection.
+
+```rust
+use flexweave::{
+    AbilityActivation, AbilityActivationDecision, AbilityActivationGate,
+    AbilityGateExecutor,
+};
+
+struct Runtime {
+    enabled: bool,
+}
+
+struct Gate;
+
+impl AbilityActivationGate<Runtime, TagSet<Atom>, Payload> for Gate {
+    type Error = ();
+    type BlockReason = &'static str;
+
+    fn can_activate(
+        &mut self,
+        context: &Runtime,
+        _attempt: flexweave::AbilityActivationAttemptView<'_, TagSet<Atom>, Payload>,
+    ) -> Result<AbilityActivationDecision<Self::BlockReason>, Self::Error> {
+        if context.enabled {
+            Ok(AbilityActivationDecision::Allow)
+        } else {
+            Ok(AbilityActivationDecision::Block("disabled"))
+        }
+    }
+}
+
+let runtime = Runtime { enabled: true };
+let mut gate = Gate;
+let mut gate_executor = AbilityGateExecutor::new(&mut gate);
+let activation_id = AbilityActivation::new(ability_id)
+    .run_with_executor(&mut abilities, &runtime, &mut gate_executor)
+    .unwrap();
+```
+
+Commitment is a separate command. It marks the active ability as committed and
+runs caller-owned commit behavior.
+
+```rust
+use flexweave::{
+    AbilityCommit, AbilityCommitAction, AbilityCommitActionExecutor, AbilityEnd,
+    ActiveAbilityView,
+};
+
+struct CommitAction;
+
+impl AbilityCommitAction<Runtime, TagSet<Atom>, Payload> for CommitAction {
+    type Error = ();
+
+    fn apply_commit(
+        &mut self,
+        context: &mut Runtime,
+        active: ActiveAbilityView<'_, TagSet<Atom>, Payload>,
+    ) -> Result<(), Self::Error> {
+        context.enabled = active.payload.amount > 0;
+        Ok(())
+    }
+}
+
+let mut runtime = Runtime { enabled: true };
+let mut commit = CommitAction;
+let mut commit_executor = AbilityCommitActionExecutor::new(&mut commit);
+
+AbilityCommit::new(activation_id)
+    .run_with_executor(&mut abilities, &mut runtime, &mut commit_executor)
+    .unwrap();
+AbilityEnd::new(activation_id).run(&mut abilities).unwrap();
+```
+
+Commitment is not synonymous with cost payment or cooldown start. It is the
+point of no return chosen by the consumer runtime.
+
+After commitment, a runtime can end the activation normally. It can also cancel,
+roll back, or revoke active ability state through explicit commands.

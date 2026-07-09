@@ -1,0 +1,35 @@
+---
+title: 3. Add Attributes
+description: Store current health, mana, and base stats as primitive numeric channels.
+---
+
+Attributes are signed numeric channels attached to objects. They are good for
+runtime state that should be stored directly.
+
+The RPG example uses stored attributes for:
+
+- current health
+- mana
+- base vitality
+- base attack speed
+
+```rust
+use flexweave::{Attribute, AttributeSet};
+
+let mut current_health = Attribute::new();
+let mut mana = Attribute::new();
+
+current_health.attach(player, 100.0);
+mana.attach(player, 30.0);
+
+let result = AttributeSet::new(player, 25.0).run(&mut mana);
+```
+
+`AttributeSet` returns an explicit mutation result. A caller can distinguish a
+committed change from an unchanged value or a rejected mutation.
+
+The compiled example records attribute changes when Slash, Bleed, and mana
+spends mutate stored attributes.
+
+Next:
+[Derive Max Health and Attack Speed](/docs/rpg-combat/04-derived-max-health-and-attack-speed).

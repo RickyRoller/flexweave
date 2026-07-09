@@ -1,0 +1,38 @@
+---
+title: 4. Derive Max Health and Attack Speed
+description: Calculate derived stats from base attributes and active effects.
+---
+
+Current health is stored because it is mutable combat state. Max health is
+derived because buffs can change the limit without rewriting the current-health
+channel.
+
+The example derives max health from base vitality plus active max-health
+effects:
+
+```rust
+let max_health = DerivedAttribute::new(move |id| {
+    let base = base_vitality.borrow().get(id)?;
+    let mut bonus = 0.0;
+
+    effects.borrow().visit_target(id, |effect| {
+        if let EffectPayload::MaxHealthBonus { amount } = effect.payload {
+            bonus += amount;
+        }
+    });
+
+    Some(base + bonus)
+});
+```
+
+Attack speed uses the same pattern, reading base attack speed and active
+attack-speed buffs.
+
+After effects are applied or expire, the runtime refreshes the derived
+attribute:
+
+```rust
+DerivedAttributeRefresh::new(player).run(&mut max_health);
+```
+
+Next: [Grant Player Abilities](/docs/rpg-combat/05-grant-player-abilities).

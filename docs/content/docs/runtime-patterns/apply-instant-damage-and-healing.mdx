@@ -1,0 +1,61 @@
+---
+title: Apply Instant Damage and Healing
+description: Use instant effects with execution actions for one-shot attribute changes.
+---
+
+An instant effect emits application-accepted, runs the caller-owned execution
+action, then emits executed if the action succeeds.
+
+Use this for one-shot work such as:
+
+- damage
+- healing
+- immediate resource spend
+- immediate shield restoration
+
+```rust
+let mut executor = EffectActionExecutor::new(&mut apply_damage);
+EffectApply::definition(&damage_definition, input)
+    .run_with_executor(&mut effects, &mut context, &mut executor)?;
+```
+
+If the action fails, the executed fact is suppressed and the error is returned
+through `EffectApplyError::Execution`.
+
+The action receives the active execution view and caller-owned context. In a
+larger runtime, keep attribute policy behind a consumer-owned wrapper and let
+the effect action call that wrapper:
+
+```rust
+fn apply_effect_payload(
+    context: &mut EffectActionContext,
+    execution: EffectExecutionView<'_, CombatTags, EffectPayload>,
+) -> Result<(), CombatError> {
+    let damage = match *execution.payload {
+        EffectPayload::Damage { amount } => amount,
+        EffectPayload::Bleed { damage_per_tick } => damage_per_tick,
+        EffectPayload::AttackSpeedBonus { .. }
+        | EffectPayload::MaxHealthBonus { .. }
+        | EffectPayload::Cooldown => return Ok(()),
+    };
+
+    context
+        .attributes
+        .apply_damage(execution.target_id, damage);
+    Ok(())
+}
+```
+
+Use instant effects when the effect itself is the event boundary. Use direct
+attribute commands when no effect lifecycle needs to be observed. For example,
+basic regeneration might be a direct `AttributeSet`, while a combat hit should
+usually be an effect so UI, analytics, scripting, and combat logs can all
+observe the same lifecycle facts.
+
+Use this with:
+
+- [Apply Damage and Buffs](/docs/rpg-combat/08-apply-damage-and-buffs)
+- [Model Health, Mana, and Resources](/docs/runtime-patterns/model-health-mana-and-resources)
+- [Publish Lifecycle Facts](/docs/runtime-patterns/publish-lifecycle-facts)
+- [Effect API](/docs/api-reference/effect)
+- [Attribute API](/docs/api-reference/attribute)

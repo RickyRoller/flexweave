@@ -1,0 +1,60 @@
+---
+title: Errors and Outcomes
+description: Primitive errors, command errors, and explicit command outcomes.
+---
+
+Public primitive error:
+
+- `CoreError`
+
+## `CoreError`
+
+| Variant                 | Meaning                                         |
+| ----------------------- | ----------------------------------------------- |
+| `MissingRequiredData`   | A required attached data value was absent.      |
+| `InvalidObjectId`       | An object id was invalid or not live.           |
+| `ObjectIdAlreadyExists` | External object id registration collided.       |
+| `OutOfMemory`           | Reserved primitive allocation failure category. |
+
+Common definition errors:
+
+- ability definition and registry errors
+- effect definition and registry errors
+- event channel definition errors
+- signal definition errors
+
+Runtime command errors include activation, grant, commit, effect application,
+effect initialization, effect execution, lifecycle channel, and object-id
+failures.
+
+## Definition Errors
+
+| Surface   | Error types                                                |
+| --------- | ---------------------------------------------------------- |
+| Ability   | `AbilityDefinitionError`, `AbilityDefinitionRegistryError` |
+| Effect    | `EffectDefinitionError`, `EffectDefinitionRegistryError`   |
+| Lifecycle | `EventChannelDefinitionError`                              |
+| Signal    | `SignalDefinitionError`                                    |
+
+## Runtime Errors
+
+| Surface   | Error types                                                                                                                                                                             |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ability   | `AbilityBeginError`, `AbilityActivationError`, `AbilityGrantError`, `AbilityCommitError`, `AbilityEndError`, `AbilityRollbackError`, `AbilityError`, `RegisteredAbilityActivationError` |
+| Effect    | `EffectApplicationError`, `EffectApplyError`                                                                                                                                            |
+| Lifecycle | `EventChannelError`                                                                                                                                                                     |
+| Identity  | `CoreError`                                                                                                                                                                             |
+
+Command outcomes let callers distinguish successful command shapes without
+inspecting lifecycle facts. Examples include committed ability outcomes,
+ended/canceled/rollback outcomes, and effect application outcomes.
+
+## Command Outcomes
+
+| Surface | Outcome types                                                                                 |
+| ------- | --------------------------------------------------------------------------------------------- |
+| Ability | `AbilityCommitOutcome`, `AbilityEndOutcome`, `AbilityCancelOutcome`, `AbilityRollbackOutcome` |
+| Effect  | `EffectApplyOutcome`                                                                          |
+
+Use command results for control flow. Use emitted facts for observation,
+adapters, logs, tests, or projections.

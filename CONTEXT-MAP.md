@@ -18,6 +18,6 @@ only the context files that match the area you are touching.
 
 ## ADRs
 
-- `docs/adr/` contains product-wide decisions.
+- `project-docs/adr/` contains product-wide decisions.
 - Context-local ADRs may be added near the affected surface when a decision is
   difficult to reverse and needs permanent rationale.

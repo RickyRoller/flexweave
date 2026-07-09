@@ -1,0 +1,51 @@
+---
+title: Mechanics
+description: Mechanics store registration and ticking.
+---
+
+Public exports:
+
+- `MechanicsStore`
+- `MechanicsDriver`
+- `MechanicsTick`
+
+`MechanicsDriver` registers stores that can advance over clock units.
+
+## `MechanicsStore<Event>`
+
+`MechanicsStore` is implemented by stores that can advance for one elapsed tick
+and emit lifecycle facts.
+
+The built-in implementation covers `EffectPipeline` for:
+
+- `EffectLifecycleEvent<Tags, Payload>`
+- `LocalLifecycleEvent<Tags, Payload>`
+
+## `MechanicsDriver`
+
+| API          | Behavior                                  |
+| ------------ | ----------------------------------------- |
+| `new`        | Creates an empty driver.                  |
+| `register`   | Registers a store in tick order.          |
+| `with_store` | Registers a store and returns the driver. |
+
+Stores tick in registration order.
+
+## `MechanicsTick`
+
+`MechanicsTick` runs those stores in registration order and returns or streams
+emitted lifecycle facts.
+
+| API             | Behavior                                                 |
+| --------------- | -------------------------------------------------------- |
+| `new`           | Creates a tick from explicit elapsed units.              |
+| `from_clock`    | Converts a caller-owned clock step into elapsed units.   |
+| `run`           | Advances stores and returns emitted facts in order.      |
+| `run_streaming` | Advances stores and streams emitted facts to a callback. |
+
+Use this when a runtime wants one tick command to advance multiple effect
+pipelines or mechanics stores.
+
+Zero elapsed units emit no events.
+
+Mechanics ticks do not project signals or publish channels automatically.

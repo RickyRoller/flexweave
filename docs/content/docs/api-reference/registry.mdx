@@ -1,0 +1,42 @@
+---
+title: Registry
+description: Borrowed key lookup for caller-owned definitions.
+---
+
+Public exports:
+
+- `RegistryEntry`
+- `DefinitionRegistryEntry`
+- `Registry`
+
+`RegistryEntry` exposes a stable string key.
+
+`DefinitionRegistryEntry` builds the runtime definition associated with an
+entry.
+
+## Traits
+
+| Trait                     | Required API         | Purpose                            |
+| ------------------------- | -------------------- | ---------------------------------- |
+| `RegistryEntry`           | `key(&self) -> &str` | Stable key lookup.                 |
+| `DefinitionRegistryEntry` | `build_definition`   | Materializes a runtime definition. |
+
+## `Registry<'a, Entry>`
+
+`Registry` borrows an ordered slice of entries and supports predicate lookup,
+key lookup, and definition building.
+
+| API          | Behavior                                                       |
+| ------------ | -------------------------------------------------------------- |
+| `new`        | Borrows a caller-ordered slice.                                |
+| `entries`    | Returns the borrowed entries in caller-owned order.            |
+| `lookup`     | Finds the first entry accepted by a predicate.                 |
+| `lookup_key` | Finds the first `RegistryEntry` with a matching key.           |
+| `definition` | Builds a definition from a matching `DefinitionRegistryEntry`. |
+
+Use it when your content layer has richer authored records than the primitive
+definition structs.
+
+`Registry` does not validate duplicate keys. If uniqueness is required, enforce
+that in the content layer or use the dedicated definition collections such as
+`AbilityDefinitions` and `EffectDefinitions`.

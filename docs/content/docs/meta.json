@@ -1,0 +1,12 @@
+{
+  "title": "Flexweave",
+  "pages": [
+    "index",
+    "getting-started",
+    "rpg-combat",
+    "core-concepts",
+    "runtime-patterns",
+    "design-notes",
+    "api-reference"
+  ]
+}

@@ -1,0 +1,39 @@
+---
+title: Ability
+description: Ability definitions, grants, activation, commitment, lifecycle facts, and errors.
+---
+
+## Public Exports
+
+| Group            | Exports                                                                                                                                                                                                              |
+| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Ids              | `AbilityId`, `AbilityActivationId`                                                                                                                                                                                   |
+| Definitions      | `AbilityDefinition`, `AbilityDefinitions`, `AbilityDefinitionError`, `AbilityDefinitionRegistryError`                                                                                                                |
+| Store State      | `AbilityStore`, `Grant`, `GrantedAbility`, `RevokedOwnerAbilities`, `ActiveAbility`, `ActiveAbilityView`                                                                                                             |
+| Commands         | `AbilityGrant`, `AbilityActivation`, `AbilityCommit`, `AbilityEnd`, `AbilityCancel`, `AbilityRollback`, `AbilityRevokeOwner`                                                                                         |
+| Activation Hooks | `AbilityActivationGate`, `AbilityActivationDecision`, `AbilityActivationExecutor`, `AbilityGateExecutor`, `AllowActivation`, `NoAbilityActivationExecutor`                                                           |
+| Commit Hooks     | `AbilityCommitAction`, `AbilityCommitExecutor`, `AbilityCommitActionExecutor`, `NoCommitAction`, `NoAbilityCommitExecutor`                                                                                           |
+| Lifecycle Sinks  | `AbilityLifecycleSink`, `DiscardAbilityLifecycleEvents`, `OwnedAbilityLifecycleEvents`                                                                                                                               |
+| Lifecycle Facts  | `AbilityActivationAttempt`, `AbilityActivationAttemptView`, `AbilityActivationRejection`, `AbilityActivationRejectionView`, `AbilityActivationRejectionReason`, `AbilityLifecycleEvent`, `AbilityLifecycleEventView` |
+| Runtime Errors   | `AbilityBeginError`, `AbilityActivationError`, `RegisteredAbilityActivationError`, `AbilityGrantError`, `AbilityCommitError`, `AbilityEndError`, `AbilityRollbackError`, `AbilityError`                              |
+| Command Outcomes | `AbilityCommitOutcome`, `AbilityEndOutcome`, `AbilityCancelOutcome`, `AbilityRollbackOutcome`                                                                                                                        |
+
+Use checked grant and owner activation paths when an `ObjectStore` is available.
+Lifecycle facts are emitted through executor sinks; stores do not publish them
+to channels automatically.
+
+## Lifecycle Shape
+
+Activation emits attempted and then either started or rejected facts. Commit
+emits committed facts after caller-owned commit behavior succeeds. End, cancel,
+rollback, and revoke remove active state through separate commands so runtimes
+can distinguish normal completion from cleanup or failure.
+
+## Checked Paths
+
+Use `AbilityGrant::checked` to reject invalid owners before a grant enters the
+store. Use `AbilityActivation::for_owner` to reject owner mismatches before a
+gate runs.
+
+Registered definition paths validate definition keys without causing automatic
+orchestration. Caller code still owns content loading and runtime behavior.

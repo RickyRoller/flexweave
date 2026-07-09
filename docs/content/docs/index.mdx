@@ -1,0 +1,41 @@
+---
+title: Flexweave
+description: A book-style guide to deterministic mechanics primitives for Rust runtimes.
+---
+
+Flexweave is a domain-agnostic Rust crate for reusable mechanics building
+blocks. It owns deterministic primitive state and lifecycle shape while caller
+code owns game meaning, authored content, runtime behavior, and deployment.
+
+This site is organized as a progressive guide. Start with the boundary model,
+then build a complete RPG combat runtime, then use the concept and pattern
+chapters to adapt the primitives to your own application.
+
+## The Reader Path
+
+1. [Getting Started](/docs/getting-started/what-is-flexweave) explains what
+   Flexweave provides and where it stops.
+2. [Building an RPG Combat Runtime](/docs/rpg-combat/01-create-combatants)
+   walks through a cohesive example with a player, enemies, attributes,
+   abilities, effects, buffs, lifecycle events, signals, and cleanup.
+3. [Core Concepts](/docs/core-concepts/objects-and-attached-data) explains the
+   primitives behind the example.
+4. [Runtime Patterns](/docs/runtime-patterns/model-health-mana-and-resources)
+   shows focused integration recipes for consumer apps.
+5. [Design Notes](/docs/design-notes/deterministic-mechanics) explains the
+   library boundaries and tradeoffs.
+6. [API Reference](/docs/api-reference) is separate from the guide and covers
+   the public library surface.
+
+## Main Example
+
+The RPG combat chapters are backed by a compile-checked example in the Flexweave
+crate:
+
+```bash
+cargo run -p flexweave --example rpg_combat
+```
+
+The example is intentionally caller-owned code. Flexweave does not know what a
+player, enemy, slash, buff, cooldown, or combat log means. It supplies the
+primitive mechanics shape that the consumer runtime composes.

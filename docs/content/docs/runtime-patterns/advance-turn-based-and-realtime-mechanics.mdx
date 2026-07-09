@@ -1,0 +1,56 @@
+---
+title: Advance Turn-Based and Realtime Mechanics
+description: Connect Flexweave ticking to your runtime loop.
+---
+
+For turn-based systems, choose a simple unit convention and tick directly:
+
+```rust
+EffectTick::new(1).run(&mut effects);
+```
+
+For realtime systems, convert elapsed duration into clock units with
+`RealtimeClock` or accumulate fractional frames with `RealtimeClockAccumulator`.
+
+For multiple stores, register them in a `MechanicsDriver` and run one
+`MechanicsTick`. Events are emitted in store registration order.
+
+Zero elapsed units emit no advancement or periodic execution facts.
+
+The RPG example keeps the public API simple: callers pass elapsed clock units
+and the state ticks every effect-like store that uses those units.
+
+```rust
+fn tick_effects(&mut self, elapsed_units: u64) {
+    EffectTick::new(elapsed_units)
+        .run_with_executor(&mut self.effects.borrow_mut(), &mut action_context, &mut executor)?;
+
+    EffectTick::new(elapsed_units).run(&mut self.cooldowns)?;
+}
+```
+
+This keeps buff expiration, bleed ticks, and cooldown timers aligned without
+making Flexweave own the game loop. A turn-based game might call this once per
+turn with `1`. A realtime game might convert wall-clock duration into
+milliseconds, simulation ticks, or any other caller-defined unit.
+
+If multiple primitive stores need to advance together, register them in a
+driver and tick through `MechanicsTick`:
+
+```rust
+let mut driver = MechanicsDriver::new();
+driver.register(&mut effects);
+driver.register(&mut cooldowns);
+MechanicsTick::new(elapsed_units).run(&mut driver)?;
+```
+
+Choose one unit convention at the runtime boundary and keep authored durations
+in that same unit. That makes tests and content review easier because a
+ten-second buff is visibly `10_000` only when your convention is milliseconds.
+
+Use this with:
+
+- [Advance Time and Expire Effects](/docs/rpg-combat/09-advance-time-and-expire-effects)
+- [Run Periodic Effects](/docs/runtime-patterns/run-periodic-effects)
+- [Clock API](/docs/api-reference/clock)
+- [Mechanics API](/docs/api-reference/mechanics)

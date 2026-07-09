@@ -1,0 +1,23 @@
+---
+title: Tags as Structured Labels
+description: Why tags are grouped paths instead of only flat flags.
+---
+
+Flat labels are easy to start with, but mechanics often need both broad and
+specific matching.
+
+Grouped tag paths support that:
+
+- `ability/slash`
+- `effect/damage`
+- `effect/buff`
+- `effect/buff/attack-speed`
+- `effect/cooldown/quickened-strikes`
+
+A runtime can ask for an exact tag, a prefix, a single atom, or a query with
+all/any/none path groups.
+
+The grouped path matters. A set containing `effect/buff/attack-speed` is not the
+same as a set containing separate `effect` and `attack-speed` paths. That lets
+consumer code model meaningful hierarchy without giving Flexweave a global tag
+taxonomy.

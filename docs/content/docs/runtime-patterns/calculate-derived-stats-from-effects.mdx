@@ -1,0 +1,63 @@
+---
+title: Calculate Derived Stats from Effects
+description: Visit active effects to compute max health, attack speed, and other runtime values.
+---
+
+Effect-backed derived stats follow the same pattern:
+
+1. Store the base value in an `Attribute`.
+2. Apply active effects with typed payloads.
+3. In the derived calculator, visit active effects for the target.
+4. Refresh the derived attribute after effect application, removal, or
+   expiration.
+
+```rust
+effects.visit_target(player, |effect| {
+    if let EffectPayload::AttackSpeedBonus { amount } = effect.payload {
+        bonus += amount;
+    }
+});
+```
+
+This keeps effect semantics in the consumer runtime. Flexweave does not need to
+know that one payload affects attack speed and another affects max health.
+
+The same structure can power multiple derived attributes. The RPG runtime keeps
+base attack speed stored, then computes effective attack speed from active
+buffs:
+
+```rust
+let attack_speed = {
+    let base_attack_speed = Rc::clone(&base_attack_speed);
+    let effects = Rc::clone(&effects);
+    DerivedAttribute::new(move |id| {
+        let base = base_attack_speed.borrow().get(id)?;
+        let mut bonus = 0.0;
+        effects.borrow().visit_target(id, |effect| {
+            if let EffectPayload::AttackSpeedBonus { amount } = effect.payload {
+                bonus += amount;
+            }
+        });
+        Some(base + bonus)
+    })
+};
+```
+
+Refresh derived attributes after the runtime changes the inputs they read:
+
+```rust
+DerivedAttributeRefresh::new(player).run_streaming(&mut attack_speed, |change| {
+    derived_events.borrow_mut().push(change);
+});
+```
+
+Derived attributes should be pure reads over existing runtime state. That keeps
+the refresh predictable and makes expiration easy: tick effects, refresh the
+derived values, then emit or adapt the resulting changes.
+
+Use this with:
+
+- [Derived Max Health and Attack Speed](/docs/rpg-combat/04-derived-max-health-and-attack-speed)
+- [Run Temporary Buffs and Debuffs](/docs/runtime-patterns/run-temporary-buffs-and-debuffs)
+- [Derived Attribute API](/docs/api-reference/derived-attribute)
+- [Effect API](/docs/api-reference/effect)

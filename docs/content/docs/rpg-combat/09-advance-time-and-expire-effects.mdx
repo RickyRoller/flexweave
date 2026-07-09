@@ -1,0 +1,25 @@
+---
+title: 9. Advance Time and Expire Effects
+description: Tick active effects, execute periodic effects, and refresh derived stats.
+---
+
+Effects advance in caller-defined clock units. The RPG example treats ten
+seconds as `10_000` units.
+
+```rust
+use flexweave::EffectTick;
+
+EffectTick::new(5_000).run_with_executor(&mut effects, &mut context, &mut executor)?;
+```
+
+Ticking duration effects emits advancement facts and expires effects whose
+remaining lifetime reaches zero. Ticking periodic effects also executes them
+when their period elapses.
+
+In the demo:
+
+- Bleed executes once after `5_000` units and deals `6` damage.
+- Quickened Strikes expires after `10_000` units.
+- Attack speed returns from `1.5` to `1.0` after derived attributes refresh.
+
+Next: [Publish Combat Events](/docs/rpg-combat/10-publish-combat-events).

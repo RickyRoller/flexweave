@@ -7,7 +7,7 @@ the implementation and documentation.
 ## Organization
 
 ```text
-docs/models/
+project-docs/models/
 |-- README.md
 `-- <core-system>/
     |-- README.md
@@ -27,5 +27,5 @@ implementation notes, and open questions.
 Render a model after editing it:
 
 ```bash
-d2 docs/models/<core-system>/<diagram>.d2 docs/models/<core-system>/<diagram>.svg
+d2 project-docs/models/<core-system>/<diagram>.d2 project-docs/models/<core-system>/<diagram>.svg
 ```

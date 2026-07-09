@@ -1,0 +1,52 @@
+---
+title: Clock
+description: Caller-defined clock units and runtime time conversion helpers.
+---
+
+Public exports:
+
+- `ClockUnits`
+- `Clock`
+- `FixedStepClock`
+- `RealtimeClock`
+- `RealtimeClockAccumulator`
+
+`ClockUnits` is `u64`. Flexweave does not assign real-world meaning to units.
+
+## `Clock`
+
+`Clock` converts caller-owned steps into `ClockUnits` through `units_for`.
+
+| Type                       | Step type  | Behavior                                              |
+| -------------------------- | ---------- | ----------------------------------------------------- |
+| `FixedStepClock`           | `u64`      | Multiplies step count by configured units per step.   |
+| `RealtimeClock`            | `Duration` | Converts elapsed realtime into whole units.           |
+| `RealtimeClockAccumulator` | `Duration` | Converts realtime and preserves fractional remainder. |
+
+## `FixedStepClock`
+
+| API              | Behavior                                     |
+| ---------------- | -------------------------------------------- |
+| `new`            | Creates a fixed-step clock.                  |
+| `units_per_step` | Returns configured units per step.           |
+| `units_for`      | Saturating multiplication of step and scale. |
+
+## `RealtimeClock`
+
+`FixedStepClock` returns a fixed number of units for each step.
+
+`RealtimeClock` converts `Duration` values to units based on the caller's scale.
+The conversion is stateless and floors fractional units for each call.
+
+`RealtimeClockAccumulator` accumulates fractional realtime progress across
+frames so repeated sub-unit deltas eventually advance mechanics.
+
+| API                             | Behavior                                                |
+| ------------------------------- | ------------------------------------------------------- |
+| `RealtimeClock::new`            | Creates a stateless realtime clock.                     |
+| `units_per_second`              | Returns configured scale.                               |
+| `RealtimeClockAccumulator::new` | Creates an accumulator from units per second.           |
+| `from_clock`                    | Creates an accumulator from an existing realtime clock. |
+| `clock`                         | Returns the underlying realtime clock.                  |
+| `advance`                       | Returns whole units and retains fractional remainder.   |
+| `reset`                         | Drops retained fractional remainder.                    |

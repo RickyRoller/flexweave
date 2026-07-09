@@ -1,0 +1,33 @@
+---
+title: 6. Target and Activate Abilities
+description: Use activation gates to check cooldowns, mana, and target validity.
+---
+
+Activation starts an ability lifecycle. It does not spend mana or apply effects
+by itself.
+
+The RPG example uses an activation gate to inspect runtime state:
+
+```rust
+impl AbilityActivationGate<CombatState, CombatTags, AbilityPayload> for CombatGate {
+    type Error = CombatError;
+    type BlockReason = CombatBlockReason;
+
+    fn can_activate(&mut self, state: &CombatState, attempt: AbilityActivationAttemptView<'_, CombatTags, AbilityPayload>)
+        -> Result<AbilityActivationDecision<Self::BlockReason>, Self::Error>
+    {
+        if state.mana(attempt.owner_id) < attempt.payload.mana_cost() {
+            return Ok(AbilityActivationDecision::Block(CombatBlockReason::NotEnoughMana));
+        }
+
+        Ok(AbilityActivationDecision::Allow)
+    }
+}
+```
+
+When the gate allows the attempt, Flexweave stores active activation state and
+emits attempted/started facts. When the gate blocks it, the store does not gain
+active state and the runtime receives attempted/rejected facts.
+
+Next:
+[Commit Abilities into Effects](/docs/rpg-combat/07-commit-abilities-into-effects).

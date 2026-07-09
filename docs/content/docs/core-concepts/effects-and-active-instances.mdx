@@ -1,0 +1,85 @@
+---
+title: Effects and Active Instances
+description: Effects model instant execution, active runtime state, ticking, and expiration.
+---
+
+Effects are runtime applications of caller-owned payloads. Flexweave provides
+the lifecycle shape; the payload and action semantics belong to the consumer.
+
+Effect kinds:
+
+- `Instant`: executes immediately and does not create active state.
+- `Duration`: creates active state with remaining units.
+- `Periodic`: creates active state and executes at deterministic intervals.
+- `Indefinite`: creates active state without a fixed duration.
+
+```rust
+use flexweave::{
+    ActiveEffectId, EffectApplicationInput, EffectApply, EffectDefinition,
+    EffectPipeline, ObjectId, Tag, TagSet,
+};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Atom {
+    Effect,
+    Temporary,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Payload {
+    Marker,
+}
+
+let target = ObjectId::new(2);
+let mut effects = EffectPipeline::<TagSet<Atom>, Payload>::new();
+let definition = EffectDefinition::duration("temporary-marker", 100, ());
+
+let active_id = EffectApply::definition(
+    &definition,
+    EffectApplicationInput::accept(
+        None,
+        target,
+        TagSet::new([Tag::new([Atom::Effect, Atom::Temporary])]),
+        Payload::Marker,
+    ),
+)
+.run(&mut effects)
+.unwrap()
+.active_effect_id()
+.unwrap();
+
+assert_eq!(active_id, ActiveEffectId::new(1));
+assert_eq!(effects.count(), 1);
+```
+
+Active effect instances can be visited by target. Derived attributes use that
+to calculate values from currently active state.
+
+```rust
+let mut active = Vec::new();
+effects.visit_target(target, |effect| {
+    active.push((effect.id, effect.remaining_units));
+});
+
+assert_eq!(active, vec![(ActiveEffectId::new(1), Some(100))]);
+```
+
+`EffectTick` advances active effects. Duration effects expire when their
+remaining units reach zero.
+
+```rust
+use flexweave::EffectTick;
+
+EffectTick::new(40).run(&mut effects);
+assert_eq!(
+    effects.get(active_id).map(|effect| effect.remaining_units),
+    Some(Some(60)),
+);
+
+EffectTick::new(60).run(&mut effects);
+assert_eq!(effects.get(active_id), None);
+assert_eq!(effects.count(), 0);
+```
+
+For instant or periodic effects that need to mutate caller-owned state, run the
+apply or tick command with an `EffectActionExecutor`.

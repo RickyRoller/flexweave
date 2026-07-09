@@ -32,7 +32,7 @@ facts or signals.
 - `core/tests/signals.rs`
 - `core/tests/object_destruction.rs`
 - `core/README.md`
-- `docs/how-to/use-flexweave.md`
+- `docs/content/docs/how-to/use-flexweave.mdx`
 
 ## Model Files
 

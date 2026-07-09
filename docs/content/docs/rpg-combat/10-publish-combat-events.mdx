@@ -1,0 +1,30 @@
+---
+title: 10. Publish Combat Events
+description: Route lifecycle facts through caller-owned channels and project signals.
+---
+
+Flexweave operations emit lifecycle facts through callbacks. They do not
+discover channels or publish automatically.
+
+The example keeps effect facts, then publishes them to a retained channel:
+
+```rust
+let definition = EventChannelDefinition::new(
+    "combat/effects",
+    [
+        LifecycleEventKind::EffectApplicationAccepted,
+        LifecycleEventKind::EffectActiveCreated,
+        LifecycleEventKind::EffectExecuted,
+    ],
+)?;
+
+let mut channel = EventChannel::with_retention(definition, EventRetention::Retain);
+```
+
+Signals are also explicit. The runtime creates `SignalDefinitions`, projects
+effect facts through `SignalProjection`, then hands the resulting facts to the
+adapter layer it owns.
+
+In the demo, projected signal keys include `damage` and `buff-start`.
+
+Next: [Clean Up Combatants](/docs/rpg-combat/11-clean-up-combatants).

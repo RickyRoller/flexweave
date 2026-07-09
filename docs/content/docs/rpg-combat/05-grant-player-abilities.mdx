@@ -1,0 +1,36 @@
+---
+title: 5. Grant Player Abilities
+description: Register authored ability definitions and grant runtime abilities to the player.
+---
+
+Ability definitions are authoring/runtime metadata. Grants are runtime state
+owned by `AbilityStore`.
+
+The example defines three abilities:
+
+- Slash: targets the enemy and applies instant damage.
+- Quickened Strikes: buffs the player attack speed for ten seconds.
+- Fortify: buffs the player max health for ten seconds.
+
+```rust
+use flexweave::{AbilityDefinition, AbilityDefinitions};
+
+let definitions = AbilityDefinitions::new([
+    AbilityDefinition::new("ability/slash", "SlashPayload"),
+    AbilityDefinition::new("ability/quickened-strikes", "QuickenedPayload"),
+    AbilityDefinition::new("ability/fortify", "FortifyPayload"),
+])?;
+```
+
+Granting attaches one payload and tag set to the owner:
+
+```rust
+let ability_id = AbilityGrant::registered(&definitions, "ability/slash", grant)
+    .checked(&objects)
+    .run(&mut abilities)?;
+```
+
+The checked path rejects invalid owner ids before the grant enters the store.
+
+Next:
+[Target and Activate Abilities](/docs/rpg-combat/06-target-and-activate-abilities).

@@ -1,20 +1,28 @@
 {
   "name": "flexweave",
   "private": true,
+  "workspaces": [
+    "docs"
+  ],
   "type": "module",
   "scripts": {
-    "build": "bun run build:core",
+    "build": "bun run build:core && bun run build:docs",
     "build:core": "cargo build -p flexweave",
-    "check": "ultracite check && bun run check:core",
+    "build:docs": "bun run --cwd docs build",
+    "check": "ultracite check && bun run check:core && bun run check:docs",
     "check:core": "bun run check:core:fmt && bun run check:core:lint",
     "check:core:fmt": "cargo fmt -p flexweave -- --check",
     "check:core:lint": "cargo clippy -p flexweave --all-targets -- -D warnings",
+    "check:docs": "bun run --cwd docs check",
     "docs:core": "cargo doc -p flexweave --no-deps",
+    "docs:dev": "bun run --cwd docs dev",
     "fix": "ultracite fix",
+    "start:docs": "bun run --cwd docs start",
     "test": "bun run test:core",
     "test:core": "cargo test -p flexweave",
-    "verify": "bun run verify:core",
-    "verify:core": "bun run check:core && bun run test:core && bun run build:core && bun run docs:core"
+    "verify": "bun run verify:core && bun run verify:docs",
+    "verify:core": "bun run check:core && bun run test:core && bun run build:core && bun run docs:core",
+    "verify:docs": "bun run check:docs && bun run build:docs"
   },
   "devDependencies": {
     "oxfmt": "^0.55.0",

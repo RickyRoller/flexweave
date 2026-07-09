@@ -1,0 +1,55 @@
+---
+title: API Reference
+description: Public Flexweave API surfaces, separate from the guide chapters.
+---
+
+This section is the API map. It is intentionally separate from the book-style
+guide so users can look up public surfaces without walking through the RPG
+example.
+
+## Surfaces
+
+- [Identity](/docs/api-reference/identity)
+- [Data Store](/docs/api-reference/data-store)
+- [Query](/docs/api-reference/query)
+- [Attribute](/docs/api-reference/attribute)
+- [Derived Attribute](/docs/api-reference/derived-attribute)
+- [Tag](/docs/api-reference/tag)
+- [Ability](/docs/api-reference/ability)
+- [Effect](/docs/api-reference/effect)
+- [Lifecycle](/docs/api-reference/lifecycle)
+- [Signal](/docs/api-reference/signal)
+- [Clock](/docs/api-reference/clock)
+- [Mechanics](/docs/api-reference/mechanics)
+- [Registry](/docs/api-reference/registry)
+- [Object Lifecycle](/docs/api-reference/object-lifecycle)
+- [Errors and Outcomes](/docs/api-reference/errors-and-outcomes)
+
+For Rustdoc output, run:
+
+```bash
+bun run docs:core
+```
+
+## Public Re-Export Coverage
+
+The API Reference is organized around the public re-exports from
+`core/src/lib.rs`.
+
+| Page                | Public exports                                                                  |
+| ------------------- | ------------------------------------------------------------------------------- |
+| Identity            | `ObjectId`, `ObjectStore`, `INVALID_OBJECT_ID`                                  |
+| Data Store          | `DataStore`                                                                     |
+| Query               | `query::require_object`, `query::require_attached`, `query::collect_where`      |
+| Attribute           | `Attribute`, `AttributeSet`, `AttributeValue`, mutation and change types        |
+| Derived Attribute   | `DerivedAttribute`, `DerivedAttributeRefresh`, `DerivedChange`                  |
+| Tag                 | `Tag`, `TagSet`, `TagSetQuery`, `TagCollection`                                 |
+| Ability             | all ability ids, definitions, stores, commands, executors, events, and errors   |
+| Effect              | all effect ids, definitions, applications, executors, pipelines, events, errors |
+| Lifecycle           | event kinds, event trait, channels, channel definitions, connections, errors    |
+| Signal              | signal definitions, policies, facts, projection, removal reasons, errors        |
+| Clock               | `ClockUnits`, `Clock`, fixed-step and realtime clock helpers                    |
+| Mechanics           | `MechanicsStore`, `MechanicsDriver`, `MechanicsTick`                            |
+| Registry            | `RegistryEntry`, `DefinitionRegistryEntry`, `Registry`                          |
+| Object Lifecycle    | `ObjectLifecycleStore`, `ObjectDestructionDriver`, `ObjectDestroy`              |
+| Errors and Outcomes | `CoreError` plus command outcome and error enums from ability/effect surfaces   |

@@ -1,0 +1,63 @@
+---
+title: Run Temporary Buffs and Debuffs
+description: Use duration effects for finite runtime modifiers.
+---
+
+Duration effects create active instances with remaining clock units. They are a
+good fit for buffs, debuffs, cooldowns, temporary immunities, and temporary
+state flags.
+
+In the RPG example:
+
+- Quickened Strikes is a ten-second attack-speed buff.
+- Fortify is a ten-second max-health buff.
+- Cooldowns are ten-second effects tagged by ability.
+
+Derived attributes inspect active buff effects rather than letting the effect
+pipeline mutate stats directly. When a buff expires, refresh the relevant
+derived attributes.
+
+Apply temporary stat modifiers as duration effects:
+
+```rust
+EffectApply::definition(
+    &EffectDefinition::duration(
+        "effect/quickened-strikes",
+        TEN_SECONDS,
+        "AttackSpeedBuffPayload",
+    ),
+    EffectApplicationInput::accept(
+        Some(active.source_id()),
+        active.owner_id,
+        tag_set([effect_buff_tag(), effect_attack_speed_tag()]),
+        EffectPayload::AttackSpeedBonus {
+            amount: attack_speed_bonus,
+        },
+    ),
+)
+.run(&mut effects)?;
+```
+
+The effect payload describes what the buff means to your runtime. The tags make
+the active instance discoverable by broad categories such as all buffs, all
+attack-speed modifiers, or all effects from a particular ability.
+
+After ticking the effect pipeline, refresh any derived values that read active
+buffs:
+
+```rust
+EffectTick::new(10_000).run(&mut effects)?;
+DerivedAttributeRefresh::new(player).run(&mut attack_speed);
+```
+
+Do not make the duration effect mutate the stat on apply and then try to undo
+the mutation on expiration. That approach makes stacking, cancellation,
+cleanup, save/load, and reconnect flows harder. Let active effect state be the
+source for derived calculations instead.
+
+Use this with:
+
+- [Derived Max Health and Attack Speed](/docs/rpg-combat/04-derived-max-health-and-attack-speed)
+- [Advance Time and Expire Effects](/docs/rpg-combat/09-advance-time-and-expire-effects)
+- [Calculate Derived Stats from Effects](/docs/runtime-patterns/calculate-derived-stats-from-effects)
+- [Effect API](/docs/api-reference/effect)

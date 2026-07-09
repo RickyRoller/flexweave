@@ -1,0 +1,43 @@
+---
+title: Install and Verify
+description: Add Flexweave to a Rust runtime and verify the local workspace.
+---
+
+Add Flexweave as a dependency from the published crate once a release is
+available:
+
+```toml
+[dependencies]
+flexweave = "0.0.0"
+```
+
+Inside this workspace, verify the crate directly:
+
+```bash
+cargo test -p flexweave
+cargo run -p flexweave --example rpg_combat
+```
+
+The documentation site is verified separately:
+
+```bash
+bun run check:docs
+bun run build:docs
+```
+
+## First Import
+
+Most runtimes start with object identity and attached data:
+
+```rust
+use flexweave::{DataStore, ObjectId, ObjectStore};
+
+let mut objects = ObjectStore::new();
+let player: ObjectId = objects.create();
+
+let mut names = DataStore::new();
+names.attach(player, "Aria");
+```
+
+The next page explains why this ordinary Rust code stays in your runtime rather
+than being hidden behind a Flexweave framework object.

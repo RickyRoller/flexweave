@@ -29,7 +29,7 @@ application derived from an ability.
 - `core/src/lifecycle/kind.rs`
 - `core/tests/abilities.rs`
 - `core/README.md`
-- `docs/how-to/use-flexweave.md`
+- `docs/content/docs/how-to/use-flexweave.mdx`
 
 ## Model Files
 

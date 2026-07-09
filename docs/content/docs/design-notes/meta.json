@@ -1,0 +1,12 @@
+{
+  "title": "Design Notes",
+  "pages": [
+    "deterministic-mechanics",
+    "product-boundaries",
+    "stored-vs-derived-state",
+    "ability-effect-lifecycle-boundaries",
+    "facts-channels-signals-and-app-events",
+    "tags-as-structured-labels",
+    "content-authoring-vs-runtime-definitions"
+  ]
+}

@@ -1,0 +1,92 @@
+---
+title: Clocks and Mechanics Ticks
+description: Caller-defined clock units advance effect lifetimes and mechanics stores.
+---
+
+Flexweave uses opaque `ClockUnits`. The runtime decides whether one unit means a
+millisecond, a frame, a turn, or some simulation step.
+
+```rust
+use flexweave::{Clock, FixedStepClock, RealtimeClock};
+use std::time::Duration;
+
+let turns = FixedStepClock::new(1);
+assert_eq!(turns.units_for(3), 3);
+
+let milliseconds = RealtimeClock::new(1000);
+assert_eq!(milliseconds.units_for(Duration::from_millis(250)), 250);
+```
+
+Use `EffectTick` when you are advancing one effect pipeline directly.
+
+```rust
+use flexweave::{
+    EffectApplicationInput, EffectApply, EffectDefinition, EffectPipeline, EffectTick,
+    ObjectId, Tag, TagSet,
+};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Atom {
+    Timer,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct Payload;
+
+let target = ObjectId::new(1);
+let mut effects = EffectPipeline::<TagSet<Atom>, Payload>::new();
+
+EffectApply::definition(
+    &EffectDefinition::duration("temporary", 10, ()),
+    EffectApplicationInput::accept(
+        None,
+        target,
+        TagSet::new([Tag::new([Atom::Timer])]),
+        Payload,
+    ),
+)
+.run(&mut effects)
+.unwrap();
+
+EffectTick::new(1).run(&mut effects);
+```
+
+Use `MechanicsTick` with `MechanicsDriver` when you want to advance multiple
+registered mechanics stores in deterministic registration order.
+
+```rust
+use flexweave::{
+    EffectLifecycleEvent, EffectPipeline, MechanicsDriver, MechanicsTick,
+};
+
+let mut primary_effects = EffectPipeline::<TagSet<Atom>, Payload>::new();
+let mut secondary_effects = EffectPipeline::<TagSet<Atom>, Payload>::new();
+
+let events = MechanicsTick::new(100).run(
+    MechanicsDriver::<EffectLifecycleEvent<TagSet<Atom>, Payload>>::new()
+        .with_store(&mut primary_effects)
+        .with_store(&mut secondary_effects),
+);
+
+assert_eq!(events.len(), 2);
+```
+
+Clock helpers convert runtime time into units:
+
+- `FixedStepClock` for fixed units per step
+- `RealtimeClock` for duration-to-unit conversion
+- `RealtimeClockAccumulator` for sub-unit realtime frame accumulation
+
+Use `RealtimeClockAccumulator` when repeated realtime deltas may be smaller
+than one mechanics unit.
+
+```rust
+use flexweave::RealtimeClockAccumulator;
+
+let mut accumulator = RealtimeClockAccumulator::new(60);
+let first = accumulator.advance(Duration::from_millis(8));
+let second = accumulator.advance(Duration::from_millis(9));
+
+assert_eq!(first, 0);
+assert_eq!(second, 1);
+```

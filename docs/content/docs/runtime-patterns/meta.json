@@ -1,0 +1,17 @@
+{
+  "title": "Runtime Patterns",
+  "pages": [
+    "model-health-mana-and-resources",
+    "clamp-and-reject-attribute-mutations",
+    "calculate-derived-stats-from-effects",
+    "gate-abilities-with-runtime-state",
+    "turn-abilities-into-costs-cooldowns-and-effects",
+    "apply-instant-damage-and-healing",
+    "run-temporary-buffs-and-debuffs",
+    "run-periodic-effects",
+    "advance-turn-based-and-realtime-mechanics",
+    "publish-lifecycle-facts",
+    "project-signals-for-adapters",
+    "organize-runtime-definition-bundles"
+  ]
+}

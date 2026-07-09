@@ -1,0 +1,53 @@
+---
+title: Identity
+description: Object ids and deterministic object storage.
+---
+
+Public exports:
+
+- `ObjectId`
+- `ObjectStore`
+- `INVALID_OBJECT_ID`
+
+## `ObjectId`
+
+`ObjectId` is a typed numeric handle. It identifies Flexweave objects only.
+
+| API                    | Behavior                                        |
+| ---------------------- | ----------------------------------------------- |
+| `ObjectId::INVALID`    | Reserved sentinel with value `0`.               |
+| `ObjectId::new`        | Wraps a `u64` as an object id.                  |
+| `ObjectId::get`        | Returns the underlying wire/storage value.      |
+| `ObjectId::is_invalid` | Returns true for the reserved invalid sentinel. |
+| `From<u64>`            | Converts a raw value into an `ObjectId`.        |
+| `From<ObjectId>`       | Converts an `ObjectId` back to `u64`.           |
+| `Display`              | Formats the underlying numeric value.           |
+
+`INVALID_OBJECT_ID` is the public sentinel constant. Generated ids start at
+`1`, so generated ids never equal the invalid sentinel.
+
+## `ObjectStore`
+
+`ObjectStore` creates, registers, destroys, checks, counts, and iterates live
+object ids. Generated ids are allocated in deterministic order. Explicit ids
+can be registered with `create_with_id`, which advances later generated ids.
+
+| API              | Behavior                                                            |
+| ---------------- | ------------------------------------------------------------------- |
+| `new`            | Creates an empty store with generated ids starting at `1`.          |
+| `create`         | Allocates the next generated id and appends it to iteration order.  |
+| `create_with_id` | Registers an external id in iteration order and advances `next_id`. |
+| `destroy`        | Removes a live id without reusing it.                               |
+| `exists`         | Returns whether an id is live and not invalid.                      |
+| `iter`           | Iterates live ids in creation/registration order.                   |
+| `count`          | Returns the number of live ids.                                     |
+| `is_empty`       | Returns whether no live ids exist.                                  |
+
+## Errors
+
+Invalid object ids return `CoreError::InvalidObjectId`. Duplicate explicit ids
+return `CoreError::ObjectIdAlreadyExists`.
+
+Destroying an id removes only the id from `ObjectStore`. Use
+[Object Lifecycle](/docs/api-reference/object-lifecycle) when other object-keyed
+stores should be cleaned at the same time.

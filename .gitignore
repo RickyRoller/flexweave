@@ -2,4 +2,8 @@ node_modules
 dist
 target
 .DS_Store
-
+docs/.output
+docs/.source
+docs/.tanstack
+docs/.vinxi
+docs/node_modules

@@ -1,0 +1,32 @@
+---
+title: 8. Apply Damage and Buffs
+description: Use instant effects for damage and duration effects for buffs.
+---
+
+The example uses effect payloads to carry caller-owned meaning:
+
+```rust
+enum EffectPayload {
+    Damage { amount: f64 },
+    AttackSpeedBonus { amount: f64 },
+    MaxHealthBonus { amount: f64 },
+    Bleed { damage_per_tick: f64 },
+    Cooldown,
+}
+```
+
+Slash applies an instant effect. The effect action mutates current health and
+only then emits an executed fact.
+
+Quickened Strikes and Fortify apply duration effects. They do not directly
+mutate attack speed or max health. Instead, the derived attribute calculators
+read active effect instances and compute the current values.
+
+In the compiled demo:
+
+- enemy health falls from `80` to `68`
+- attack speed rises from `1.0` to `1.5`
+- max health rises from `100` to `125`
+
+Next:
+[Advance Time and Expire Effects](/docs/rpg-combat/09-advance-time-and-expire-effects).

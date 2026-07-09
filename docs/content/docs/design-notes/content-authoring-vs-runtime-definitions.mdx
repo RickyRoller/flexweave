@@ -1,0 +1,18 @@
+---
+title: Content Authoring vs Runtime Definitions
+description: Flexweave validates active definitions but does not own content packs.
+---
+
+Authored content usually lives outside the mechanics primitive crate: TOML,
+JSON, RON, editor assets, database rows, scripting files, or Rust constants.
+
+Flexweave deals with active runtime definitions. The consumer app decides which
+authored abilities, effects, channels, and signals are relevant to a runtime
+scope, builds an in-memory bundle, and validates it.
+
+This lets a server load one definition bundle for a zone, a test load a tiny
+fixture bundle, and an editor preview load only the content being inspected.
+
+Definitions are not orchestration. A channel key on an effect definition is
+metadata and a validation hint. Caller code still wires publication to the
+actual channel, bus, or adapter.

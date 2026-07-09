@@ -1,0 +1,103 @@
+---
+title: Attributes and Derived Attributes
+description: Store mutable numeric channels and calculate values that depend on runtime state.
+---
+
+An `Attribute` stores a signed numeric value for each object. It is appropriate
+for state that should be directly mutated: current health, mana, shield, base
+stats, threat, or score.
+
+```rust
+use flexweave::{Attribute, AttributeMutationResult, AttributeSet, ObjectStore};
+
+let mut objects = ObjectStore::new();
+let subject = objects.create();
+let mut value = Attribute::new();
+
+value.attach(subject, 5.0);
+assert_eq!(value.get(subject), Some(5.0));
+
+let result = AttributeSet::new(subject, 8.0).run(&mut value);
+assert!(matches!(result, AttributeMutationResult::Committed(_)));
+assert_eq!(value.get(subject), Some(8.0));
+```
+
+`AttributeSet` reports what happened:
+
+- `Committed` means the stored value changed.
+- `Unchanged` means the final value matched the stored value.
+- `Rejected` means a mutation hook blocked the write.
+
+Mutation hooks give the caller a policy layer around writes:
+
+```rust
+use flexweave::{
+    AttributeMutationDecision, AttributeMutationHooks, AttributeMutationRequest,
+};
+
+#[derive(Clone, Copy)]
+struct Bounds {
+    minimum: f64,
+    maximum: f64,
+}
+
+let mut hooks = AttributeMutationHooks::<Bounds, &'static str>::new();
+hooks.add_pre_hook(|mutation| {
+    AttributeMutationDecision::Transform(
+        mutation
+            .current
+            .clamp(mutation.context.minimum, mutation.context.maximum),
+    )
+});
+
+let bounds = Bounds {
+    minimum: 0.0,
+    maximum: 10.0,
+};
+let result = AttributeSet::request(AttributeMutationRequest {
+    id: subject,
+    requested: 15.0,
+})
+.with_hooks(&bounds, &mut hooks)
+.run(&mut value);
+
+assert!(matches!(result, AttributeMutationResult::Committed(_)));
+assert_eq!(value.get(subject), Some(10.0));
+```
+
+`DerivedAttribute` calculates a value from caller-owned runtime state. It is
+appropriate when the value depends on other stores, active effects, equipment,
+tags, or local policy.
+
+```rust
+use flexweave::{DataStore, DerivedAttribute, DerivedAttributeRefresh};
+use std::cell::RefCell;
+use std::rc::Rc;
+
+let base = Rc::new(RefCell::new(Attribute::new()));
+let bonuses = Rc::new(RefCell::new(DataStore::<f64>::new()));
+
+base.borrow_mut().attach(subject, 100.0);
+bonuses.borrow_mut().attach(subject, 25.0);
+
+let base_for_calc = Rc::clone(&base);
+let bonuses_for_calc = Rc::clone(&bonuses);
+let mut total = DerivedAttribute::new(move |id| {
+    let base_value = base_for_calc.borrow().get(id)?;
+    let bonus = bonuses_for_calc
+        .borrow()
+        .get(id)
+        .copied()
+        .unwrap_or(0.0);
+    Some(base_value + bonus)
+});
+
+assert_eq!(total.sync(subject), Some(125.0));
+
+bonuses.borrow_mut().attach(subject, 40.0);
+assert_eq!(DerivedAttributeRefresh::new(subject).run(&mut total), Some(140.0));
+```
+
+Derived attributes do not automatically refresh. The runtime calls
+`DerivedAttributeRefresh` after relevant state changes and chooses how to react
+to changes.

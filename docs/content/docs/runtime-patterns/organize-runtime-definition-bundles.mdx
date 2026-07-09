@@ -1,0 +1,77 @@
+---
+title: Organize Runtime Definition Bundles
+description: Compose ability, effect, signal, and channel definitions per runtime scope.
+---
+
+Do not assume one global mechanics catalog. Most runtimes have useful scopes:
+
+- match
+- battle
+- zone
+- encounter
+- editor preview
+- simulation test
+
+Build definition bundles for the active scope, validate them, and pass them to
+runtime commands that need lookup.
+
+Bundle contents often include:
+
+- `AbilityDefinitions`
+- `EffectDefinitions`
+- `SignalDefinitions`
+- `EventChannelDefinitions`
+- caller-owned `Registry` values for richer authored records
+
+The bundle is regular application state. Flexweave validates shape and gives
+stable lookup surfaces; it does not load, own, or persist content packs.
+
+In the RPG runtime, ability definitions, effect definitions, and signal
+definitions are initialized with the combat state:
+
+```rust
+let ability_definitions = AbilityDefinitions::new([
+    AbilityDefinition::new("ability/slash", "SlashPayload"),
+    AbilityDefinition::new("ability/quickened-strikes", "QuickenedStrikesPayload"),
+    AbilityDefinition::new("ability/fortify", "FortifyPayload"),
+])?;
+
+let effect_definitions = EffectDefinitions::new([
+    EffectDefinition::instant("effect/slash-damage", "DamagePayload"),
+    EffectDefinition::duration(
+        "effect/quickened-strikes",
+        TEN_SECONDS,
+        "AttackSpeedBuffPayload",
+    ),
+    EffectDefinition::duration("effect/fortify", TEN_SECONDS, "MaxHealthBuffPayload"),
+    EffectDefinition::duration("effect/cooldown", TEN_SECONDS, "CooldownPayload"),
+    EffectDefinition::periodic("effect/bleed", 10_000, 5_000, "BleedPayload"),
+])?;
+```
+
+The authored identifiers are stable enough for saved content, editor tools, and
+test fixtures. The payload values remain typed runtime data:
+
+```rust
+AbilityPayload::new(QuickenedStrikes {
+    attack_speed_bonus: 0.5,
+    duration_units: TEN_SECONDS,
+    mana_cost: 5.0,
+})
+```
+
+The example keeps each ability's payload type, grant helper, and commit behavior
+in that ability's file. The central bundle knows the authored keys; the ability
+file owns what those keys do at runtime.
+
+Use one bundle per runtime scope unless you have a concrete reason to split it.
+A battle can have one definition bundle for combat content, while a larger app
+can still keep separate bundles for inventory, dialogue, or editor preview.
+
+Use this with:
+
+- [Grant Player Abilities](/docs/rpg-combat/05-grant-player-abilities)
+- [Complete Runtime](/docs/rpg-combat/12-complete-runtime)
+- [Registry API](/docs/api-reference/registry)
+- [Ability API](/docs/api-reference/ability)
+- [Effect API](/docs/api-reference/effect)

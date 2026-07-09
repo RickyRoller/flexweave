@@ -1,0 +1,64 @@
+---
+title: Project Signals for Adapters
+description: Convert lifecycle facts into UI, audio, scripting, network, or analytics facts.
+---
+
+Signals are projected facts. They are useful when an adapter needs stable
+semantic categories without owning the whole primitive lifecycle vocabulary.
+
+The workflow is explicit:
+
+1. Build `SignalDefinitions`.
+2. Validate channel metadata if needed.
+3. Create a `SignalProjection`.
+4. Project effect lifecycle facts.
+5. Publish or hand the resulting `SignalFact` values to the adapter.
+
+While-active signals are reinvoked from active effect instances. They require
+`LifecycleEventKind::SignalReinvoked` in the signal definition.
+
+Signals are a good place to decouple primitive fact names from consumer
+interfaces. The RPG runtime defines `damage`, `buff-start`, and `buff-ended`
+signals, then projects matching effect lifecycle events:
+
+```rust
+let projection = SignalProjection::new(signal_definitions.clone());
+let mut keys = Vec::new();
+
+for event in effect_events.iter() {
+    for fact in projection.project_effect_event(event) {
+        keys.push(fact.key);
+    }
+}
+```
+
+A signal definition can match event kinds and tags:
+
+```rust
+SignalDefinition {
+    key: "damage".to_owned(),
+    signal_kind: SignalKind::Executed,
+    lifecycle_event_kinds: vec![
+        LifecycleEventKind::EffectExecuted,
+        LifecycleEventKind::EffectPeriodicExecuted,
+    ],
+    tag_match: SignalTagMatch::Query(TagSetQuery {
+        all: vec![effect_damage_tag()],
+        any: Vec::new(),
+        none: Vec::new(),
+    }),
+    channel_key: "combat/signals".to_owned(),
+    // payload and metadata omitted
+}
+```
+
+Adapters should depend on signal keys and payload metadata, not on every
+primitive lifecycle event. That lets the mechanics runtime change internal
+effect structure without forcing every UI, audio, analytics, or networking
+consumer to change at the same time.
+
+Use this with:
+
+- [Publish Combat Events](/docs/rpg-combat/10-publish-combat-events)
+- [Publish Lifecycle Facts](/docs/runtime-patterns/publish-lifecycle-facts)
+- [Signal API](/docs/api-reference/signal)

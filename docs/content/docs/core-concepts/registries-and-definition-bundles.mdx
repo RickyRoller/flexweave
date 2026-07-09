@@ -1,0 +1,88 @@
+---
+title: Registries and Definition Bundles
+description: Validate active runtime definitions without making Flexweave own authored content.
+---
+
+Definitions describe authorable mechanics data that is active in a runtime
+scope. Flexweave includes definition collections for abilities, effects,
+signals, and event channels.
+
+```rust
+use flexweave::{AbilityDefinition, AbilityDefinitions, EffectDefinition, EffectDefinitions};
+
+let abilities = AbilityDefinitions::new([
+    AbilityDefinition::new("ability/primary", "PrimaryPayload"),
+    AbilityDefinition::new("ability/secondary", "SecondaryPayload"),
+])
+.unwrap();
+
+let effects = EffectDefinitions::new([
+    EffectDefinition::instant("effect/instant", "InstantPayload"),
+    EffectDefinition::duration("effect/temporary", 100, "TemporaryPayload"),
+])
+.unwrap();
+
+assert!(abilities.get("ability/primary").is_some());
+assert!(effects.get("effect/temporary").is_some());
+```
+
+The crate does not load content packs or decide which authored content belongs
+in a zone, battle, match, or editor preview. Consumer code builds the in-memory
+definition bundle and asks Flexweave to validate it.
+
+The generic `Registry` helper works with caller-owned entries that implement
+`RegistryEntry` and `DefinitionRegistryEntry`. Use it when your content layer
+has richer authoring structs but runtime operations need stable key lookup.
+
+```rust
+use flexweave::{DefinitionRegistryEntry, Registry, RegistryEntry};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct AuthoredRecord {
+    key: &'static str,
+    amount: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RuntimeDefinition {
+    amount: u8,
+}
+
+impl RegistryEntry for AuthoredRecord {
+    fn key(&self) -> &str {
+        self.key
+    }
+}
+
+impl DefinitionRegistryEntry for AuthoredRecord {
+    type Definition = RuntimeDefinition;
+
+    fn build_definition(&self) -> Self::Definition {
+        RuntimeDefinition {
+            amount: self.amount,
+        }
+    }
+}
+
+static RECORDS: &[AuthoredRecord] = &[
+    AuthoredRecord {
+        key: "small",
+        amount: 1,
+    },
+    AuthoredRecord {
+        key: "large",
+        amount: 5,
+    },
+];
+
+let registry = Registry::new(RECORDS);
+assert_eq!(registry.lookup_key("large").unwrap().amount, 5);
+assert_eq!(
+    registry.definition("small"),
+    Some(RuntimeDefinition { amount: 1 }),
+);
+```
+
+Keep definition bundles scoped to the runtime that needs them. A server combat
+session can carry only the abilities, effects, channels, and signals required
+for that session.

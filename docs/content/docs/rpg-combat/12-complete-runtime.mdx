@@ -1,0 +1,31 @@
+---
+title: 12. Complete Runtime
+description: Review the full RPG combat flow as one composed system.
+---
+
+The completed example is in the crate:
+
+```bash
+cargo run -p flexweave --example rpg_combat
+```
+
+The flow proves the full line through the guide:
+
+1. Create player and enemy objects.
+2. Attach profile and faction data.
+3. Store current health, mana, and base stats.
+4. Derive max health and attack speed from base stats plus active effects.
+5. Grant player abilities.
+6. Gate activation with cooldowns, mana, and target checks.
+7. Commit abilities into costs, cooldowns, and effects.
+8. Apply instant damage and duration buffs.
+9. Tick time, execute Bleed, and expire buffs.
+10. Publish lifecycle facts and project signals.
+11. Destroy the enemy and clean object-keyed stores.
+
+The example is not a framework you must copy. It is one ordinary Rust runtime
+that composes Flexweave primitives at the boundary where application meaning
+belongs.
+
+Continue with [Core Concepts](/docs/core-concepts/objects-and-attached-data)
+for a slower explanation of each primitive.

@@ -1,0 +1,193 @@
+---
+title: Turn Abilities into Costs, Cooldowns, and Effects
+description: Use commit actions to connect ability lifecycle to runtime behavior.
+---
+
+Use `AbilityCommitAction` for the behavior that happens after activation is
+allowed and the ability reaches its point of no return.
+
+Typical commit work:
+
+- spend a resource
+- create a cooldown effect
+- apply combat effects
+- write application logs
+- emit lightweight app events that adapters can map to animation or scripting
+  commands
+
+If commit behavior can fail, return an error. Flexweave will return a commit
+error and preserve the lifecycle contract instead of forcing the runtime to
+inspect emitted facts.
+
+Keep commit behavior narrow. Long-running animation, networking, or UI work
+should be triggered by facts or app events outside the primitive command.
+
+In the RPG runtime, commit is the point where gameplay state changes. Slash
+spends mana and applies an instant damage effect. Quickened Strikes spends mana,
+starts a cooldown, and applies a ten-second attack-speed buff. Fortify does the
+same shape with a max-health buff.
+
+The root commit action stays small. It only delegates to the behavior stored in
+the granted ability payload:
+
+```rust
+impl AbilityCommitAction<CombatState, CombatTags, AbilityPayload> for CombatCommit {
+    type Error = CombatError;
+
+    fn apply_commit(
+        &mut self,
+        context: &mut CombatState,
+        active: ActiveAbilityView<'_, CombatTags, AbilityPayload>,
+    ) -> Result<(), Self::Error> {
+        active
+            .payload
+            .commit(context, active.source_id(), active.owner_id)
+    }
+}
+```
+
+The payload wrapper handles shared cost payment and then calls the per-ability
+behavior:
+
+```rust
+impl AbilityPayload {
+    fn commit(
+        &self,
+        context: &mut CombatState,
+        source_id: ObjectId,
+        owner_id: ObjectId,
+    ) -> Result<(), CombatError> {
+        context.spend_mana(owner_id, self.mana_cost());
+        self.behavior.commit(context, source_id, owner_id)
+    }
+}
+```
+
+Each concrete ability behavior only performs the mechanics for that ability.
+Slash applies an instant damage effect:
+
+```rust
+impl AbilityBehavior for Slash {
+    fn commit(
+        &self,
+        context: &mut CombatState,
+        source_id: ObjectId,
+        _owner_id: ObjectId,
+    ) -> Result<(), CombatError> {
+        context.apply_effect(
+            &EffectDefinition::instant("effect/slash-damage", "DamagePayload"),
+            EffectApplicationInput::accept(
+                Some(source_id),
+                self.target,
+                tag_set([effect_damage_tag()]),
+                EffectPayload::Damage {
+                    amount: self.damage,
+                },
+            ),
+        );
+        Ok(())
+    }
+}
+```
+
+That structure keeps pre-commit checks in the activation gate, keeps shared
+commit mechanics in a small wrapper, and leaves each ability behavior focused
+on one mechanics outcome. It also gives tests a small surface to assert:
+resources changed, effects were applied, and ability lifecycle facts were
+emitted in deterministic order.
+
+## Split Windup From Impact
+
+Some abilities should not commit as soon as activation starts. A heavy melee
+attack, charge spell, or interruptible cast often has a windup animation before
+its point of no return.
+
+For that shape, split the lifecycle:
+
+```text
+player activates Heavy Slash
+-> activation starts and emits Started
+-> app adapter plays the windup animation
+-> animation reaches its impact marker
+-> app calls AbilityCommit for the same activation id
+-> commit spends mana and applies damage
+-> effect facts trigger hit spark, sound, damage number, or networking updates
+-> app ends the activation after recovery
+```
+
+The app keeps the `activation_id` from the started fact and uses it when the
+animation reaches the impact marker:
+
+```rust
+let activation_id = {
+    let mut executor = AbilityGateExecutor::new(&mut gate).with_owned_events(|event| {
+        if let AbilityLifecycleEvent::Started(active) = &event {
+            app_events.push(AppEvent::PlayAnimation {
+                activation_id: active.activation_id,
+                owner_id: active.owner_id,
+                animation_key: "heavy-slash/windup",
+                impact_marker: "impact",
+            });
+        }
+
+        ability_events.push(event);
+    });
+
+    AbilityActivation::new(heavy_slash_id)
+        .for_owner(player)
+        .run_with_executor(&mut abilities, &runtime, &mut executor)?
+};
+```
+
+The animation system does not mutate combat state directly. At the impact
+marker, it asks the mechanics runtime to commit the already-started activation:
+
+```rust
+fn on_animation_marker(
+    runtime: &mut CombatRuntime,
+    activation_id: AbilityActivationId,
+    marker: &str,
+) -> Result<(), CombatError> {
+    if marker != "impact" {
+        return Ok(());
+    }
+
+    let commit = &mut runtime.commit;
+    let abilities = &mut runtime.abilities;
+    let state = &mut runtime.state;
+    let ability_events = &mut runtime.ability_events;
+
+    let mut executor =
+        AbilityCommitActionExecutor::new(commit).with_owned_events(|event| {
+            ability_events.push(event);
+        });
+
+    AbilityCommit::new(activation_id)
+        .run_with_executor(abilities, state, &mut executor)?;
+
+    Ok(())
+}
+```
+
+If Heavy Slash is interrupted before the impact marker, cancel the active
+ability instead of committing it:
+
+```rust
+let abilities = &mut runtime.abilities;
+let ability_events = &mut runtime.ability_events;
+let mut sink = |event| ability_events.push(event.to_owned_event());
+
+let _ = AbilityCancel::new(activation_id).run_with_sink(abilities, &mut sink);
+```
+
+That keeps the long-running animation in the app layer while the point of no
+return still goes through `AbilityCommit`. Tests can assert the deterministic
+mechanics sequence, and adapters can animate, retry, or drop presentation work
+without changing combat state by accident.
+
+Use this with:
+
+- [Commit Abilities into Effects](/docs/rpg-combat/07-commit-abilities-into-effects)
+- [Run Temporary Buffs and Debuffs](/docs/runtime-patterns/run-temporary-buffs-and-debuffs)
+- [Ability API](/docs/api-reference/ability)
+- [Effect API](/docs/api-reference/effect)

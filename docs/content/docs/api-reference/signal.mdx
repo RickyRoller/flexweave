@@ -1,0 +1,72 @@
+---
+title: Signal
+description: Signal definitions and projection from effect lifecycle facts.
+---
+
+Public exports:
+
+- `SignalDefinition`
+- `SignalDefinitions`
+- `SignalKind`
+- `SignalRetentionPolicy`
+- `SignalExportPolicy`
+- `SignalTagMatch`
+- `SignalFact`
+- `SignalRemovalReason`
+- `SignalProjection`
+- `SignalDefinitionError`
+
+Signals are projected facts. `SignalProjection` maps effect lifecycle events to
+matching `SignalFact` values based on signal kind, source lifecycle kind, and
+tag matching.
+
+## Definition Types
+
+| Type/API                     | Behavior                                                                               |
+| ---------------------------- | -------------------------------------------------------------------------------------- |
+| `SignalKind`                 | Projection category: `ActiveStart`, `WhileActive`, `Executed`, `Recurring`, `Removed`. |
+| `SignalRetentionPolicy`      | Authoring/export metadata: `Drop` or `Retain`.                                         |
+| `SignalExportPolicy`         | Authoring/export metadata: `Internal` or `Export`.                                     |
+| `SignalTagMatch`             | Matches any tags or a `TagSetQuery`.                                                   |
+| `SignalDefinition`           | Authorable signal definition data.                                                     |
+| `SignalDefinition::validate` | Validates one signal definition.                                                       |
+| `SignalDefinitions::new`     | Builds a validated, duplicate-free collection.                                         |
+| `definitions`                | Returns definitions in declaration order.                                              |
+| `validate_channels`          | Checks `channel_key` values against caller-known keys.                                 |
+
+Required `SignalDefinition` fields include non-empty key, lifecycle kinds,
+payload schema, channel key, and category. `SignalTagMatch::Query` must contain
+at least one `all`, `any`, or `none` clause.
+
+## Signal Facts
+
+`SignalFact<Atom, SignalPayload, SourcePayload>` contains:
+
+- signal identity: `key`, `signal_kind`, `category`
+- routing metadata: `channel_key`, `retention`, `export`
+- source lifecycle metadata: `source_lifecycle_event_kind`,
+  `source_definition_key`, `source_id`, `target_id`, `owner_id`,
+  `active_effect_id`, `clock_units`, `removal_reason`
+- matching data: `tags`, `signal_payload`, `source_payload`
+
+`SignalFact` implements `LifecycleEvent` using its source lifecycle event kind.
+
+## Projection
+
+| API                         | Behavior                                                  |
+| --------------------------- | --------------------------------------------------------- |
+| `SignalProjection::new`     | Creates a projection from validated definitions.          |
+| `project_effect_event`      | Projects one effect lifecycle event into matching facts.  |
+| `reinvoke_effect_instances` | Projects while-active facts from active effect instances. |
+
+While-active signal reinvocation uses active effect instances and requires
+`LifecycleEventKind::SignalReinvoked` in the definition.
+
+Projection does not publish to `EventChannel` or any external bus. Caller code
+owns publication after projection.
+
+## Errors
+
+`SignalDefinitionError` covers empty keys, duplicate keys, missing lifecycle
+kinds, invalid tag queries, missing payload schema, missing channel key, missing
+category, and unknown channel keys.

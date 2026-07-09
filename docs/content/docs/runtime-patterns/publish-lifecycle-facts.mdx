@@ -1,0 +1,58 @@
+---
+title: Publish Lifecycle Facts
+description: Wire emitted primitive facts into caller-owned channels.
+---
+
+Flexweave emits facts through command callbacks. Publishing is explicit.
+
+```rust
+let mut channel = EventChannel::with_retention(definition, EventRetention::Retain);
+
+for event in effect_events {
+    channel.publish(event)?;
+}
+```
+
+Use retained channels when a runtime wants batches, replays, tests, or a combat
+log. Use drop channels when listeners should observe events without retaining
+them.
+
+Channel definitions validate event kinds. They do not subscribe to stores or
+route events automatically.
+
+In the RPG runtime, commands push effect events into an in-memory vector. Later,
+the runtime publishes those facts into a retained channel for tests, combat
+logs, or adapters:
+
+```rust
+let definition = EventChannelDefinition::new(
+    "combat/effects",
+    [
+        LifecycleEventKind::EffectApplicationAccepted,
+        LifecycleEventKind::EffectActiveCreated,
+        LifecycleEventKind::EffectExecuted,
+        LifecycleEventKind::EffectPeriodicExecuted,
+        LifecycleEventKind::EffectAdvanced,
+        LifecycleEventKind::EffectExpired,
+    ],
+)?;
+
+let mut channel = EventChannel::with_retention(definition, EventRetention::Retain);
+
+for event in effect_events.iter().cloned() {
+    channel.publish(event)?;
+}
+```
+
+Publishing should usually happen at an application boundary. For example, a
+server command handler can run mechanics commands, publish retained facts, map
+them into domain events, then send a compact response to clients.
+
+Use channel definitions as contracts. If an effect fact does not belong on a
+channel, `publish` returns an error instead of silently mixing event streams.
+
+Use this with:
+
+- [Publish Combat Events](/docs/rpg-combat/10-publish-combat-events)
+- [Project Signals for Adapters](/docs/runtime-patterns/project-signals-for-adapters)
+- [Lifecycle API](/docs/api-reference/lifecycle)

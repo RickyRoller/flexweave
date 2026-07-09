@@ -1,0 +1,38 @@
+---
+title: Data Store
+description: Typed object-keyed attached data.
+---
+
+Public export:
+
+- `DataStore<T>`
+
+`DataStore<T>` attaches one typed value to each object id. It does not validate
+that ids are live by itself; use checked command paths or query helpers when the
+runtime needs live-id validation.
+
+## Methods
+
+| API        | Behavior                                                      |
+| ---------- | ------------------------------------------------------------- |
+| `new`      | Creates an empty store.                                       |
+| `attach`   | Inserts or overwrites data for an object id.                  |
+| `detach`   | Removes data for an object id and returns whether it existed. |
+| `has`      | Returns whether data is attached for an object id.            |
+| `get`      | Returns `Option<&T>` for attached data.                       |
+| `count`    | Returns the number of attached entries.                       |
+| `is_empty` | Returns whether the store has no attached entries.            |
+
+Attaching a value for an existing id overwrites the previous value.
+
+## Object Lifetime
+
+`DataStore<T>` implements `ObjectLifecycleStore`, so an
+`ObjectDestructionDriver` can detach data for a destroyed object. Detaching data
+does not emit lifecycle facts.
+
+## Validation
+
+`DataStore<T>` intentionally accepts any `ObjectId`. Validate liveness with
+`query::require_object`, `ObjectStore::exists`, or checked ability/effect
+commands at the runtime boundary that needs the invariant.
