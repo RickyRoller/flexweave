@@ -1,7 +1,13 @@
 [package]
 name = "flexweave"
+categories = ["game-development"]
+description = "Flexible gameplay mechanics framework for Rust"
+documentation = "https://flexweave.dev"
 edition.workspace = true
+keywords = ["gamedev", "game-engine", "gameplay", "mechanics", "deterministic"]
 license.workspace = true
+readme = "README.md"
+repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 

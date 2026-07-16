@@ -7,6 +7,15 @@ Use Flexweave when a caller needs a domain-neutral foundation for objects, attac
 data, attributes, tags, abilities, effects, signals, lifecycle clocks, and
 explicit primitive errors.
 
+## Installation
+
+Add Flexweave to your Rust project:
+
+```toml
+[dependencies]
+flexweave = "0.1"
+```
+
 ## Primitive Model
 
 An Object is a stable mechanics handle. Flexweave allocates Object ids in
@@ -219,3 +228,10 @@ Flexweave does not own authored content storage, generated output paths, design 
 caller runtime bindings, or engine event systems. Engine integrations belong in
 adapters that translate Flexweave lifecycle facts and Signals into the caller's
 runtime model.
+
+## License
+
+Flexweave is licensed under either of the following, at your option:
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](./LICENSE-APACHE))
+- MIT License ([LICENSE-MIT](./LICENSE-MIT))
