@@ -1,4 +1,11 @@
-use super::support::*;
+use super::support::{apply_effect, apply_effect_with_events, duration_effect_definition};
+use crate::common::TestAtom;
+use flexweave::{
+    ActiveEffectId, EffectApplicationDecision, EffectApplicationInput, EffectLifecycleEvent,
+    EffectPipeline, EventChannel, EventChannelDefinition, EventRetention, LifecycleEvent,
+    LifecycleEventKind, LocalLifecycleEvent, MechanicsDriver, MechanicsTick, ObjectId, Tag, TagSet,
+};
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn lifecycle_events_emit_in_registration_order_through_mechanics_driver() {

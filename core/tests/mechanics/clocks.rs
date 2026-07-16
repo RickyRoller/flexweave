@@ -1,4 +1,12 @@
-use super::support::*;
+use super::support::{apply_effect, duration_effect_definition};
+use crate::common::TestAtom;
+use flexweave::{
+    Clock, ClockUnits, EffectApplicationDecision, EffectApplicationInput, EffectClockPolicy,
+    EffectDefinition as FlexEffectDefinition, EffectKind, EffectLifecycleEvent, EffectPipeline,
+    EffectRouting, FixedStepClock, MechanicsDriver, MechanicsTick, ObjectId, RealtimeClock,
+    RealtimeClockAccumulator, Tag, TagSet,
+};
+use std::time::Duration;
 
 #[test]
 fn turn_based_clock_advances_effect_lifetimes_in_turns() {

@@ -1,4 +1,10 @@
-use super::support::*;
+use super::support::{EffectApplyOutcomeTestExt, application, effect_definition};
+use crate::common::TestAtom;
+use flexweave::{
+    ActiveEffectId, EffectApplicationDecision, EffectApplicationInput, EffectApply,
+    EffectClockPolicy, EffectKind, EffectLifecycleEvent, EffectPipeline, EffectRemove, EffectTick,
+    NoEffectExecutor, ObjectId, OwnedEffectLifecycleEvents, Tag, TagSet,
+};
 
 #[test]
 fn effect_pipeline_creates_advances_expires_and_visits_by_target() {

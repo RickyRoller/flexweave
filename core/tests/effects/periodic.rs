@@ -1,4 +1,10 @@
-use super::support::*;
+use super::support::{EffectApplyOutcomeTestExt, application, effect_definition};
+use crate::common::TestAtom;
+use flexweave::{
+    EffectActionExecutor, EffectApplicationDecision, EffectApply, EffectClockPolicy,
+    EffectExecutionView, EffectKind, EffectLifecycleEvent, EffectPipeline, EffectTick,
+    NoEffectExecutor, TagSet,
+};
 
 #[test]
 fn periodic_effects_execute_at_deterministic_intervals() {

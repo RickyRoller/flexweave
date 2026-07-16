@@ -1,4 +1,11 @@
-use super::support::*;
+use super::support::{application, effect_definition};
+use crate::common::TestAtom;
+use flexweave::{
+    AbilityActivationId, AbilityId, ActiveAbility, ActiveEffectId, EffectApplicationDecision,
+    EffectApplicationError, EffectApplicationInput, EffectApply, EffectApplyError,
+    EffectApplyOutcome, EffectClockPolicy, EffectKind, EffectLifecycleEvent, EffectPipeline,
+    EffectSourcePolicy, NoEffectExecutor, ObjectId, ObjectStore, Tag, TagSet,
+};
 
 #[test]
 fn checked_effect_application_rejects_invalid_target() {

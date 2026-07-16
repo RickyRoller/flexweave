@@ -1,4 +1,11 @@
-use super::support::*;
+use super::support::{EffectApplyOutcomeTestExt, application, effect_definition};
+use crate::common::TestAtom;
+use flexweave::{
+    EffectApplicationDecision, EffectApplicationInput, EffectApply, EffectApplyError,
+    EffectClockPolicy, EffectDefinition, EffectDefinitionError, EffectDefinitionRegistryError,
+    EffectDefinitions, EffectKind, EffectLifecycleEvent, EffectPipeline, EffectRouting,
+    NoEffectExecutor, ObjectId, Tag, TagSet,
+};
 
 #[test]
 fn effect_definitions_validate_authoring_shape() {

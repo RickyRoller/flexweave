@@ -1,4 +1,10 @@
-use super::support::*;
+use crate::common::TestAtom;
+use flexweave::{
+    ActiveEffectId, EffectActionExecutor, EffectApplicationDraft, EffectApplicationInput,
+    EffectApply, EffectApplyError, EffectApplyOutcome, EffectClockPolicy, EffectDefinition,
+    EffectDefinitionError, EffectExecutionView, EffectInitializer, EffectLifecycleEvent,
+    EffectPipeline, NoEffectExecutor, ObjectId, Tag, TagSet,
+};
 
 #[test]
 fn effect_initializer_can_adjust_payload_and_duration_from_context() {

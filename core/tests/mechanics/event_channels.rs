@@ -1,4 +1,13 @@
-use super::support::*;
+use super::support::{active_effect_advance_event, apply_effect, duration_effect_definition};
+use crate::common::TestAtom;
+use flexweave::{
+    EffectApplicationDecision, EffectApplicationInput, EffectPipeline, EventChannel,
+    EventChannelDefinition, EventChannelDefinitionError, EventChannelDefinitions,
+    EventChannelError, EventChannelRouteDefinition, EventConnectionHandle, EventRetention,
+    LifecycleEvent, LifecycleEventKind, LocalLifecycleEvent, MechanicsDriver, MechanicsTick,
+    ObjectId, Tag, TagSet,
+};
+use std::sync::{Arc, Mutex};
 
 #[test]
 fn event_channel_disconnects_handles_during_emission_without_reordering() {

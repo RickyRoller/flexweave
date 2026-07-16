@@ -1,4 +1,11 @@
-use super::support::*;
+use super::support::{EffectApplyOutcomeTestExt, application, effect_definition};
+use crate::common::TestAtom;
+use flexweave::{
+    EffectApplicationDecision, EffectApply, EffectClockPolicy, EffectDefinition, EffectKind,
+    EffectLifecycleEvent, EffectLifecycleEventView, EffectPipeline, EffectRemove, EffectRouting,
+    EffectTick, EventChannel, EventChannelDefinition, EventRetention, LifecycleEventKind,
+    NoEffectExecutor, TagSet,
+};
 
 #[test]
 fn caller_publishes_effect_lifecycle_events_to_named_channels() {
