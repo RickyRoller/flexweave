@@ -18,6 +18,9 @@ export default defineConfig({
   ],
   publicDir,
   resolve: {
+    // Keep the Nitro bundle self-contained while avoiding Rolldown's CommonJS
+    // default-import handling for tslib. The second alias prevents the adapter's
+    // explicit ESM import from resolving back to itself.
     alias: [
       {
         find: /^tslib$/,
