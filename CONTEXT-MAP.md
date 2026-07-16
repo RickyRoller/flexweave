@@ -16,8 +16,7 @@ only the context files that match the area you are touching.
 - Consumer projects consume the Flexweave crate and provide their own content,
   runtime bindings, and deployment.
 
-## ADRs
+## Design Records
 
-- `project-docs/adr/` contains product-wide decisions.
-- Context-local ADRs may be added near the affected surface when a decision is
-  difficult to reverse and needs permanent rationale.
+- `core/docs/adr/` contains durable core decisions.
+- `core/docs/models/` contains implementation-facing system models.

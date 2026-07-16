@@ -22,6 +22,7 @@ application derived from an ability.
 
 - `core/src/ability.rs`
 - `core/src/ability/definition.rs`
+- `core/src/ability/operation.rs`
 - `core/src/ability/store.rs`
 - `core/src/ability/events.rs`
 - `core/src/ability/hooks.rs`
@@ -29,7 +30,8 @@ application derived from an ability.
 - `core/src/lifecycle/kind.rs`
 - `core/tests/abilities.rs`
 - `core/README.md`
-- `docs/content/docs/how-to/use-flexweave.mdx`
+- `docs/content/docs/core-concepts/abilities-and-commitment.mdx`
+- `docs/content/docs/api-reference/ability.mdx`
 
 ## Model Files
 

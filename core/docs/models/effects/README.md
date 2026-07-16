@@ -22,6 +22,7 @@ facts or signals.
 - `core/src/effect.rs`
 - `core/src/effect/definition.rs`
 - `core/src/effect/application.rs`
+- `core/src/effect/operation.rs`
 - `core/src/effect/pipeline.rs`
 - `core/src/effect/events.rs`
 - `core/src/effect/ids.rs`
@@ -32,7 +33,8 @@ facts or signals.
 - `core/tests/signals.rs`
 - `core/tests/object_destruction.rs`
 - `core/README.md`
-- `docs/content/docs/how-to/use-flexweave.mdx`
+- `docs/content/docs/core-concepts/effects-and-active-instances.mdx`
+- `docs/content/docs/api-reference/effect.mdx`
 
 ## Model Files
 

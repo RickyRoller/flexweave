@@ -7,13 +7,13 @@ the implementation and documentation.
 ## Organization
 
 ```text
-project-docs/models/
+core/docs/models/
 |-- README.md
 `-- <core-system>/
     |-- README.md
     |-- lifecycle.d2
     |-- data-model.d2
-    `-- interactions.d2
+    `-- event-publication.d2
 ```
 
 Use D2 source files as the primary artifacts and keep peer `.svg` renders next
@@ -27,5 +27,5 @@ implementation notes, and open questions.
 Render a model after editing it:
 
 ```bash
-d2 project-docs/models/<core-system>/<diagram>.d2 project-docs/models/<core-system>/<diagram>.svg
+d2 core/docs/models/<core-system>/<diagram>.d2 core/docs/models/<core-system>/<diagram>.svg
 ```

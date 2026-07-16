@@ -8,11 +8,10 @@ Flexweave is a Rust workspace for reusable mechanics primitives.
 
 ## Product Surfaces
 
-| Surface              | Path           | Purpose                                             |
-| -------------------- | -------------- | --------------------------------------------------- |
-| Flexweave Rust crate | `core`         | Rust crate for deterministic mechanics primitives.  |
-| Documentation site   | `docs`         | Hostable Fumadocs site for Flexweave documentation. |
-| Project docs         | `project-docs` | Source-first ADRs and implementation models.        |
+| Surface              | Path   | Purpose                                             |
+| -------------------- | ------ | --------------------------------------------------- |
+| Flexweave Rust crate | `core` | Rust crate for deterministic mechanics primitives.  |
+| Documentation site   | `docs` | Hostable Fumadocs site for Flexweave documentation. |
 
 ## Commands
 

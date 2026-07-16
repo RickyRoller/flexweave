@@ -4,6 +4,7 @@
     "deterministic-mechanics",
     "stored-vs-derived-state",
     "ability-effect-lifecycle-boundaries",
+    "operation-builders",
     "facts-channels-signals-and-app-events",
     "tags-as-structured-labels",
     "content-authoring-vs-runtime-definitions"
