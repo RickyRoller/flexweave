@@ -2,8 +2,7 @@
 
 ## Startup
 
-Read `CONTEXT-MAP.md` first, then read the context file for the surface you are
-changing.
+Read `core/CONTEXT.md` before changing the Rust mechanics crate.
 
 ## Boundaries
 
