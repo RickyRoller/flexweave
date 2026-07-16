@@ -52,7 +52,7 @@ fn tag_set_apis_accept_non_clone_atoms_and_borrowed_atom_queries() {
 }
 
 #[test]
-fn val_core_011_tag_sets_distinguish_shared_atoms_by_grouped_path() {
+fn tag_sets_distinguish_shared_atoms_by_grouped_path() {
     let category_family = Tag::new([TestAtom::Category, TestAtom::Family]);
     let category_variant = Tag::new([TestAtom::Category, TestAtom::Family, TestAtom::Variant]);
     let group_family = Tag::new([TestAtom::Group, TestAtom::Family]);

@@ -9,7 +9,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 #[test]
-fn val_core_006_standalone_attribute_stores_signed_floats_with_stable_overwrite() {
+fn standalone_attribute_stores_signed_floats_with_stable_overwrite() {
     let mut store = ObjectStore::new();
     let mut attribute = Attribute::new();
 
@@ -31,7 +31,7 @@ fn val_core_006_standalone_attribute_stores_signed_floats_with_stable_overwrite(
 }
 
 #[test]
-fn val_core_007_attribute_commits_before_notifying_in_registration_order() {
+fn attribute_commits_before_notifying_in_registration_order() {
     #[derive(Default, Debug)]
     struct Trace {
         steps: Vec<u8>,
@@ -70,7 +70,7 @@ fn val_core_007_attribute_commits_before_notifying_in_registration_order() {
 }
 
 #[test]
-fn val_core_008_attribute_does_not_emit_events_when_value_is_unchanged() {
+fn attribute_does_not_emit_events_when_value_is_unchanged() {
     let mut store = ObjectStore::new();
     let mut attribute = Attribute::new();
     let target = store.create();
@@ -313,7 +313,7 @@ fn calculate_derived(
 }
 
 #[test]
-fn val_core_009_derived_attribute_evaluates_without_overwriting_base() {
+fn derived_attribute_evaluates_without_overwriting_base() {
     let mut store = ObjectStore::new();
     let mut base = Attribute::new();
     let mut bonuses = DataStore::new();
@@ -346,7 +346,7 @@ fn val_core_009_derived_attribute_evaluates_without_overwriting_base() {
 }
 
 #[test]
-fn val_core_010_derived_attribute_refreshes_tracked_values_only_on_changes() {
+fn derived_attribute_refreshes_tracked_values_only_on_changes() {
     let mut store = ObjectStore::new();
     let mut base = Attribute::new();
     let bonuses = DataStore::new();

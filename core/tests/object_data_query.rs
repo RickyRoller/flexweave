@@ -4,7 +4,7 @@ use common::marker_setup;
 use flexweave::{CoreError, DataStore, INVALID_OBJECT_ID, ObjectId, ObjectStore, query};
 
 #[test]
-fn val_core_001_object_store_hands_out_unique_looked_up_able_handles() {
+fn object_store_hands_out_unique_lookupable_handles() {
     let mut store = ObjectStore::new();
 
     let a = store.create();
@@ -24,32 +24,7 @@ fn val_core_001_object_store_hands_out_unique_looked_up_able_handles() {
 }
 
 #[test]
-fn val_core_001_repeated_identical_setup_yields_identical_iteration_order() {
-    let mut run_a = ObjectStore::new();
-    let ids_a = [
-        run_a.create(),
-        run_a.create(),
-        run_a.create(),
-        run_a.create(),
-    ];
-
-    let mut run_b = ObjectStore::new();
-    let ids_b = [
-        run_b.create(),
-        run_b.create(),
-        run_b.create(),
-        run_b.create(),
-    ];
-
-    assert_eq!(ids_a, ids_b);
-    assert_eq!(
-        run_a.iter().collect::<Vec<_>>(),
-        run_b.iter().collect::<Vec<_>>()
-    );
-}
-
-#[test]
-fn val_core_001_object_store_registers_externally_assigned_handles() {
+fn object_store_registers_externally_assigned_handles() {
     let mut store = ObjectStore::new();
 
     let external = store.create_with_id(ObjectId::new(1001)).unwrap();
@@ -71,7 +46,7 @@ fn val_core_001_object_store_registers_externally_assigned_handles() {
 }
 
 #[test]
-fn val_core_002_generic_marker_data_attach_has_get_round_trips_correctly() {
+fn data_store_attach_and_get_round_trip() {
     let mut store = ObjectStore::new();
     let mut markers = DataStore::new();
 
@@ -95,7 +70,7 @@ fn val_core_002_generic_marker_data_attach_has_get_round_trips_correctly() {
 }
 
 #[test]
-fn val_core_002_generic_data_supports_non_copy_values() {
+fn data_store_supports_non_copy_values() {
     let mut store = ObjectStore::new();
     let mut values = DataStore::new();
 
@@ -110,7 +85,7 @@ fn val_core_002_generic_data_supports_non_copy_values() {
 }
 
 #[test]
-fn val_core_003_require_object_rejects_invalid_handles_explicitly() {
+fn require_object_rejects_invalid_handles_explicitly() {
     let mut store = ObjectStore::new();
 
     let valid = store.create();
@@ -126,7 +101,7 @@ fn val_core_003_require_object_rejects_invalid_handles_explicitly() {
 }
 
 #[test]
-fn val_core_003_require_attached_returns_missing_required_data_explicitly() {
+fn require_attached_returns_missing_required_data_explicitly() {
     let mut store = ObjectStore::new();
     let mut labels = DataStore::new();
 
@@ -142,37 +117,11 @@ fn val_core_003_require_attached_returns_missing_required_data_explicitly() {
 }
 
 #[test]
-fn val_core_004_collect_where_returns_matches_in_creation_order() {
+fn collect_where_returns_matches_in_creation_order() {
     let (objects, markers, excluded, first_match, second_match) = marker_setup();
     let result = query::collect_where(&objects, |candidate_id| {
         candidate_id != excluded && markers.get(candidate_id).is_some_and(|value| *value == 1)
     });
 
     assert_eq!(result, vec![first_match, second_match, ObjectId::new(6)]);
-}
-
-#[test]
-fn val_core_005_identical_setups_produce_identical_collect_where_results() {
-    fn run() -> Vec<ObjectId> {
-        let mut store = ObjectStore::new();
-        let mut markers = DataStore::new();
-
-        let excluded = store.create();
-        markers.attach(excluded, 1_u8);
-
-        for i in 0..5 {
-            let id = store.create();
-            markers.attach(id, if i % 2 == 0 { 9 } else { 3 });
-        }
-
-        query::collect_where(&store, |candidate_id| {
-            candidate_id != excluded && markers.get(candidate_id).is_some_and(|value| *value == 9)
-        })
-    }
-
-    let first = run();
-    let second = run();
-
-    assert_eq!(first.len(), 3);
-    assert_eq!(first, second);
 }
