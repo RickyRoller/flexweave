@@ -1,35 +1,11 @@
 ---
 title: What Flexweave Is
-description: Flexweave provides deterministic mechanics primitives while your runtime owns meaning.
+description: Flexweave provides deterministic mechanics primitives for Rust.
 ---
 
 Flexweave is a Rust crate for domain-agnostic mechanics state. It gives you
 object ids, attached data, attributes, tags, abilities, active effects, clocks,
 lifecycle facts, event channels, signals, and cleanup helpers.
-
-It does not provide a game engine, ECS, content loader, scripting language,
-network protocol, balance model, UI system, or persistence layer. Those belong
-to the consumer app.
-
-## The Boundary
-
-Flexweave primitives are deliberately unnamed by game domain:
-
-| Flexweave primitive | Consumer-owned meaning in the RPG example |
-| ------------------- | ----------------------------------------- |
-| `ObjectId`          | Player character or enemy                 |
-| `DataStore<T>`      | Profile, faction, author data             |
-| `Attribute`         | Current health, mana, base stats          |
-| `DerivedAttribute`  | Max health, effective attack speed        |
-| `TagSet`            | Ability, damage, buff, cooldown labels    |
-| `AbilityStore`      | Granted player actions                    |
-| `EffectPipeline`    | Active buffs, cooldowns, damage-over-time |
-| `EventChannel`      | Caller-wired combat log transport         |
-| `SignalProjection`  | Adapter-facing facts for UI/audio/etc.    |
-
-The same primitives can model card games, simulations, tabletop tools, server
-combat sessions, or editor previews because the library does not hard-code RPG
-nouns.
 
 ## Main Example
 
