@@ -218,17 +218,6 @@ cargo clippy -p flexweave --all-targets -- -D warnings
 cargo doc -p flexweave --no-deps
 ```
 
-## Boundary
-
-Flexweave owns object identity, attached data, attributes, derived attributes, tags,
-queries, abilities, effects, registries, signals, caller-defined clock units,
-deterministic mechanics stores, and primitive errors.
-
-Flexweave does not own authored content storage, generated output paths, design UI,
-caller runtime bindings, or engine event systems. Engine integrations belong in
-adapters that translate Flexweave lifecycle facts and Signals into the caller's
-runtime model.
-
 ## License
 
 Flexweave is licensed under either of the following, at your option:
