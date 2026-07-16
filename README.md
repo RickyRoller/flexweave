@@ -20,9 +20,9 @@ Flexweave is a Rust workspace for reusable mechanics primitives.
 | `bun run build`    | Build the Rust crate and docs site.                        |
 | `bun run check`    | Run read-only formatting, Rust checks, and docs typecheck. |
 | `bun run docs:dev` | Start the local documentation site.                        |
-| `bun run fix`      | Format supported files.                                    |
+| `bun run fix`      | Format workspace files.                                    |
 | `bun run test`     | Run Rust crate tests.                                      |
-| `bun run verify`   | Run the full workspace verification gate.                  |
+| `bun run verify`   | Run the CI verification gate locally.                      |
 
 ## Documentation
 

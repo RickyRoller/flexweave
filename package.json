@@ -6,23 +6,13 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "bun run build:core && bun run build:docs",
-    "build:core": "cargo build -p flexweave",
-    "build:docs": "bun run --cwd docs build",
-    "check": "ultracite check && bun run check:core && bun run check:docs",
-    "check:core": "bun run check:core:fmt && bun run check:core:lint",
-    "check:core:fmt": "cargo fmt -p flexweave -- --check",
-    "check:core:lint": "cargo clippy -p flexweave --all-targets -- -D warnings",
-    "check:docs": "bun run --cwd docs check",
-    "docs:core": "cargo doc -p flexweave --no-deps",
+    "build": "cargo build -p flexweave && bun run --cwd docs build",
+    "check": "ultracite check && cargo fmt -p flexweave -- --check && cargo clippy -p flexweave --all-targets -- -D warnings && bun run --cwd docs check",
     "docs:dev": "bun run --cwd docs dev",
-    "fix": "ultracite fix",
+    "fix": "ultracite fix && cargo fmt -p flexweave",
     "start:docs": "bun run --cwd docs start",
-    "test": "bun run test:core",
-    "test:core": "cargo test -p flexweave",
-    "verify": "bun run verify:core && bun run verify:docs",
-    "verify:core": "bun run check:core && bun run test:core && bun run build:core && bun run docs:core",
-    "verify:docs": "bun run check:docs && bun run build:docs"
+    "test": "cargo test -p flexweave",
+    "verify": "bun run check && bun run test && RUSTDOCFLAGS='-D warnings' cargo doc -p flexweave --no-deps && bun run --cwd docs build"
   },
   "devDependencies": {
     "oxfmt": "^0.55.0",
