@@ -1,11 +1,43 @@
 ---
 title: What Flexweave Is
-description: Flexweave provides deterministic mechanics primitives for Rust.
+description: A deterministic mechanics toolkit that leaves product meaning and orchestration to your Rust runtime.
 ---
 
-Flexweave is a Rust crate for domain-agnostic mechanics state. It gives you
-object ids, attached data, attributes, tags, abilities, active effects, clocks,
-lifecycle facts, event channels, signals, and cleanup helpers.
+Flexweave is a Rust library for building deterministic mechanics without tying
+an application to a particular genre, engine, content format, or scheduling
+model. It provides the domain-neutral pieces that mechanics systems tend to
+share: stable objects, typed attached data, numeric attributes, tags and
+queries, ability and effect lifecycles, clocks, lifecycle facts, and signals.
+
+## Mechanics and Meaning
+
+The central design choice is a boundary between mechanics and meaning.
+Flexweave owns the shape of mechanics state and its transitions; the consuming
+runtime decides what those pieces represent and how they are orchestrated.
+
+An object might be a character, item, or encounter. An ability might represent
+an attack, spell, card, or command. A clock unit might be a turn, tick, or slice
+of real time. The caller chooses those meanings, loads the active definitions,
+applies consequences at lifecycle boundaries, and maps Flexweave's facts into
+its own events and adapters.
+
+## Deterministic Foundations
+
+Given identical primitive inputs, Flexweave preserves object ids, iteration and
+query order, lifecycle facts, and results. That makes the library useful for
+tests, simulations, replays, debugging, content validation, and server-side
+command processing.
+
+Flexweave does not attempt to make an entire application deterministic.
+Scheduling, concurrency, external state, and ordering outside the library
+remain the runtime's responsibility.
+
+## A Toolkit, Not an Engine
+
+Flexweave does not prescribe a game loop, load authored content, or
+automatically route events. It gives higher-level runtimes predictable mechanics
+building blocks while leaving product-specific policy at the boundary. This
+makes it a mechanics toolkit rather than a game engine or content system.
 
 ## Main Example
 

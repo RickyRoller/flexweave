@@ -1,10 +1,20 @@
 ---
 title: Flexweave
-description: A book-style guide to deterministic mechanics primitives for Rust runtimes.
+description: Deterministic, domain-neutral mechanics primitives for Rust runtimes.
 ---
 
-Flexweave is a domain-agnostic Rust crate for reusable mechanics building
-blocks.
+Flexweave is a Rust library for building deterministic mechanics without tying
+an application to a particular genre, engine, content format, or scheduling
+model. It provides domain-neutral building blocks for stable objects, typed
+attached data, numeric attributes, tags and queries, ability and effect
+lifecycles, clocks, lifecycle facts, and signals.
+
+Flexweave owns the shape of mechanics state and its transitions. Your runtime
+decides what those mechanics mean, how they are orchestrated, and how their
+facts become application events. Given identical primitive inputs, Flexweave
+preserves object ids, iteration and query order, lifecycle facts, and results,
+making it useful for tests, simulations, replays, validation, and server-side
+command processing.
 
 This site is organized as a progressive guide. Start with a quick orientation,
 then build a complete RPG combat runtime, then use the concept and pattern
