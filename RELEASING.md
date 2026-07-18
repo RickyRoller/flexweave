@@ -1,9 +1,12 @@
 # Releasing Flexweave
 
 Flexweave releases are published from the `Release` GitHub Actions workflow.
-The workflow updates the workspace version and changelog, verifies and packages
-the crate, publishes it to crates.io, tags the release commit, and creates the
-corresponding GitHub Release.
+The workflow updates the workspace version, verifies and packages the crate,
+publishes it to crates.io, tags the release commit, and creates the corresponding
+GitHub Release with automatically generated notes.
+
+The documentation site is deployed independently by Vercel and is not part of
+the crate release workflow.
 
 ## One-time setup
 
@@ -23,10 +26,8 @@ publishing should require an approval after the workflow is started.
 
 ## Cut a release
 
-1. Add curated release notes beneath `## [Unreleased]` in `CHANGELOG.md` and
-   merge them to `main`.
-2. Open **Actions**, select **Release**, and choose **Run workflow**.
-3. Keep **Use workflow from** set to `main`, enter a stable semantic version
+1. Open **Actions**, select **Release**, and choose **Run workflow**.
+2. Keep **Use workflow from** set to `main`, enter a stable semantic version
    without a `v` prefix (for example, `0.2.0`), and run the workflow.
 
 If a run fails after updating `main`, run it again with the same version. The
