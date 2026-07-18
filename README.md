@@ -4,7 +4,37 @@
 
 # Flexweave
 
-Flexweave is a Rust workspace for reusable mechanics primitives.
+[Documentation](https://flexweave.dev)
+
+## What Flexweave Is
+
+Flexweave is a Rust library for building deterministic mechanics without tying
+an application to a particular genre, engine, content format, or scheduling
+model. It provides the domain-neutral pieces that mechanics systems tend to
+share: stable objects, typed attached data, numeric attributes, tags and
+queries, ability and effect lifecycles, clocks, lifecycle facts, and signals.
+
+The central design choice is a boundary between mechanics and meaning.
+Flexweave owns the shape of mechanics state and its transitions; the consuming
+runtime decides what those pieces represent and how they are orchestrated. An
+object might be a character, item, or encounter. An ability might represent an
+attack, spell, card, or command. A clock unit might be a turn, tick, or slice of
+real time. The caller chooses those meanings, loads the active definitions,
+applies consequences at lifecycle boundaries, and maps Flexweave's facts into
+its own events and adapters.
+
+Determinism is part of that foundation. Given identical primitive inputs,
+Flexweave preserves object ids, iteration and query order, lifecycle facts, and
+results. That makes the library useful for tests, simulations, replays,
+debugging, content validation, and server-side command processing. It does not
+attempt to make an entire application deterministic; scheduling, concurrency,
+external state, and ordering outside the library remain the runtime's
+responsibility.
+
+Flexweave is therefore a mechanics toolkit rather than a game engine or content
+system. It does not prescribe a game loop, load authored content, or
+automatically route events. Instead, it gives higher-level runtimes predictable
+building blocks while leaving product-specific policy at the boundary.
 
 ## Product Surfaces
 
@@ -23,15 +53,3 @@ Flexweave is a Rust workspace for reusable mechanics primitives.
 | `bun run fix`      | Format workspace files.                                    |
 | `bun run test`     | Run Rust crate tests.                                      |
 | `bun run verify`   | Run the CI verification gate locally.                      |
-
-## Documentation
-
-The hosted documentation is organized as a book-style guide with a separate
-top-level API Reference:
-
-Start with:
-
-- [What Flexweave Is](./docs/content/docs/getting-started/what-is-flexweave.mdx)
-- [Create Combatants](./docs/content/docs/rpg-combat/01-create-combatants.mdx)
-- [Core Concepts](./docs/content/docs/core-concepts/objects-and-attached-data.mdx)
-- [API Reference](./docs/content/docs/api-reference/index.mdx)
