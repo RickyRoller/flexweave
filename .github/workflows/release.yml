@@ -1,0 +1,256 @@
+name: Release
+
+run-name: Release v${{ inputs.version }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Semantic version to release (without the v prefix)
+        required: true
+        type: string
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  release:
+    name: Publish v${{ inputs.version }}
+    runs-on: ubuntu-latest
+    environment:
+      name: release
+      url: https://crates.io/crates/flexweave
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Require the main workflow ref
+        env:
+          DISPATCH_REF: ${{ github.ref_name }}
+        run: |
+          if [[ "$DISPATCH_REF" != "main" ]]; then
+            echo "Choose main in the 'Use workflow from' menu." >&2
+            exit 1
+          fi
+
+          git fetch origin main --tags
+          if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
+            echo "main advanced after this run was queued; start the release again." >&2
+            exit 1
+          fi
+
+      - name: Select release source
+        id: source
+        run: |
+          if [[ ! "$VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "version must be a stable SemVer number such as 0.2.0 (without a v prefix)" >&2
+            exit 1
+          fi
+
+          tag="v$VERSION"
+          if git show-ref --verify --quiet "refs/tags/$tag"; then
+            git checkout --detach "$tag"
+            echo "kind=tag" >> "$GITHUB_OUTPUT"
+          else
+            echo "kind=main" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.13
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: 1.93.0
+          components: clippy, rustfmt
+
+      - name: Prepare release metadata
+        id: prepare
+        env:
+          RELEASE_SOURCE: ${{ steps.source.outputs.kind }}
+          RELEASE_NOTES: ${{ runner.temp }}/release-notes.md
+        run: |
+          python3 <<'PY'
+          import datetime
+          import os
+          import re
+          from pathlib import Path
+
+          version = os.environ["VERSION"]
+          version_pattern = re.compile(r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$")
+          if not version_pattern.fullmatch(version):
+              raise SystemExit("version must be a stable SemVer number such as 0.2.0 (without a v prefix)")
+
+          manifest_path = Path("Cargo.toml")
+          manifest = manifest_path.read_text()
+          current_match = re.search(
+              r'(?ms)^\[workspace\.package\]\n(?:(?!^\[).)*?^version = "([^"]+)"$',
+              manifest,
+          )
+          if current_match is None:
+              raise SystemExit("could not find workspace.package.version in Cargo.toml")
+
+          current = current_match.group(1)
+          current_match_parts = version_pattern.fullmatch(current)
+          if current_match_parts is None:
+              raise SystemExit(f"current workspace version is not stable SemVer: {current}")
+
+          requested_parts = tuple(map(int, version.split(".")))
+          current_parts = tuple(map(int, current.split(".")))
+
+          changelog_path = Path("CHANGELOG.md")
+          changelog = changelog_path.read_text()
+
+          if os.environ["RELEASE_SOURCE"] == "main":
+              if requested_parts <= current_parts:
+                  raise SystemExit(
+                      f"version {version} must be newer than the current version {current}; "
+                      "an equal version can only resume from an existing tag"
+                  )
+
+              unreleased_match = re.search(
+                  r"(?ms)^## \[Unreleased\]\n(?P<body>.*?)(?=^## \[)",
+                  changelog,
+              )
+              if unreleased_match is None:
+                  raise SystemExit("could not find the Unreleased changelog section")
+
+              body = unreleased_match.group("body").strip()
+              if not body:
+                  raise SystemExit("add release notes under Unreleased before cutting a release")
+
+              manifest = (
+                  manifest[: current_match.start(1)]
+                  + version
+                  + manifest[current_match.end(1) :]
+              )
+              manifest_path.write_text(manifest)
+
+              release_date = datetime.datetime.now(datetime.UTC).date().isoformat()
+              replacement = f"## [Unreleased]\n\n## [{version}] - {release_date}\n\n{body}\n\n"
+              changelog = (
+                  changelog[: unreleased_match.start()]
+                  + replacement
+                  + changelog[unreleased_match.end() :]
+              )
+
+              unreleased_link = re.compile(
+                  rf"(?m)^\[Unreleased\]: https://github\.com/RickyRoller/flexweave/compare/v{re.escape(current)}\.\.\.HEAD$"
+              )
+              if unreleased_link.search(changelog) is None:
+                  raise SystemExit("the Unreleased comparison link does not match the current version")
+              changelog = unreleased_link.sub(
+                  "\n".join(
+                      [
+                          f"[Unreleased]: https://github.com/RickyRoller/flexweave/compare/v{version}...HEAD",
+                          f"[{version}]: https://github.com/RickyRoller/flexweave/compare/v{current}...v{version}",
+                      ]
+                  ),
+                  changelog,
+              )
+              changelog_path.write_text(changelog)
+              metadata_changed = "true"
+          else:
+              if version != current:
+                  raise SystemExit(f"tag v{version} contains workspace version {current}")
+              metadata_changed = "false"
+
+          release_match = re.search(
+              rf"(?ms)^## \[{re.escape(version)}\](?: - [0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}})?\n(?P<body>.*?)(?=^## \[|^\[Unreleased\]:)",
+              changelog,
+          )
+          if release_match is None or not release_match.group("body").strip():
+              raise SystemExit(f"could not find release notes for {version} in CHANGELOG.md")
+          Path(os.environ["RELEASE_NOTES"]).write_text(release_match.group("body").strip() + "\n")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a") as output:
+              output.write(f"metadata_changed={metadata_changed}\n")
+          PY
+
+      - name: Install workspace dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Verify workspace
+        run: bun run verify
+
+      - name: Commit release metadata
+        if: steps.prepare.outputs.metadata_changed == 'true'
+        run: |
+          git diff --exit-code -- . ':!Cargo.toml' ':!Cargo.lock' ':!CHANGELOG.md'
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml Cargo.lock CHANGELOG.md
+          git commit -m "Release v$VERSION"
+
+      - name: Create release tag
+        if: steps.prepare.outputs.metadata_changed == 'true'
+        run: git tag -a "v$VERSION" -m "Release v$VERSION"
+
+      - name: Package crate
+        run: cargo package -p flexweave --locked
+
+      - name: Check publication state
+        id: registry
+        run: |
+          crate="target/package/flexweave-$VERSION.crate"
+          local_checksum="$(sha256sum "$crate" | cut -d ' ' -f 1)"
+          registry_checksum="$(
+            curl --fail --silent --show-error --retry 3 \
+              -A 'flexweave-release-workflow/1.0 (https://github.com/RickyRoller/flexweave)' \
+              https://index.crates.io/fl/ex/flexweave \
+              | jq -r --arg version "$VERSION" 'select(.vers == $version) | .cksum'
+          )"
+
+          if [[ -n "$registry_checksum" ]]; then
+            if [[ "$registry_checksum" != "$local_checksum" ]]; then
+              echo "crates.io already has v$VERSION with a different package checksum." >&2
+              exit 1
+            fi
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push release commit and tag
+        if: steps.prepare.outputs.metadata_changed == 'true'
+        run: git push --atomic origin HEAD:main "refs/tags/v$VERSION"
+
+      - name: Authenticate with crates.io
+        if: steps.registry.outputs.publish == 'true'
+        id: crates-io
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish crate
+        if: steps.registry.outputs.publish == 'true'
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.crates-io.outputs.token }}
+        run: cargo publish -p flexweave --locked
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_NOTES: ${{ runner.temp }}/release-notes.md
+        run: |
+          tag="v$VERSION"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub Release $tag already exists."
+          else
+            gh release create "$tag" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "$tag" \
+              --notes-file "$RELEASE_NOTES" \
+              --verify-tag
+          fi
