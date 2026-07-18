@@ -18,19 +18,6 @@ export default defineConfig({
   ],
   publicDir,
   resolve: {
-    // Keep the Nitro bundle self-contained while avoiding Rolldown's CommonJS
-    // default-import handling for tslib. The second alias prevents the adapter's
-    // explicit ESM import from resolving back to itself.
-    alias: [
-      {
-        find: /^tslib$/,
-        replacement: fileURLToPath(new URL("src/lib/tslib.mjs", import.meta.url)),
-      },
-      {
-        find: /^tslib\/tslib\.es6\.mjs$/,
-        replacement: fileURLToPath(new URL("node_modules/tslib/tslib.es6.mjs", import.meta.url)),
-      },
-    ],
     tsconfigPaths: true,
   },
   server: {
