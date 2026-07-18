@@ -6,6 +6,12 @@
 
 [Documentation](https://flexweave.dev)
 
+## Install
+
+```sh
+cargo add flexweave
+```
+
 ## What Flexweave Is
 
 Flexweave is a Rust library for building deterministic mechanics without tying
